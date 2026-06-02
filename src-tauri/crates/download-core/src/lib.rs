@@ -24,3 +24,8 @@ pub enum CoreError {
 }
 
 pub type Result<T> = std::result::Result<T, CoreError>;
+
+#[cfg(test)]
+mod tests {
+    pub mod fake_fetcher;
+}
