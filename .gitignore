@@ -1,0 +1,27 @@
+# Brainstorming / outils internes
+.superpowers/
+
+# Dépendances
+node_modules/
+dist/
+dist-ssr/
+
+# Rust / Tauri
+/src-tauri/target/
+**/target/
+
+# Logs & divers
+*.log
+.DS_Store
+Thumbs.db
+
+# Environnement / secrets
+.env
+.env.local
+*.pem
+*.key
+
+# Éditeurs
+.vscode/*
+!.vscode/extensions.json
+.idea/
