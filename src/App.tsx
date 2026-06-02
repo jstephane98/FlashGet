@@ -1,51 +1,63 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
-import "./App.css";
+import { useEffect, useState } from "react";
+import "./index.css";
+import type { Download } from "./types";
+import * as api from "./api";
+import { Toolbar } from "./components/Toolbar";
+import { AddUrlDialog } from "./components/AddUrlDialog";
+import { DownloadTable } from "./components/DownloadTable";
 
-function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+// Dossier de destination par défaut (Phase 1 : Téléchargements de l'utilisateur).
+const DEST_DIR = ""; // chaîne vide => le backend pourra défaulter ; voir note plan.
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
+export default function App() {
+  const [downloads, setDownloads] = useState<Download[]>([]);
+  const [speeds, setSpeeds] = useState<Record<string, number>>({});
+  const [dialogOpen, setDialogOpen] = useState(false);
+
+  async function refresh() {
+    setDownloads(await api.listDownloads());
+  }
+
+  useEffect(() => {
+    refresh();
+    const un = api.onProgress((p) => {
+      setSpeeds((s) => ({ ...s, [p.id]: p.speed_bps }));
+      setDownloads((list) =>
+        list.map((d) =>
+          d.id === p.id
+            ? { ...d, downloaded_bytes: p.downloaded_bytes, status: p.status, total_bytes: p.total_bytes }
+            : d,
+        ),
+      );
+    });
+    return () => {
+      un.then((f) => f());
+    };
+  }, []);
+
+  async function handleAdd(url: string) {
+    setDialogOpen(false);
+    const d = await api.addDownload(url, DEST_DIR);
+    setDownloads((list) => [...list, d]);
+    await api.startDownload(d.id);
   }
 
   return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
-
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
+    <div className="h-screen flex flex-col">
+      <Toolbar onAdd={() => setDialogOpen(true)} />
+      <div className="flex-1 overflow-auto">
+        <DownloadTable
+          downloads={downloads}
+          speeds={speeds}
+          onPause={(id) => api.pauseDownload(id)}
+          onResume={(id) => api.startDownload(id)}
+          onCancel={(id) => {
+            api.cancelDownload(id);
+            setDownloads((l) => l.filter((d) => d.id !== id));
+          }}
         />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
+      </div>
+      <AddUrlDialog open={dialogOpen} onClose={() => setDialogOpen(false)} onAdd={handleAdd} />
+    </div>
   );
 }
-
-export default App;
