@@ -1,1 +1,326 @@
-// rempli en Task 5
+use crate::http::ByteFetcher;
+use crate::model::{DownloadStatus, Progress};
+use crate::resume::{self, ResumeState};
+use crate::segments::compute_segments;
+use crate::CoreError;
+use std::path::Path;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
+use tokio::io::{AsyncSeekExt, AsyncWriteExt};
+use tokio::sync::mpsc;
+
+pub const DEFAULT_SEGMENTS: u32 = 8;
+
+/// Contrôle partagé d'un téléchargement en cours.
+#[derive(Clone, Default)]
+pub struct DownloadHandle {
+    pause: Arc<AtomicBool>,
+    cancel: Arc<AtomicBool>,
+    downloaded: Arc<AtomicU64>,
+}
+
+impl DownloadHandle {
+    pub fn new() -> Self {
+        Self::default()
+    }
+    pub fn pause(&self) {
+        self.pause.store(true, Ordering::SeqCst);
+    }
+    pub fn cancel(&self) {
+        self.cancel.store(true, Ordering::SeqCst);
+    }
+    pub fn downloaded(&self) -> u64 {
+        self.downloaded.load(Ordering::SeqCst)
+    }
+}
+
+/// Issue d'un run du moteur.
+#[derive(Debug, PartialEq)]
+pub enum Outcome {
+    Completed,
+    Paused,
+    Cancelled,
+}
+
+/// Télécharge `url` vers `dest`. Émet la progression (octets cumulés) sur `progress`.
+/// Reprend depuis le sidecar s'il existe. Multi-segments si le serveur le supporte.
+pub async fn download<F: ByteFetcher>(
+    fetcher: &F,
+    id: &str,
+    url: &str,
+    dest: &Path,
+    handle: DownloadHandle,
+    progress: mpsc::UnboundedSender<Progress>,
+) -> Result<Outcome, CoreError> {
+    use futures_util::future::join_all;
+    use futures_util::StreamExt;
+
+    let probe = fetcher.probe(url).await?;
+    let total = probe.total_bytes.unwrap_or(0);
+
+    // Construire (ou recharger) l'état des segments.
+    let mut state = resume::load(dest)
+        .filter(|s| s.total_bytes == total && total > 0)
+        .unwrap_or_else(|| {
+            let segs = if probe.supports_ranges && total > 0 {
+                compute_segments(total, DEFAULT_SEGMENTS)
+            } else if total > 0 {
+                vec![(0, total - 1)]
+            } else {
+                vec![] // taille inconnue : un seul flux non-segmenté
+            };
+            ResumeState {
+                url: url.to_string(),
+                total_bytes: total,
+                segments: segs.into_iter().map(|(s, e)| (s, e, 0u64)).collect(),
+            }
+        });
+
+    // Pré-allouer le fichier de destination à la bonne taille (si connue).
+    {
+        let f = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(dest)?;
+        if total > 0 {
+            f.set_len(total)?;
+        }
+    }
+
+    // Amorcer le compteur cumulé avec ce qui est déjà téléchargé (reprise).
+    let already: u64 = state.segments.iter().map(|(_, _, d)| *d).sum();
+    handle.downloaded.store(already, Ordering::SeqCst);
+
+    // Cas taille inconnue : un seul flux séquentiel, pas de segmentation.
+    if state.segments.is_empty() {
+        let mut file = tokio::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .open(dest)
+            .await?;
+        let mut stream = fetcher.fetch_range(url, None).await?;
+        while let Some(chunk) = stream.next().await {
+            if handle.cancel.load(Ordering::SeqCst) {
+                resume::clear(dest);
+                let _ = std::fs::remove_file(dest);
+                return Ok(Outcome::Cancelled);
+            }
+            if handle.pause.load(Ordering::SeqCst) {
+                resume::save(dest, &state)?;
+                emit(&progress, id, &handle, total, DownloadStatus::Paused);
+                return Ok(Outcome::Paused);
+            }
+            let chunk = chunk?;
+            file.write_all(&chunk).await?;
+            handle.downloaded.fetch_add(chunk.len() as u64, Ordering::SeqCst);
+            emit(&progress, id, &handle, total, DownloadStatus::Downloading);
+        }
+        file.flush().await?;
+        resume::clear(dest);
+        emit(&progress, id, &handle, total, DownloadStatus::Completed);
+        return Ok(Outcome::Completed);
+    }
+
+    // Cas segmenté : une tâche par segment incomplet, écriture à l'offset.
+    // On exécute les futures CONCURREMMENT sans `tokio::spawn` : comme elles sont
+    // awaitées dans la même async fn, on peut emprunter `fetcher: &F` directement
+    // (pas de borne `'static`, donc pas besoin d'`Arc<F>`).
+    let mut seg_trackers: Vec<(usize, Arc<AtomicU64>)> = Vec::new();
+    let mut futs = Vec::new();
+
+    for (idx, (start, end, done)) in state.segments.iter().enumerate() {
+        let seg_start = *start;
+        let seg_end = *end;
+        let seg_done = *done;
+
+        // Progrès par segment (suivi pour mettre à jour le sidecar après le join).
+        let seg_progress = Arc::new(AtomicU64::new(seg_done));
+        seg_trackers.push((idx, seg_progress.clone()));
+
+        if seg_start + seg_done > seg_end {
+            continue; // segment déjà fini
+        }
+        let resume_from = seg_start + seg_done;
+
+        let fetcher_ref = fetcher;
+        let url_owned = url.to_string();
+        let dest_owned = dest.to_path_buf();
+        let handle = handle.clone();
+        let progress = progress.clone();
+        let id_owned = id.to_string();
+
+        let fut = async move {
+            let mut file = tokio::fs::OpenOptions::new()
+                .write(true)
+                .open(&dest_owned)
+                .await?;
+            file.seek(std::io::SeekFrom::Start(resume_from)).await?;
+            let mut stream = fetcher_ref
+                .fetch_range(&url_owned, Some((resume_from, seg_end)))
+                .await?;
+            while let Some(chunk) = stream.next().await {
+                if handle.cancel.load(Ordering::SeqCst) {
+                    return Ok::<(usize, Outcome), CoreError>((idx, Outcome::Cancelled));
+                }
+                if handle.pause.load(Ordering::SeqCst) {
+                    return Ok((idx, Outcome::Paused));
+                }
+                let chunk = chunk?;
+                file.write_all(&chunk).await?;
+                seg_progress.fetch_add(chunk.len() as u64, Ordering::SeqCst);
+                handle.downloaded.fetch_add(chunk.len() as u64, Ordering::SeqCst);
+                emit(&progress, &id_owned, &handle, total, DownloadStatus::Downloading);
+            }
+            file.flush().await?;
+            Ok((idx, Outcome::Completed))
+        };
+        futs.push(fut);
+    }
+
+    // Exécuter toutes les tâches de segment concurremment.
+    let results = join_all(futs).await;
+
+    let mut outcome = Outcome::Completed;
+    for r in results {
+        match r? {
+            (_, Outcome::Completed) => {}
+            (_, Outcome::Paused) => {
+                if outcome == Outcome::Completed {
+                    outcome = Outcome::Paused;
+                }
+            }
+            (_, Outcome::Cancelled) => {
+                outcome = Outcome::Cancelled;
+            }
+        }
+    }
+
+    // Mettre à jour l'état des segments avec la progression observée.
+    for (idx, tracker) in seg_trackers {
+        let done = tracker.load(Ordering::SeqCst);
+        let (s, e, _) = state.segments[idx];
+        state.segments[idx] = (s, e, done.min(e - s + 1));
+    }
+
+    match outcome {
+        Outcome::Completed => {
+            resume::clear(dest);
+            emit(&progress, id, &handle, total, DownloadStatus::Completed);
+            Ok(Outcome::Completed)
+        }
+        Outcome::Paused => {
+            resume::save(dest, &state)?;
+            emit(&progress, id, &handle, total, DownloadStatus::Paused);
+            Ok(Outcome::Paused)
+        }
+        Outcome::Cancelled => {
+            resume::clear(dest);
+            let _ = std::fs::remove_file(dest);
+            Ok(Outcome::Cancelled)
+        }
+    }
+}
+
+fn emit(
+    tx: &mpsc::UnboundedSender<Progress>,
+    id: &str,
+    handle: &DownloadHandle,
+    total: u64,
+    status: DownloadStatus,
+) {
+    let _ = tx.send(Progress {
+        id: id.to_string(),
+        downloaded_bytes: handle.downloaded(),
+        total_bytes: if total > 0 { Some(total) } else { None },
+        speed_bps: 0, // la vitesse est calculée côté appelant (Task 8)
+        status,
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tests::fake_fetcher::FakeFetcher;
+    use tempfile::tempdir;
+
+    fn collect_dest(dir: &tempfile::TempDir) -> std::path::PathBuf {
+        dir.path().join("out.bin")
+    }
+
+    #[tokio::test]
+    async fn downloads_full_file_multisegment() {
+        let data: Vec<u8> = (0..=255u8).cycle().take(1000).collect();
+        let fetcher = FakeFetcher::new(data.clone(), true);
+        let dir = tempdir().unwrap();
+        let dest = collect_dest(&dir);
+        let (tx, _rx) = mpsc::unbounded_channel();
+
+        let outcome = download(&fetcher, "id1", "http://x/f", &dest, DownloadHandle::new(), tx)
+            .await
+            .unwrap();
+
+        assert_eq!(outcome, Outcome::Completed);
+        let written = std::fs::read(&dest).unwrap();
+        assert_eq!(written, data);
+    }
+
+    #[tokio::test]
+    async fn falls_back_to_single_stream_when_no_ranges() {
+        let data: Vec<u8> = (0..200u8).collect();
+        let fetcher = FakeFetcher::new(data.clone(), false);
+        let dir = tempdir().unwrap();
+        let dest = collect_dest(&dir);
+        let (tx, _rx) = mpsc::unbounded_channel();
+
+        download(&fetcher, "id2", "http://x/f", &dest, DownloadHandle::new(), tx)
+            .await
+            .unwrap();
+
+        assert_eq!(std::fs::read(&dest).unwrap(), data);
+    }
+
+    #[tokio::test]
+    async fn emits_progress() {
+        let data: Vec<u8> = vec![1u8; 300];
+        let fetcher = FakeFetcher::new(data, true);
+        let dir = tempdir().unwrap();
+        let dest = collect_dest(&dir);
+        let (tx, mut rx) = mpsc::unbounded_channel();
+
+        download(&fetcher, "id3", "http://x/f", &dest, DownloadHandle::new(), tx)
+            .await
+            .unwrap();
+
+        let mut last = 0u64;
+        while let Ok(p) = rx.try_recv() {
+            last = p.downloaded_bytes.max(last);
+        }
+        assert_eq!(last, 300);
+    }
+
+    #[tokio::test]
+    async fn resume_after_pause_completes_file() {
+        let data: Vec<u8> = (0..=255u8).cycle().take(800).collect();
+        let dir = tempdir().unwrap();
+        let dest = collect_dest(&dir);
+
+        // 1er run : on met en pause immédiatement après le démarrage.
+        let fetcher = FakeFetcher::new(data.clone(), true);
+        let handle = DownloadHandle::new();
+        handle.pause(); // pause avant le premier chunk => crée le sidecar
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let outcome = download(&fetcher, "id4", "http://x/f", &dest, handle, tx)
+            .await
+            .unwrap();
+        assert_eq!(outcome, Outcome::Paused);
+
+        // 2e run : reprise jusqu'à complétion.
+        let fetcher2 = FakeFetcher::new(data.clone(), true);
+        let (tx2, _rx2) = mpsc::unbounded_channel();
+        let outcome2 = download(&fetcher2, "id4", "http://x/f", &dest, DownloadHandle::new(), tx2)
+            .await
+            .unwrap();
+        assert_eq!(outcome2, Outcome::Completed);
+        assert_eq!(std::fs::read(&dest).unwrap(), data);
+    }
+}
