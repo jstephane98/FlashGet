@@ -91,6 +91,17 @@ impl Storage {
             .map_err(|e| CoreError::Storage(e.to_string()))?;
         Ok(())
     }
+
+    /// Met à jour la progression et le statut d'un téléchargement existant.
+    /// No-op (0 ligne affectée) si l'id n'existe plus (ex. annulé/supprimé).
+    pub fn update_state(&self, id: &str, downloaded_bytes: u64, status: DownloadStatus) -> Result<(), CoreError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE downloads SET downloaded_bytes=?1, status=?2 WHERE id=?3",
+            rusqlite::params![downloaded_bytes as i64, status_to_str(status), id],
+        ).map_err(|e| CoreError::Storage(e.to_string()))?;
+        Ok(())
+    }
 }
 
 fn status_to_str(s: DownloadStatus) -> &'static str {
@@ -160,6 +171,24 @@ mod tests {
         let s = Storage::open_in_memory().unwrap();
         s.upsert(&sample("a")).unwrap();
         s.delete("a").unwrap();
+        assert!(s.list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn update_state_updates_existing() {
+        let s = Storage::open_in_memory().unwrap();
+        s.upsert(&sample("b")).unwrap();
+        s.update_state("b", 99, DownloadStatus::Completed).unwrap();
+        let all = s.list().unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].downloaded_bytes, 99);
+        assert_eq!(all[0].status, DownloadStatus::Completed);
+    }
+
+    #[test]
+    fn update_state_noop_when_absent() {
+        let s = Storage::open_in_memory().unwrap();
+        s.update_state("ghost", 5, DownloadStatus::Completed).unwrap();
         assert!(s.list().unwrap().is_empty());
     }
 }

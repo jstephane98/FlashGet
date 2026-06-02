@@ -68,14 +68,24 @@ pub async fn start_download(app: AppHandle, id: String) -> Result<(), String> {
             .ok_or_else(|| format!("download not found: {id}"))?
     };
 
-    let handle = DownloadHandle::new();
+    // FIX I5 — guard against double-start
+    {
+        let state = app.state::<AppState>();
+        let mut handles = state.handles.lock().unwrap();
+        if handles.contains_key(&id) {
+            return Err(format!("download already running: {id}"));
+        }
+        let handle = DownloadHandle::new();
+        handles.insert(id.clone(), handle);
+    }
+
+    // FIX I2 — persist Downloading status before spawning tasks
     {
         let state = app.state::<AppState>();
         state
-            .handles
-            .lock()
-            .unwrap()
-            .insert(id.clone(), handle.clone());
+            .storage
+            .update_state(&id, download.downloaded_bytes, DownloadStatus::Downloading)
+            .map_err(|e| e.to_string())?;
     }
 
     let (tx, mut rx) = mpsc::unbounded_channel::<Progress>();
@@ -86,28 +96,29 @@ pub async fn start_download(app: AppHandle, id: String) -> Result<(), String> {
     tokio::spawn(async move {
         let mut last_t = Instant::now();
         let mut last_bytes = 0u64;
+        // FIX I1 — keep last known speed; only recompute when dt >= 0.5
+        let mut current_speed: u64 = 0;
         while let Some(mut p) = rx.recv().await {
             let now = Instant::now();
             let dt = now.duration_since(last_t).as_secs_f64();
             if dt >= 0.5 {
                 let delta = p.downloaded_bytes.saturating_sub(last_bytes);
-                p.speed_bps = (delta as f64 / dt) as u64;
+                current_speed = (delta as f64 / dt) as u64;
                 last_t = now;
                 last_bytes = p.downloaded_bytes;
             }
+            // Always emit the last known rolling speed (never 0 between windows)
+            p.speed_bps = current_speed;
             let _ = app_for_rx.emit("download://progress", &p);
-            // Persistance à chaque transition d'état importante.
+            // FIX C1 — UPDATE-only persistence: won't recreate a deleted/cancelled row
             if matches!(
                 p.status,
                 DownloadStatus::Completed | DownloadStatus::Paused | DownloadStatus::Error
             ) {
                 let st = app_for_rx.state::<AppState>();
-                if let Ok(list) = st.storage.list() {
-                    if let Some(mut d) = list.into_iter().find(|d| d.id == id_for_rx) {
-                        d.downloaded_bytes = p.downloaded_bytes;
-                        d.status = p.status;
-                        let _ = st.storage.upsert(&d);
-                    }
+                // FIX I4 — log storage write failures instead of silently dropping
+                if let Err(e) = st.storage.update_state(&id_for_rx, p.downloaded_bytes, p.status) {
+                    eprintln!("failed to persist download {id_for_rx}: {e}");
                 }
             }
         }
@@ -117,6 +128,12 @@ pub async fn start_download(app: AppHandle, id: String) -> Result<(), String> {
     let dest = PathBuf::from(&download.dest_path);
     let url = download.url.clone();
     let id_for_dl = id.clone();
+    // Retrieve the handle we inserted above
+    let handle = {
+        let state = app.state::<AppState>();
+        let guard = state.handles.lock().unwrap();
+        guard.get(&id_for_dl).cloned().unwrap()
+    };
     tokio::spawn(async move {
         let fetcher = ReqwestFetcher::new();
         let _ = engine::download(&fetcher, &id_for_dl, &url, &dest, handle, tx).await;
@@ -138,8 +155,13 @@ pub fn pause_download(state: State<AppState>, id: String) -> Result<(), String> 
 
 #[tauri::command]
 pub fn cancel_download(state: State<AppState>, id: String) -> Result<(), String> {
-    if let Some(h) = state.handles.lock().unwrap().get(&id) {
-        h.cancel();
+    // FIX m4 — cancel signal + remove handle + delete from storage, all tight
+    {
+        let mut handles = state.handles.lock().unwrap();
+        if let Some(h) = handles.get(&id) {
+            h.cancel();
+        }
+        handles.remove(&id);
     }
     state.storage.delete(&id).map_err(|e| e.to_string())?;
     Ok(())

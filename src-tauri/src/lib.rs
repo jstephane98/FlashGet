@@ -10,9 +10,9 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            let dir = app.path().app_data_dir().expect("app data dir");
+            let dir = app.path().app_data_dir().map_err(|e| Box::<dyn std::error::Error>::from(e.to_string()))?;
             std::fs::create_dir_all(&dir).ok();
-            let storage = Storage::open(&dir.join("downloads.sqlite")).expect("open db");
+            let storage = Storage::open(&dir.join("downloads.sqlite")).map_err(|e| Box::<dyn std::error::Error>::from(e.to_string()))?;
             app.manage(AppState::new(storage));
             Ok(())
         })
