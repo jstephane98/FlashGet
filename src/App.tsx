@@ -39,7 +39,12 @@ export default function App() {
     setDialogOpen(false);
     const d = await api.addDownload(url, DEST_DIR);
     setDownloads((list) => [...list, d]);
-    await api.startDownload(d.id);
+    try {
+      await api.startDownload(d.id);
+    } catch (e) {
+      console.error("start failed", e);
+      await refresh(); // resync with backend truth
+    }
   }
 
   return (

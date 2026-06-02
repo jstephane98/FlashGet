@@ -102,6 +102,16 @@ impl Storage {
         ).map_err(|e| CoreError::Storage(e.to_string()))?;
         Ok(())
     }
+
+    /// Marque un téléchargement en erreur (no-op si l'id n'existe plus).
+    pub fn mark_error(&self, id: &str, downloaded_bytes: u64, message: &str) -> Result<(), CoreError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE downloads SET downloaded_bytes=?1, status='error', error=?2 WHERE id=?3",
+            rusqlite::params![downloaded_bytes as i64, message, id],
+        ).map_err(|e| CoreError::Storage(e.to_string()))?;
+        Ok(())
+    }
 }
 
 fn status_to_str(s: DownloadStatus) -> &'static str {
@@ -189,6 +199,25 @@ mod tests {
     fn update_state_noop_when_absent() {
         let s = Storage::open_in_memory().unwrap();
         s.update_state("ghost", 5, DownloadStatus::Completed).unwrap();
+        assert!(s.list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn mark_error_sets_status_and_message() {
+        let s = Storage::open_in_memory().unwrap();
+        s.upsert(&sample("e")).unwrap();
+        s.mark_error("e", 42, "boom").unwrap();
+        let all = s.list().unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].downloaded_bytes, 42);
+        assert_eq!(all[0].status, DownloadStatus::Error);
+        assert_eq!(all[0].error, Some("boom".to_string()));
+    }
+
+    #[test]
+    fn mark_error_noop_when_absent() {
+        let s = Storage::open_in_memory().unwrap();
+        s.mark_error("ghost", 5, "boom").unwrap();
         assert!(s.list().unwrap().is_empty());
     }
 }

@@ -100,11 +100,28 @@ impl ByteFetcher for ReqwestFetcher {
     }
 }
 
-/// Déduit un nom de fichier depuis l'URL (dernier segment de chemin).
+/// Déduit un nom de fichier depuis l'URL (dernier segment de chemin), assaini.
 pub fn file_name_from_url(url: &str) -> Option<String> {
     let without_query = url.split(['?', '#']).next().unwrap_or(url);
-    let last = without_query.rsplit('/').next().unwrap_or("");
-    if last.is_empty() { None } else { Some(last.to_string()) }
+    let last = without_query.rsplit('/').next().unwrap_or("").trim();
+    let candidate = std::path::Path::new(last)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .trim();
+    if candidate.is_empty() || candidate == "." || candidate == ".." {
+        return None;
+    }
+    // neutralize any residual separators / drive markers
+    let cleaned: String = candidate
+        .chars()
+        .map(|c| if matches!(c, '/' | '\\' | ':') { '_' } else { c })
+        .collect();
+    if cleaned.is_empty() || cleaned == "." || cleaned == ".." {
+        None
+    } else {
+        Some(cleaned)
+    }
 }
 
 #[cfg(test)]
@@ -115,5 +132,9 @@ mod tests {
     fn extracts_file_name_from_url() {
         assert_eq!(file_name_from_url("https://x.com/a/b/film.mkv?token=1"), Some("film.mkv".into()));
         assert_eq!(file_name_from_url("https://x.com/"), None);
+        // traversal segment is rejected
+        assert_eq!(file_name_from_url("https://x.com/a/.."), None);
+        // percent-encoded traversal stays a literal (not decoded) segment — fine
+        assert_eq!(file_name_from_url("https://x.com/a/%2e%2e"), Some("%2e%2e".into()));
     }
 }

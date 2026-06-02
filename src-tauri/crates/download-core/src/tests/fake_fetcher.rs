@@ -12,11 +12,13 @@ pub struct FakeFetcher {
     pub supports_ranges: bool,
     /// Taille de chunk émise par le flux (simule un réseau morcelé).
     pub chunk_size: usize,
+    /// Si false, `probe` ne révèle pas la taille (total_bytes = None).
+    pub probe_reports_size: bool,
 }
 
 impl FakeFetcher {
     pub fn new(data: Vec<u8>, supports_ranges: bool) -> Self {
-        Self { data, supports_ranges, chunk_size: 7 }
+        Self { data, supports_ranges, chunk_size: 7, probe_reports_size: true }
     }
 }
 
@@ -24,7 +26,11 @@ impl FakeFetcher {
 impl ByteFetcher for FakeFetcher {
     async fn probe(&self, _url: &str) -> Result<ProbeResult, CoreError> {
         Ok(ProbeResult {
-            total_bytes: Some(self.data.len() as u64),
+            total_bytes: if self.probe_reports_size {
+                Some(self.data.len() as u64)
+            } else {
+                None
+            },
             supports_ranges: self.supports_ranges,
             file_name: Some("test.bin".to_string()),
         })

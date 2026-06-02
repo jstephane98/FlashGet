@@ -18,7 +18,11 @@ pub struct AddArgs {
 pub async fn add_download(app: AppHandle, args: AddArgs) -> Result<Download, String> {
     // Inspection préalable via le trait public du cœur (évite de modifier le crate `download-core`).
     let fetcher = ReqwestFetcher::new();
-    let probe = fetcher.probe(&args.url).await.map_err(|e| e.to_string())?;
+    // FIX M4 — bound the probe so a hung server can't hang the command forever.
+    let probe = tokio::time::timeout(std::time::Duration::from_secs(30), fetcher.probe(&args.url))
+        .await
+        .map_err(|_| "timeout while probing URL".to_string())?
+        .map_err(|e| e.to_string())?;
     let file_name = probe
         .file_name
         .clone()
@@ -31,6 +35,12 @@ pub async fn add_download(app: AppHandle, args: AddArgs) -> Result<Download, Str
         PathBuf::from(&args.dest_dir)
     };
     let dest_path = dest_dir.join(&file_name);
+
+    // FIX C1 — defensive containment: file_name is a single sanitized component,
+    // so dest_path's parent must be exactly dest_dir.
+    if dest_path.parent() != Some(dest_dir.as_path()) {
+        return Err("invalid file name derived from URL".to_string());
+    }
 
     let download = Download {
         id: uuid::Uuid::new_v4().to_string(),
@@ -134,10 +144,33 @@ pub async fn start_download(app: AppHandle, id: String) -> Result<(), String> {
         let guard = state.handles.lock().unwrap();
         guard.get(&id_for_dl).cloned().unwrap()
     };
+    // FIX I2 — clone the handle before it's moved into the engine so we can read
+    // how many bytes were downloaded if the download fails.
+    let handle_for_err = handle.clone();
     tokio::spawn(async move {
         let fetcher = ReqwestFetcher::new();
-        let _ = engine::download(&fetcher, &id_for_dl, &url, &dest, handle, tx).await;
-        // Nettoyage du handle une fois terminé/pausé.
+        match engine::download(&fetcher, &id_for_dl, &url, &dest, handle, tx).await {
+            Ok(_) => {}
+            Err(e) => {
+                eprintln!("download {id_for_dl} failed: {e}");
+                let bytes = handle_for_err.downloaded();
+                let st = app.state::<AppState>();
+                if let Err(se) = st.storage.mark_error(&id_for_dl, bytes, &e.to_string()) {
+                    eprintln!("failed to persist error for {id_for_dl}: {se}");
+                }
+                let _ = app.emit(
+                    "download://progress",
+                    &Progress {
+                        id: id_for_dl.clone(),
+                        downloaded_bytes: bytes,
+                        total_bytes: None,
+                        speed_bps: 0,
+                        status: DownloadStatus::Error,
+                    },
+                );
+            }
+        }
+        // Nettoyage du handle une fois terminé/pausé/échoué.
         let st = app.state::<AppState>();
         st.handles.lock().unwrap().remove(&id_for_dl);
     });

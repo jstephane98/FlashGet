@@ -56,12 +56,19 @@ pub async fn download<F: ByteFetcher>(
     use futures_util::StreamExt;
 
     let probe = fetcher.probe(url).await?;
-    let total = probe.total_bytes.unwrap_or(0);
+    let probe_total = probe.total_bytes.unwrap_or(0);
 
     // Construire (ou recharger) l'état des segments.
-    let mut state = resume::load(dest)
-        .filter(|s| s.total_bytes == total && total > 0)
-        .unwrap_or_else(|| {
+    // FIX I1 — trust a valid sidecar even when the fresh probe reports unknown size.
+    let loaded = resume::load(dest);
+    let (mut state, total) = match loaded {
+        // trust sidecar when it has a real size and the probe either agrees or is unknown(0)
+        Some(s) if s.total_bytes > 0 && (probe_total == 0 || probe_total == s.total_bytes) => {
+            let t = s.total_bytes;
+            (s, t)
+        }
+        _ => {
+            let total = probe_total;
             let segs = if probe.supports_ranges && total > 0 {
                 compute_segments(total, DEFAULT_SEGMENTS)
             } else if total > 0 {
@@ -69,12 +76,14 @@ pub async fn download<F: ByteFetcher>(
             } else {
                 vec![] // taille inconnue : un seul flux non-segmenté
             };
-            ResumeState {
+            let state = ResumeState {
                 url: url.to_string(),
                 total_bytes: total,
                 segments: segs.into_iter().map(|(s, e)| (s, e, 0u64)).collect(),
-            }
-        });
+            };
+            (state, total)
+        }
+    };
 
     // Pré-allouer le fichier de destination à la bonne taille (si connue).
     // Only preallocate when the file does not already exist — a partial resume
@@ -361,5 +370,40 @@ mod tests {
         assert_eq!(outcome2, Outcome::Completed);
         let second_bytes = std::fs::read(&dest).unwrap();
         assert_eq!(second_bytes, data, "re-run must not corrupt already-correct bytes");
+    }
+
+    /// Guard for FIX I1: a valid sidecar (total>0) must be trusted on resume even
+    /// when the fresh probe can't report the size (total_bytes None).
+    #[tokio::test]
+    async fn resume_trusts_sidecar_when_probe_size_unknown() {
+        let data: Vec<u8> = (0..=255u8).cycle().take(800).collect();
+        let dir = tempdir().unwrap();
+        let dest = collect_dest(&dir);
+
+        // 1er run : probe révèle la taille, on met en pause avant le premier chunk
+        // => le sidecar est écrit avec total>0 et progression 0.
+        let fetcher = FakeFetcher::new(data.clone(), true);
+        let handle = DownloadHandle::new();
+        handle.pause();
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let outcome = download(&fetcher, "ids", "http://x/f", &dest, handle, tx)
+            .await
+            .unwrap();
+        assert_eq!(outcome, Outcome::Paused);
+        assert!(
+            resume::load(&dest).is_some(),
+            "a sidecar must exist after the paused first run"
+        );
+
+        // 2e run : probe NE révèle PAS la taille (None). Le moteur doit faire
+        // confiance au sidecar et terminer correctement.
+        let mut fetcher2 = FakeFetcher::new(data.clone(), true);
+        fetcher2.probe_reports_size = false;
+        let (tx2, _rx2) = mpsc::unbounded_channel();
+        let outcome2 = download(&fetcher2, "ids", "http://x/f", &dest, DownloadHandle::new(), tx2)
+            .await
+            .unwrap();
+        assert_eq!(outcome2, Outcome::Completed);
+        assert_eq!(std::fs::read(&dest).unwrap(), data);
     }
 }
