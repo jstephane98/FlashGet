@@ -77,12 +77,15 @@ pub async fn download<F: ByteFetcher>(
         });
 
     // Pré-allouer le fichier de destination à la bonne taille (si connue).
+    // Only preallocate when the file does not already exist — a partial resume
+    // must keep its existing bytes and must not be truncated by set_len.
     {
+        let needs_prealloc = total > 0 && !dest.exists();
         let f = std::fs::OpenOptions::new()
             .create(true)
             .write(true)
             .open(dest)?;
-        if total > 0 {
+        if needs_prealloc {
             f.set_len(total)?;
         }
     }
@@ -106,7 +109,9 @@ pub async fn download<F: ByteFetcher>(
                 return Ok(Outcome::Cancelled);
             }
             if handle.pause.load(Ordering::SeqCst) {
-                resume::save(dest, &state)?;
+                file.flush().await?;
+                // No resume::save here: total_bytes==0 for unknown-size streams,
+                // so the saved state would always be rejected on reload anyway.
                 emit(&progress, id, &handle, total, DownloadStatus::Paused);
                 return Ok(Outcome::Paused);
             }
@@ -133,13 +138,15 @@ pub async fn download<F: ByteFetcher>(
         let seg_end = *end;
         let seg_done = *done;
 
+        if seg_start + seg_done > seg_end {
+            continue; // segment déjà fini — ne pas l'ajouter aux trackers
+        }
+
         // Progrès par segment (suivi pour mettre à jour le sidecar après le join).
+        // Only track segments that will actually run.
         let seg_progress = Arc::new(AtomicU64::new(seg_done));
         seg_trackers.push((idx, seg_progress.clone()));
 
-        if seg_start + seg_done > seg_end {
-            continue; // segment déjà fini
-        }
         let resume_from = seg_start + seg_done;
 
         let fetcher_ref = fetcher;
@@ -163,6 +170,7 @@ pub async fn download<F: ByteFetcher>(
                     return Ok::<(usize, Outcome), CoreError>((idx, Outcome::Cancelled));
                 }
                 if handle.pause.load(Ordering::SeqCst) {
+                    file.flush().await?;
                     return Ok((idx, Outcome::Paused));
                 }
                 let chunk = chunk?;
@@ -322,5 +330,36 @@ mod tests {
             .unwrap();
         assert_eq!(outcome2, Outcome::Completed);
         assert_eq!(std::fs::read(&dest).unwrap(), data);
+    }
+
+    /// Guard for FIX 2: a second download() call on a completed dest must not
+    /// corrupt the file via set_len (idempotent re-run).
+    #[tokio::test]
+    async fn resume_preserves_partial_bytes() {
+        let data: Vec<u8> = (0..=255u8).cycle().take(1000).collect();
+        let dir = tempdir().unwrap();
+        let dest = collect_dest(&dir);
+
+        // First run: download to completion.
+        let fetcher = FakeFetcher::new(data.clone(), true);
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let outcome = download(&fetcher, "idr", "http://x/f", &dest, DownloadHandle::new(), tx)
+            .await
+            .unwrap();
+        assert_eq!(outcome, Outcome::Completed);
+        let first_bytes = std::fs::read(&dest).unwrap();
+        assert_eq!(first_bytes, data, "first download must match data");
+
+        // Second run: same dest already exists — set_len must NOT be called
+        // (needs_prealloc == false because dest exists), so the file bytes survive.
+        let fetcher2 = FakeFetcher::new(data.clone(), true);
+        let (tx2, _rx2) = mpsc::unbounded_channel();
+        let outcome2 =
+            download(&fetcher2, "idr", "http://x/f", &dest, DownloadHandle::new(), tx2)
+                .await
+                .unwrap();
+        assert_eq!(outcome2, Outcome::Completed);
+        let second_bytes = std::fs::read(&dest).unwrap();
+        assert_eq!(second_bytes, data, "re-run must not corrupt already-correct bytes");
     }
 }
