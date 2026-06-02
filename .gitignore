@@ -37,3 +37,6 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+
+# Réglages locaux du harness Claude Code
+.claude/settings.local.json
