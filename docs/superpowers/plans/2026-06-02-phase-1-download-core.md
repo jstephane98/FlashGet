@@ -1946,3 +1946,20 @@ git commit -m "test: end-to-end verification of phase 1 download core"
 
 - Nom définitif (provisoire « FlashGet »), bibliothèque de style (Tailwind retenu ici), signature de code (Phase 6).
 - Nombre de segments configurable : codé en dur `DEFAULT_SEGMENTS = 8` en Phase 1, deviendra un paramètre en Phase 2.
+
+## Suites Phase 2 (issues des revues de code — à traiter plus tard)
+
+Éléments volontairement non traités en Phase 1, identifiés lors des relectures :
+
+- **Réutiliser un seul `reqwest::Client`** stocké dans `AppState` au lieu d'en recréer un par `add_download`/`start_download` (perf, pool de connexions). (Important — perf)
+- **`Storage::get_by_id`** pour éviter le `list()`+`find` O(n) dans `start_download`. (Mineur)
+- **Source de vérité de la taille en base/sidecar** : persister `total_bytes`/`supports_ranges` à l'ajout et s'y fier à la reprise plutôt que de re-sonder (résout proprement la fragilité I1, déjà mitigée).
+- **Persistance périodique du statut `downloading`** (pas seulement aux états terminaux) pour que `downloaded_bytes` en base ne soit pas en retard après un crash (les octets sont déjà sur disque + sidecar).
+- **Tolérance au *poisoning* des mutex** : remplacer `lock().unwrap()` par `unwrap_or_else(|e| e.into_inner())` dans les commandes/stockage. (Mineur — robustesse)
+- **Test e2e d'erreur** : moteur `Err` → ligne DB `error` → libellé « Erreur » dans l'UI (le chemin est désormais câblé via `mark_error` + event final ; reste à couvrir par un test).
+- **Nom de fichier via `Content-Disposition`** (réutiliser le même assainisseur que `file_name_from_url`).
+- **Collision de noms** : deux téléchargements sans nom déduit → `download.bin` en double dans le même dossier ; prévoir une dé-duplication (suffixe `(1)`).
+
+## Statut d'exécution
+
+Phase 1 implémentée par développement piloté par sous-agents (TDD + double relecture spec/qualité sur les tâches à risque). **26 tests `download-core` + 3 tests Vitest verts**, builds `cargo`/`vite` propres, test d'intégration sur vrai serveur HTTP (Range) inclus. Reste à faire par un humain : **smoke-test GUI** (`npm run tauri dev`) — non observable en environnement headless.
