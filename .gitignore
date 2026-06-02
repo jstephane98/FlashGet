@@ -2,16 +2,23 @@
 .superpowers/
 
 # Dépendances
-node_modules/
-dist/
-dist-ssr/
+node_modules
+dist
+dist-ssr
+*.local
 
 # Rust / Tauri
 /src-tauri/target/
 **/target/
 
 # Logs & divers
+logs
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
 .DS_Store
 Thumbs.db
 
@@ -24,4 +31,9 @@ Thumbs.db
 # Éditeurs
 .vscode/*
 !.vscode/extensions.json
-.idea/
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

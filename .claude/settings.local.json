@@ -1,0 +1,22 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/steph/.claude/plugins/cache/claude-plugins-official/superpowers/5.1.0/skills/brainstorming/**)",
+      "Bash([ -f \"$SDIR/server-stopped\" ])",
+      "Bash([ -f \"$SDIR/server-info\" ])",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:57835)",
+      "Bash(bash scripts/start-server.sh --project-dir \"c:/Users/steph/Documents/H/idm-clone\")",
+      "Bash(git init *)",
+      "Bash(npm --version)",
+      "Bash(cargo --version)",
+      "Bash(rustc --version)",
+      "Bash(npm create *)",
+      "Bash(npx create-tauri-app *)",
+      "Bash(git restore *)",
+      "Bash(npx tailwindcss *)",
+      "Bash(npm run *)",
+      "Bash(cargo build *)",
+      "Bash(npm test *)"
+    ]
+  }
+}
