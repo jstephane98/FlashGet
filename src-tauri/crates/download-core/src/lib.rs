@@ -1,4 +1,5 @@
 pub mod model;
+pub mod categorizer;
 pub mod segments;
 pub mod http;
 pub mod resume;

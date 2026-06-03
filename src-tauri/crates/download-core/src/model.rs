@@ -19,6 +19,18 @@ pub enum Priority {
     Low,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Category {
+    Video,
+    Document,
+    Program,
+    Archive,
+    Music,
+    #[default]
+    Other,
+}
+
 /// Réglages persistants de l'application.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Settings {
