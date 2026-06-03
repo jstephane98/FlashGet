@@ -4,6 +4,7 @@ const DEFAULT_PORT = 15151;
 let socket = null;
 let connected = false;
 let reconnectTimer = null;
+let connecting = false;
 
 async function getConfig() {
   const { token = "", port = DEFAULT_PORT } = await chrome.storage.local.get(["token", "port"]);
@@ -18,16 +19,32 @@ function setConnected(value) {
 }
 
 async function connect() {
-  const { token, port } = await getConfig();
+  if (connecting) return;
   if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+    return;
+  }
+  connecting = true;
+  let token, port;
+  try {
+    ({ token, port } = await getConfig());
+  } catch (_e) {
+    connecting = false;
+    scheduleReconnect();
+    return;
+  }
+  // Re-vérifier après l'await : un autre appel a pu ouvrir la socket entre-temps.
+  if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+    connecting = false;
     return;
   }
   try {
     socket = new WebSocket(`ws://127.0.0.1:${port}`);
   } catch (_e) {
+    connecting = false;
     scheduleReconnect();
     return;
   }
+  connecting = false;
   socket.onopen = () => {
     socket.send(JSON.stringify({ type: "auth", token }));
   };
@@ -67,7 +84,11 @@ async function sendCapture(url) {
     connect();
     return false;
   }
-  socket.send(JSON.stringify(buildCapture(url)));
+  try {
+    socket.send(JSON.stringify(buildCapture(url)));
+  } catch (_e) {
+    return false; // URL invalide
+  }
   return true;
 }
 

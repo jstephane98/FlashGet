@@ -16,3 +16,8 @@ Capture manuelle de liens vers l'application FlashGet.
 
 - **Clic droit** sur un lien/image/vidéo/audio → « Télécharger avec FlashGet ».
 - **Popup** : coller une URL, ou « Envoyer l'onglet courant ».
+
+## Limites connues (3a)
+
+- **Première capture après mise en veille :** le service worker MV3 de Chrome se met en veille après ~30 s d'inactivité, ce qui ferme la connexion locale. La première capture qui suit peut échouer (« Échec — non connecté ») tout en relançant la connexion en arrière-plan ; réessayez une fois, ou utilisez **Réessayer** dans le popup. La mise en file d'attente automatique des captures arrivera en 3b.
+- **Menu contextuel sans retour visuel :** un envoi échoué via le clic droit n'est pas notifié (pas de permission `notifications` en 3a). Pour un retour « Envoyé ✓ », utilisez le popup.
