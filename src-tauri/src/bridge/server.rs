@@ -6,7 +6,7 @@ use crate::commands;
 use crate::state::AppState;
 use futures_util::{SinkExt, StreamExt};
 use std::sync::atomic::Ordering;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::tungstenite::Message;
 
@@ -80,7 +80,13 @@ async fn handle_conn(app: AppHandle, stream: TcpStream) {
             ServerReply::CaptureRequested { url, .. } => {
                 // Capture via le pipeline d'ajout existant (dossier vide ⇒ dossier de catégorie).
                 match commands::add_url(&app, &url, "").await {
-                    Ok(d) => serde_json::json!({ "type": "ack", "id": d.id }).to_string(),
+                    Ok(d) => {
+                        // Notifier le frontend pour qu'il rafraîchisse sa liste (sinon la
+                        // capture n'apparaît qu'à la complétion — l'UI n'insère pas les
+                        // downloads inconnus reçus via `download://progress`).
+                        let _ = app.emit("download://added", &d);
+                        serde_json::json!({ "type": "ack", "id": d.id }).to_string()
+                    }
                     Err(e) => serde_json::json!({ "type": "error", "error": e }).to_string(),
                 }
             }

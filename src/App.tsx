@@ -36,7 +36,9 @@ export default function App() {
       );
       if (p.status === "completed" || p.status === "paused" || p.status === "error") refresh();
     });
-    return () => { un.then((f) => f()); };
+    // Un download créé hors UI (capture par l'extension via le bridge) : rafraîchir la liste.
+    const unAdded = api.onDownloadAdded(() => refresh());
+    return () => { un.then((f) => f()); unAdded.then((f) => f()); };
   }, []);
 
   async function handleAdd(url: string) {
