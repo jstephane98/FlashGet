@@ -1,3 +1,4 @@
+mod bridge;
 mod commands;
 mod state;
 
