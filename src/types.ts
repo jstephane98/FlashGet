@@ -5,6 +5,8 @@ export type DownloadStatus =
   | "completed"
   | "error";
 
+export type Priority = "high" | "normal" | "low";
+
 export interface Download {
   id: string;
   url: string;
@@ -15,6 +17,12 @@ export interface Download {
   status: DownloadStatus;
   supports_ranges: boolean;
   error: string | null;
+  priority: Priority;
+}
+
+export interface Settings {
+  max_concurrent: number;
+  max_speed_bps: number;
 }
 
 export interface Progress {
