@@ -1,4 +1,4 @@
-use crate::model::{Download, DownloadStatus, Priority, Settings};
+use crate::model::{Download, DownloadStatus, Priority, Settings, Category, CategoryDirs};
 use crate::CoreError;
 use rusqlite::Connection;
 use std::path::Path;
@@ -39,6 +39,11 @@ impl Storage {
             "ALTER TABLE downloads ADD COLUMN priority TEXT NOT NULL DEFAULT 'normal'",
             [],
         );
+        // Migration additive : colonne category (ignorer l'erreur si déjà présente).
+        let _ = conn.execute(
+            "ALTER TABLE downloads ADD COLUMN category TEXT NOT NULL DEFAULT 'other'",
+            [],
+        );
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
         )
@@ -49,11 +54,11 @@ impl Storage {
     pub fn upsert(&self, d: &Download) -> Result<(), CoreError> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO downloads (id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+            "INSERT INTO downloads (id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority, category)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
              ON CONFLICT(id) DO UPDATE SET
                 url=?2, file_name=?3, dest_path=?4, total_bytes=?5,
-                downloaded_bytes=?6, status=?7, supports_ranges=?8, error=?9, priority=?10",
+                downloaded_bytes=?6, status=?7, supports_ranges=?8, error=?9, priority=?10, category=?11",
             rusqlite::params![
                 d.id, d.url, d.file_name, d.dest_path,
                 d.total_bytes.map(|v| v as i64),
@@ -62,6 +67,7 @@ impl Storage {
                 d.supports_ranges as i64,
                 d.error,
                 priority_to_str(d.priority),
+                category_to_str(d.category),
             ],
         )
         .map_err(|e| CoreError::Storage(e.to_string()))?;
@@ -71,7 +77,7 @@ impl Storage {
     pub fn list(&self) -> Result<Vec<Download>, CoreError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn
-            .prepare("SELECT id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority FROM downloads ORDER BY rowid")
+            .prepare("SELECT id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority, category FROM downloads ORDER BY rowid")
             .map_err(|e| CoreError::Storage(e.to_string()))?;
         let rows = stmt
             .query_map([], |row| {
@@ -86,6 +92,7 @@ impl Storage {
                     supports_ranges: row.get::<_, i64>(7)? != 0,
                     error: row.get(8)?,
                     priority: priority_from_str(&row.get::<_, String>(9)?),
+                    category: category_from_str(&row.get::<_, String>(10)?),
                 })
             })
             .map_err(|e| CoreError::Storage(e.to_string()))?;
@@ -138,7 +145,7 @@ impl Storage {
     pub fn get_by_id(&self, id: &str) -> Result<Option<Download>, CoreError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn
-            .prepare("SELECT id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority FROM downloads WHERE id=?1")
+            .prepare("SELECT id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority, category FROM downloads WHERE id=?1")
             .map_err(|e| CoreError::Storage(e.to_string()))?;
         let mut rows = stmt
             .query_map([id], |row| {
@@ -153,6 +160,7 @@ impl Storage {
                     supports_ranges: row.get::<_, i64>(7)? != 0,
                     error: row.get(8)?,
                     priority: priority_from_str(&row.get::<_, String>(9)?),
+                    category: category_from_str(&row.get::<_, String>(10)?),
                 })
             })
             .map_err(|e| CoreError::Storage(e.to_string()))?;
@@ -169,6 +177,45 @@ impl Storage {
             rusqlite::params![priority_to_str(priority), id],
         )
         .map_err(|e| CoreError::Storage(e.to_string()))?;
+        Ok(())
+    }
+
+    pub fn category_dir(&self, category: Category) -> Result<Option<String>, CoreError> {
+        let conn = self.conn.lock().unwrap();
+        let key = format!("dest.{}", category_to_str(category));
+        Ok(conn
+            .query_row("SELECT value FROM settings WHERE key=?1", [key.as_str()], |r| r.get::<_, String>(0))
+            .ok()
+            .filter(|s| !s.is_empty()))
+    }
+
+    pub fn get_category_dirs(&self) -> Result<CategoryDirs, CoreError> {
+        Ok(CategoryDirs {
+            video: self.category_dir(Category::Video)?,
+            document: self.category_dir(Category::Document)?,
+            program: self.category_dir(Category::Program)?,
+            archive: self.category_dir(Category::Archive)?,
+            music: self.category_dir(Category::Music)?,
+            other: self.category_dir(Category::Other)?,
+        })
+    }
+
+    pub fn set_category_dir(&self, category: Category, path: Option<String>) -> Result<(), CoreError> {
+        let conn = self.conn.lock().unwrap();
+        let key = format!("dest.{}", category_to_str(category));
+        let val = path.unwrap_or_default();
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value=?2",
+            rusqlite::params![key, val],
+        )
+        .map_err(|e| CoreError::Storage(e.to_string()))?;
+        Ok(())
+    }
+
+    pub fn clear_completed(&self) -> Result<(), CoreError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM downloads WHERE status='completed'", [])
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
         Ok(())
     }
 
@@ -239,6 +286,28 @@ fn priority_from_str(s: &str) -> Priority {
     }
 }
 
+fn category_to_str(c: Category) -> &'static str {
+    match c {
+        Category::Video => "video",
+        Category::Document => "document",
+        Category::Program => "program",
+        Category::Archive => "archive",
+        Category::Music => "music",
+        Category::Other => "other",
+    }
+}
+
+fn category_from_str(s: &str) -> Category {
+    match s {
+        "video" => Category::Video,
+        "document" => Category::Document,
+        "program" => Category::Program,
+        "archive" => Category::Archive,
+        "music" => Category::Music,
+        _ => Category::Other,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -255,6 +324,7 @@ mod tests {
             supports_ranges: true,
             error: None,
             priority: Priority::Normal,
+            category: Category::Other,
         }
     }
 
@@ -387,5 +457,49 @@ mod tests {
         // status must remain Completed, not flipped back to Downloading
         assert_eq!(d.status, DownloadStatus::Completed);
         assert_eq!(d.downloaded_bytes, 50);
+    }
+
+    #[test]
+    fn round_trips_category() {
+        let s = Storage::open_in_memory().unwrap();
+        let mut d = sample("c");
+        d.category = Category::Video;
+        s.upsert(&d).unwrap();
+        assert_eq!(s.list().unwrap()[0].category, Category::Video);
+        assert_eq!(s.get_by_id("c").unwrap().unwrap().category, Category::Video);
+    }
+
+    #[test]
+    fn category_dir_roundtrip_and_default_none() {
+        let s = Storage::open_in_memory().unwrap();
+        assert_eq!(s.category_dir(Category::Video).unwrap(), None);
+        s.set_category_dir(Category::Video, Some("C:/Vids".to_string())).unwrap();
+        assert_eq!(s.category_dir(Category::Video).unwrap(), Some("C:/Vids".to_string()));
+        // Chaîne vide ⇒ None (revient au défaut).
+        s.set_category_dir(Category::Video, None).unwrap();
+        assert_eq!(s.category_dir(Category::Video).unwrap(), None);
+    }
+
+    #[test]
+    fn get_category_dirs_reflects_sets() {
+        let s = Storage::open_in_memory().unwrap();
+        s.set_category_dir(Category::Music, Some("C:/Music".to_string())).unwrap();
+        let dirs = s.get_category_dirs().unwrap();
+        assert_eq!(dirs.music, Some("C:/Music".to_string()));
+        assert_eq!(dirs.video, None);
+    }
+
+    #[test]
+    fn clear_completed_removes_only_completed() {
+        let s = Storage::open_in_memory().unwrap();
+        let mut a = sample("a");
+        a.status = DownloadStatus::Completed;
+        s.upsert(&a).unwrap();
+        let mut b = sample("b");
+        b.status = DownloadStatus::Downloading;
+        s.upsert(&b).unwrap();
+        s.clear_completed().unwrap();
+        let ids: Vec<String> = s.list().unwrap().into_iter().map(|d| d.id).collect();
+        assert_eq!(ids, vec!["b"]);
     }
 }

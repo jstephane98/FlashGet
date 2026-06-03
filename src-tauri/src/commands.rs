@@ -24,6 +24,8 @@ pub async fn add_download(app: AppHandle, args: AddArgs) -> Result<Download, Str
         .map_err(|e| e.to_string())?;
     let file_name = probe.file_name.clone().unwrap_or_else(|| "download.bin".to_string());
 
+    let category = download_core::categorizer::categorize(&file_name);
+
     let dest_dir = if args.dest_dir.trim().is_empty() {
         app.path().download_dir().map_err(|e| e.to_string())?
     } else {
@@ -45,6 +47,7 @@ pub async fn add_download(app: AppHandle, args: AddArgs) -> Result<Download, Str
         supports_ranges: probe.supports_ranges,
         error: None,
         priority: Priority::Normal,
+        category,
     };
 
     {

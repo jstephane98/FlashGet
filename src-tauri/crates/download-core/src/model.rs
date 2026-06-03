@@ -58,6 +58,18 @@ pub struct Download {
     pub error: Option<String>,
     #[serde(default)]
     pub priority: Priority,
+    #[serde(default)]
+    pub category: Category,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct CategoryDirs {
+    pub video: Option<String>,
+    pub document: Option<String>,
+    pub program: Option<String>,
+    pub archive: Option<String>,
+    pub music: Option<String>,
+    pub other: Option<String>,
 }
 
 /// Résultat de la requête d'inspection (HEAD/GET partiel) faite avant de télécharger.

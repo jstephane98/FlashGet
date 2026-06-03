@@ -33,6 +33,7 @@ fn priority_rank(p: Priority) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::Category;
 
     fn dl(id: &str, status: DownloadStatus, priority: Priority) -> Download {
         Download {
@@ -46,6 +47,7 @@ mod tests {
             supports_ranges: true,
             error: None,
             priority,
+            category: Category::Other,
         }
     }
 
