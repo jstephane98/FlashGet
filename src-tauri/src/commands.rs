@@ -1,11 +1,12 @@
 use crate::state::AppState;
 use download_core::engine::{self, DownloadHandle};
 use download_core::http::ByteFetcher;
-use download_core::model::{Download, DownloadStatus, Priority, Progress, Settings};
+use download_core::model::{Download, DownloadStatus, Priority, Progress, Settings, Category, CategoryDirs};
 use download_core::scheduler::pick_to_start;
 use std::path::PathBuf;
 use std::time::Instant;
 use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_opener::OpenerExt;
 use tokio::sync::mpsc;
 
 #[derive(serde::Deserialize)]
@@ -26,11 +27,18 @@ pub async fn add_download(app: AppHandle, args: AddArgs) -> Result<Download, Str
 
     let category = download_core::categorizer::categorize(&file_name);
 
-    let dest_dir = if args.dest_dir.trim().is_empty() {
-        app.path().download_dir().map_err(|e| e.to_string())?
-    } else {
+    // Dossier : argument explicite > dossier configuré pour la catégorie > dossier Téléchargements.
+    let dest_dir = if !args.dest_dir.trim().is_empty() {
         PathBuf::from(&args.dest_dir)
+    } else {
+        let configured = { app.state::<AppState>().storage.category_dir(category).map_err(|e| e.to_string())? };
+        match configured {
+            Some(p) => PathBuf::from(p),
+            None => app.path().download_dir().map_err(|e| e.to_string())?,
+        }
     };
+    std::fs::create_dir_all(&dest_dir).map_err(|e| format!("dossier de destination inaccessible: {e}"))?;
+
     let dest_path = dest_dir.join(&file_name);
     if dest_path.parent() != Some(dest_dir.as_path()) {
         return Err("invalid file name derived from URL".to_string());
@@ -158,6 +166,46 @@ pub fn resume_all(app: AppHandle) -> Result<(), String> {
     }
     reevaluate(&app);
     Ok(())
+}
+
+#[tauri::command]
+pub fn get_category_dirs(state: State<AppState>) -> Result<CategoryDirs, String> {
+    state.storage.get_category_dirs().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_category_dir(state: State<AppState>, category: Category, path: Option<String>) -> Result<(), String> {
+    let path = path.filter(|p| !p.trim().is_empty());
+    state.storage.set_category_dir(category, path).map_err(|e| e.to_string())
+}
+
+/// Retire l'entrée de la liste SANS supprimer le fichier (distinct d'`annuler`).
+/// Refuse si le téléchargement est encore actif.
+#[tauri::command]
+pub fn remove_from_list(state: State<AppState>, id: String) -> Result<(), String> {
+    if state.handles.lock().unwrap().contains_key(&id) {
+        return Err("arrêtez le téléchargement avant de le retirer".to_string());
+    }
+    state.storage.delete(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn clear_completed(state: State<AppState>) -> Result<(), String> {
+    state.storage.clear_completed().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn open_file(app: AppHandle, id: String) -> Result<(), String> {
+    let d = app.state::<AppState>().storage.get_by_id(&id).map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("download not found: {id}"))?;
+    app.opener().open_path(d.dest_path, None::<&str>).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn open_folder(app: AppHandle, id: String) -> Result<(), String> {
+    let d = app.state::<AppState>().storage.get_by_id(&id).map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("download not found: {id}"))?;
+    app.opener().reveal_item_in_dir(&d.dest_path).map_err(|e| e.to_string())
 }
 
 /// Ré-évalue la file : démarre les `Queued` élus selon la limite + priorités.
