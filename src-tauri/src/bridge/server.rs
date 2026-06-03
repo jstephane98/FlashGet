@@ -85,6 +85,12 @@ async fn handle_conn(app: AppHandle, stream: TcpStream) {
                         // capture n'apparaît qu'à la complétion — l'UI n'insère pas les
                         // downloads inconnus reçus via `download://progress`).
                         let _ = app.emit("download://added", &d);
+                        // Faire surgir la fenêtre de l'app au premier plan (UX type IDM).
+                        if let Some(win) = app.get_webview_window("main") {
+                            let _ = win.unminimize();
+                            let _ = win.show();
+                            let _ = win.set_focus();
+                        }
                         serde_json::json!({ "type": "ack", "id": d.id }).to_string()
                     }
                     Err(e) => serde_json::json!({ "type": "error", "error": e }).to_string(),
