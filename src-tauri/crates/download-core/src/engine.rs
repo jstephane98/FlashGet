@@ -1,5 +1,6 @@
 use crate::http::ByteFetcher;
 use crate::model::{DownloadStatus, Progress};
+use crate::rate_limiter::RateLimiter;
 use crate::resume::{self, ResumeState};
 use crate::segments::compute_segments;
 use crate::CoreError;
@@ -50,6 +51,7 @@ pub async fn download<F: ByteFetcher>(
     url: &str,
     dest: &Path,
     handle: DownloadHandle,
+    limiter: Arc<RateLimiter>,
     progress: mpsc::UnboundedSender<Progress>,
 ) -> Result<Outcome, CoreError> {
     use futures_util::future::join_all;
@@ -125,6 +127,7 @@ pub async fn download<F: ByteFetcher>(
                 return Ok(Outcome::Paused);
             }
             let chunk = chunk?;
+            limiter.acquire(chunk.len() as u64).await;
             file.write_all(&chunk).await?;
             handle.downloaded.fetch_add(chunk.len() as u64, Ordering::SeqCst);
             emit(&progress, id, &handle, total, DownloadStatus::Downloading);
@@ -164,6 +167,7 @@ pub async fn download<F: ByteFetcher>(
         let handle = handle.clone();
         let progress = progress.clone();
         let id_owned = id.to_string();
+        let limiter = limiter.clone();
 
         let fut = async move {
             let mut file = tokio::fs::OpenOptions::new()
@@ -183,6 +187,7 @@ pub async fn download<F: ByteFetcher>(
                     return Ok((idx, Outcome::Paused));
                 }
                 let chunk = chunk?;
+                limiter.acquire(chunk.len() as u64).await;
                 file.write_all(&chunk).await?;
                 seg_progress.fetch_add(chunk.len() as u64, Ordering::SeqCst);
                 handle.downloaded.fetch_add(chunk.len() as u64, Ordering::SeqCst);
@@ -257,8 +262,13 @@ fn emit(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rate_limiter::RateLimiter;
     use crate::tests::fake_fetcher::FakeFetcher;
     use tempfile::tempdir;
+
+    fn unlimited() -> std::sync::Arc<RateLimiter> {
+        std::sync::Arc::new(RateLimiter::unlimited())
+    }
 
     fn collect_dest(dir: &tempfile::TempDir) -> std::path::PathBuf {
         dir.path().join("out.bin")
@@ -272,7 +282,7 @@ mod tests {
         let dest = collect_dest(&dir);
         let (tx, _rx) = mpsc::unbounded_channel();
 
-        let outcome = download(&fetcher, "id1", "http://x/f", &dest, DownloadHandle::new(), tx)
+        let outcome = download(&fetcher, "id1", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx)
             .await
             .unwrap();
 
@@ -289,7 +299,7 @@ mod tests {
         let dest = collect_dest(&dir);
         let (tx, _rx) = mpsc::unbounded_channel();
 
-        download(&fetcher, "id2", "http://x/f", &dest, DownloadHandle::new(), tx)
+        download(&fetcher, "id2", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx)
             .await
             .unwrap();
 
@@ -304,7 +314,7 @@ mod tests {
         let dest = collect_dest(&dir);
         let (tx, mut rx) = mpsc::unbounded_channel();
 
-        download(&fetcher, "id3", "http://x/f", &dest, DownloadHandle::new(), tx)
+        download(&fetcher, "id3", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx)
             .await
             .unwrap();
 
@@ -326,7 +336,7 @@ mod tests {
         let handle = DownloadHandle::new();
         handle.pause(); // pause avant le premier chunk => crée le sidecar
         let (tx, _rx) = mpsc::unbounded_channel();
-        let outcome = download(&fetcher, "id4", "http://x/f", &dest, handle, tx)
+        let outcome = download(&fetcher, "id4", "http://x/f", &dest, handle, unlimited(), tx)
             .await
             .unwrap();
         assert_eq!(outcome, Outcome::Paused);
@@ -334,7 +344,7 @@ mod tests {
         // 2e run : reprise jusqu'à complétion.
         let fetcher2 = FakeFetcher::new(data.clone(), true);
         let (tx2, _rx2) = mpsc::unbounded_channel();
-        let outcome2 = download(&fetcher2, "id4", "http://x/f", &dest, DownloadHandle::new(), tx2)
+        let outcome2 = download(&fetcher2, "id4", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx2)
             .await
             .unwrap();
         assert_eq!(outcome2, Outcome::Completed);
@@ -352,7 +362,7 @@ mod tests {
         // First run: download to completion.
         let fetcher = FakeFetcher::new(data.clone(), true);
         let (tx, _rx) = mpsc::unbounded_channel();
-        let outcome = download(&fetcher, "idr", "http://x/f", &dest, DownloadHandle::new(), tx)
+        let outcome = download(&fetcher, "idr", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx)
             .await
             .unwrap();
         assert_eq!(outcome, Outcome::Completed);
@@ -364,12 +374,42 @@ mod tests {
         let fetcher2 = FakeFetcher::new(data.clone(), true);
         let (tx2, _rx2) = mpsc::unbounded_channel();
         let outcome2 =
-            download(&fetcher2, "idr", "http://x/f", &dest, DownloadHandle::new(), tx2)
+            download(&fetcher2, "idr", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx2)
                 .await
                 .unwrap();
         assert_eq!(outcome2, Outcome::Completed);
         let second_bytes = std::fs::read(&dest).unwrap();
         assert_eq!(second_bytes, data, "re-run must not corrupt already-correct bytes");
+    }
+
+    #[tokio::test]
+    async fn throttle_makes_engine_wait() {
+        use crate::rate_limiter::Clock;
+        use std::sync::Mutex;
+        struct Fake { now: Mutex<f64>, slept: Mutex<f64> }
+        #[async_trait::async_trait]
+        impl Clock for Fake {
+            fn now_secs(&self) -> f64 { *self.now.lock().unwrap() }
+            async fn sleep(&self, s: f64) {
+                *self.now.lock().unwrap() += s;
+                *self.slept.lock().unwrap() += s;
+            }
+        }
+        let clock = std::sync::Arc::new(Fake { now: Mutex::new(0.0), slept: Mutex::new(0.0) });
+        let limiter = std::sync::Arc::new(RateLimiter::with_clock(1000, clock.clone()));
+
+        let data: Vec<u8> = vec![7u8; 2000]; // 2000 octets à 1000 o/s => ~2 s simulées
+        let fetcher = FakeFetcher::new(data, true);
+        let dir = tempdir().unwrap();
+        let dest = dir.path().join("out.bin");
+        let (tx, _rx) = mpsc::unbounded_channel();
+
+        download(&fetcher, "t", "http://x/f", &dest, DownloadHandle::new(), limiter, tx)
+            .await
+            .unwrap();
+
+        let slept = *clock.slept.lock().unwrap();
+        assert!(slept >= 1.9, "le moteur aurait dû dormir ~2 s (simulées), got {slept}");
     }
 
     /// Guard for FIX I1: a valid sidecar (total>0) must be trusted on resume even
@@ -386,7 +426,7 @@ mod tests {
         let handle = DownloadHandle::new();
         handle.pause();
         let (tx, _rx) = mpsc::unbounded_channel();
-        let outcome = download(&fetcher, "ids", "http://x/f", &dest, handle, tx)
+        let outcome = download(&fetcher, "ids", "http://x/f", &dest, handle, unlimited(), tx)
             .await
             .unwrap();
         assert_eq!(outcome, Outcome::Paused);
@@ -400,7 +440,7 @@ mod tests {
         let mut fetcher2 = FakeFetcher::new(data.clone(), true);
         fetcher2.probe_reports_size = false;
         let (tx2, _rx2) = mpsc::unbounded_channel();
-        let outcome2 = download(&fetcher2, "ids", "http://x/f", &dest, DownloadHandle::new(), tx2)
+        let outcome2 = download(&fetcher2, "ids", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx2)
             .await
             .unwrap();
         assert_eq!(outcome2, Outcome::Completed);
