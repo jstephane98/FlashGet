@@ -25,7 +25,13 @@ pub enum ServerReply {
 #[serde(tag = "type", rename_all = "lowercase")]
 enum RawMessage {
     Auth { token: String },
-    Capture { url: String, #[serde(default)] filename: Option<String>, #[serde(default)] referrer: Option<String> },
+    Capture {
+        url: String,
+        #[serde(default)]
+        filename: Option<String>,
+        #[serde(default)]
+        referrer: Option<String>,
+    },
 }
 
 /// Parse un texte JSON en `ClientMessage`. Tout échec ⇒ `Unknown`.
@@ -61,7 +67,7 @@ pub fn handle_message(
                 (authed, ServerReply::NeedAuth)
             }
         }
-        ClientMessage::Unknown => (authed, ServerReply::Error { msg: "message invalide".into() }),
+        ClientMessage::Unknown => (authed, ServerReply::Error { msg: "invalid_message".into() }),
     }
 }
 
@@ -111,5 +117,23 @@ mod tests {
         let (authed, reply) = handle_message(true, "secret", msg);
         assert!(authed);
         assert!(matches!(reply, ServerReply::Error { .. }));
+    }
+
+    #[test]
+    fn auth_with_empty_expected_token_is_refused() {
+        // Sécurité : un serveur sans jeton configuré ne doit jamais authentifier.
+        let msg = parse_client_message(r#"{"type":"auth","token":""}"#);
+        let (authed, reply) = handle_message(false, "", msg);
+        assert!(!authed);
+        assert!(matches!(reply, ServerReply::AuthFailed));
+    }
+
+    #[test]
+    fn reauth_with_valid_token_stays_authed() {
+        // Une ré-authentification valide alors qu'on est déjà authentifié reste authentifiée.
+        let msg = parse_client_message(r#"{"type":"auth","token":"secret"}"#);
+        let (authed, reply) = handle_message(true, "secret", msg);
+        assert!(authed);
+        assert!(matches!(reply, ServerReply::Authed));
     }
 }
