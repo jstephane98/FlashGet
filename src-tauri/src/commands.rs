@@ -1,7 +1,7 @@
 use crate::state::AppState;
 use download_core::engine::{self, DownloadHandle};
 use download_core::http::ByteFetcher;
-use download_core::model::{Download, DownloadStatus, Priority, Progress, Settings, Category, CategoryDirs};
+use download_core::model::{Download, DownloadStatus, Priority, Progress, RequestHeaders, Settings, Category, CategoryDirs};
 use download_core::scheduler::pick_to_start;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -19,7 +19,7 @@ pub struct AddArgs {
 /// Logique réutilisable par la commande Tauri ET par le bridge navigateur.
 pub(crate) async fn add_url(app: &AppHandle, url: &str, dest_dir: &str) -> Result<Download, String> {
     let fetcher = { app.state::<AppState>().fetcher.clone() };
-    let probe = tokio::time::timeout(std::time::Duration::from_secs(30), fetcher.probe(url))
+    let probe = tokio::time::timeout(std::time::Duration::from_secs(30), fetcher.probe(url, &RequestHeaders::default()))
         .await
         .map_err(|_| "timeout while probing URL".to_string())?
         .map_err(|e| e.to_string())?;
@@ -300,6 +300,7 @@ fn launch(app: &AppHandle, download: Download, handle: DownloadHandle) {
     let app_for_dl = app.clone();
     let dest = PathBuf::from(&download.dest_path);
     let url = download.url.clone();
+    let headers = download.request_headers();
     let id_for_dl = id.clone();
     let handle_for_err = handle.clone();
     let (fetcher, limiter) = {
@@ -307,7 +308,7 @@ fn launch(app: &AppHandle, download: Download, handle: DownloadHandle) {
         (st.fetcher.clone(), st.limiter.clone())
     };
     tauri::async_runtime::spawn(async move {
-        match engine::download(&fetcher, &id_for_dl, &url, &dest, handle, limiter, tx).await {
+        match engine::download(&fetcher, &id_for_dl, &url, &dest, handle, limiter, tx, &headers).await {
             Ok(_) => {}
             Err(e) => {
                 eprintln!("download {id_for_dl} failed: {e}");

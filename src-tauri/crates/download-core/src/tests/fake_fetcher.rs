@@ -1,6 +1,6 @@
 //! Fetcher en mémoire pour les tests du moteur. Honore les Range inclusifs.
 use crate::http::ByteFetcher;
-use crate::model::ProbeResult;
+use crate::model::{ProbeResult, RequestHeaders};
 use crate::CoreError;
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -24,7 +24,7 @@ impl FakeFetcher {
 
 #[async_trait]
 impl ByteFetcher for FakeFetcher {
-    async fn probe(&self, _url: &str) -> Result<ProbeResult, CoreError> {
+    async fn probe(&self, _url: &str, _headers: &RequestHeaders) -> Result<ProbeResult, CoreError> {
         Ok(ProbeResult {
             total_bytes: if self.probe_reports_size {
                 Some(self.data.len() as u64)
@@ -40,6 +40,7 @@ impl ByteFetcher for FakeFetcher {
         &self,
         _url: &str,
         range: Option<(u64, u64)>,
+        _headers: &RequestHeaders,
     ) -> Result<BoxStream<'static, Result<Bytes, CoreError>>, CoreError> {
         let slice: Vec<u8> = match range {
             Some((start, end)) => {

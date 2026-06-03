@@ -1,4 +1,4 @@
-use crate::model::ProbeResult;
+use crate::model::{ProbeResult, RequestHeaders};
 use crate::CoreError;
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -8,7 +8,7 @@ use futures_util::stream::BoxStream;
 #[async_trait]
 pub trait ByteFetcher: Send + Sync {
     /// Inspecte l'URL : taille, support des Range, nom de fichier suggéré.
-    async fn probe(&self, url: &str) -> Result<ProbeResult, CoreError>;
+    async fn probe(&self, url: &str, headers: &RequestHeaders) -> Result<ProbeResult, CoreError>;
 
     /// Récupère un flux d'octets. `range` = intervalle inclusif (start, end).
     /// Si `range` est None, récupère tout le corps.
@@ -16,6 +16,7 @@ pub trait ByteFetcher: Send + Sync {
         &self,
         url: &str,
         range: Option<(u64, u64)>,
+        headers: &RequestHeaders,
     ) -> Result<BoxStream<'static, Result<Bytes, CoreError>>, CoreError>;
 }
 
@@ -44,12 +45,13 @@ impl Default for ReqwestFetcher {
 
 #[async_trait]
 impl ByteFetcher for ReqwestFetcher {
-    async fn probe(&self, url: &str) -> Result<ProbeResult, CoreError> {
+    async fn probe(&self, url: &str, headers: &RequestHeaders) -> Result<ProbeResult, CoreError> {
         // Une requête Range de 0-0 révèle Accept-Ranges + Content-Range (=> taille totale).
-        let resp = self
+        let req = self
             .client
             .get(url)
-            .header(reqwest::header::RANGE, "bytes=0-0")
+            .header(reqwest::header::RANGE, "bytes=0-0");
+        let resp = apply_headers(req, headers)
             .send()
             .await
             .map_err(|e| CoreError::Network(describe_reqwest_error(&e)))?;
@@ -91,6 +93,7 @@ impl ByteFetcher for ReqwestFetcher {
         &self,
         url: &str,
         range: Option<(u64, u64)>,
+        headers: &RequestHeaders,
     ) -> Result<BoxStream<'static, Result<Bytes, CoreError>>, CoreError> {
         use futures_util::StreamExt;
 
@@ -98,7 +101,10 @@ impl ByteFetcher for ReqwestFetcher {
         if let Some((start, end)) = range {
             req = req.header(reqwest::header::RANGE, format!("bytes={start}-{end}"));
         }
-        let resp = req.send().await.map_err(|e| CoreError::Network(describe_reqwest_error(&e)))?;
+        let resp = apply_headers(req, headers)
+            .send()
+            .await
+            .map_err(|e| CoreError::Network(describe_reqwest_error(&e)))?;
         let resp = resp.error_for_status().map_err(|e| CoreError::Network(describe_reqwest_error(&e)))?;
 
         let stream = resp
@@ -135,6 +141,21 @@ pub fn describe_reqwest_error(e: &reqwest::Error) -> String {
         src = s.source();
     }
     format!("{prefix}{}", chain.join(" → "))
+}
+
+/// Pose Referer/Cookie/User-Agent sur la requête quand ils sont présents.
+/// Le User-Agent par requête écrase celui par défaut du client.
+fn apply_headers(mut req: reqwest::RequestBuilder, headers: &RequestHeaders) -> reqwest::RequestBuilder {
+    if let Some(r) = &headers.referrer {
+        req = req.header(reqwest::header::REFERER, r);
+    }
+    if let Some(c) = &headers.cookie {
+        req = req.header(reqwest::header::COOKIE, c);
+    }
+    if let Some(ua) = &headers.user_agent {
+        req = req.header(reqwest::header::USER_AGENT, ua);
+    }
+    req
 }
 
 /// Déduit un nom de fichier depuis l'URL (dernier segment de chemin), assaini.
