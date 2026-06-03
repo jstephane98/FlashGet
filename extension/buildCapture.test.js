@@ -19,4 +19,27 @@ describe("buildCapture", () => {
   it("throws on an empty url", () => {
     expect(() => buildCapture("   ")).toThrow();
   });
+
+  it("includes referrer, cookie and user_agent when provided", () => {
+    expect(
+      buildCapture("http://x/f.zip", {
+        referrer: "http://x/page",
+        cookie: "sid=1; a=2",
+        user_agent: "UA/1",
+      }),
+    ).toEqual({
+      type: "capture",
+      url: "http://x/f.zip",
+      referrer: "http://x/page",
+      cookie: "sid=1; a=2",
+      user_agent: "UA/1",
+    });
+  });
+
+  it("omits empty / missing extras", () => {
+    expect(buildCapture("http://x/f.zip", { referrer: "", cookie: undefined })).toEqual({
+      type: "capture",
+      url: "http://x/f.zip",
+    });
+  });
 });

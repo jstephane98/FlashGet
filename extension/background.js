@@ -7,10 +7,10 @@ let socket = null;
 let connected = false;
 let reconnectTimer = null;
 let connecting = false;
-let pending = []; // captures en attente d'une connexion authentifiée : [{ url, ts }]
+let pending = []; // captures en attente d'une connexion authentifiée : [{ url, referrer, ts }]
 
 // Renvoie les captures mises en file une fois la connexion authentifiée (ignore les trop vieilles).
-function flushPending() {
+async function flushPending() {
   if (!socket || socket.readyState !== WebSocket.OPEN || !connected) return;
   const now = Date.now();
   const items = pending;
@@ -18,11 +18,29 @@ function flushPending() {
   for (const it of items) {
     if (now - it.ts > PENDING_TTL_MS) continue;
     try {
-      socket.send(JSON.stringify(buildCapture(it.url)));
+      const headers = await gatherHeaders(it.url, it.referrer);
+      socket.send(JSON.stringify(buildCapture(it.url, headers)));
     } catch (_e) {
       // URL invalide : ignorée
     }
   }
+}
+
+// Collecte les en-têtes navigateur pour une URL capturée : cookies (incl. httpOnly via
+// l'API chrome.cookies), referer (page d'origine), user-agent.
+async function gatherHeaders(url, referrer) {
+  let cookie = "";
+  try {
+    const cookies = await chrome.cookies.getAll({ url });
+    cookie = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
+  } catch (_e) {
+    // pas d'accès cookies pour cette URL : on envoie sans
+  }
+  return {
+    referrer: referrer || undefined,
+    cookie: cookie || undefined,
+    user_agent: navigator.userAgent,
+  };
 }
 
 async function getConfig() {
@@ -101,16 +119,17 @@ function scheduleReconnect() {
 // Envoie une capture. Si la connexion n'est pas prête (service worker réveillé à froid,
 // reconnexion en cours), met l'URL en file et (re)connecte : elle partira après l'auth.
 // Renvoie true si la capture est partie OU a été acceptée en file.
-async function sendCapture(url) {
+async function sendCapture(url, referrer) {
   if (socket && socket.readyState === WebSocket.OPEN && connected) {
     try {
-      socket.send(JSON.stringify(buildCapture(url)));
+      const headers = await gatherHeaders(url, referrer);
+      socket.send(JSON.stringify(buildCapture(url, headers)));
       return true;
     } catch (_e) {
       return false; // URL invalide
     }
   }
-  pending.push({ url, ts: Date.now() });
+  pending.push({ url, referrer, ts: Date.now() });
   if (pending.length > 20) pending.shift(); // borne anti-accumulation
   connect();
   return true; // acceptée : sera envoyée dès la (re)connexion
@@ -144,7 +163,7 @@ chrome.runtime.onStartup.addListener(() => {
 
 chrome.contextMenus.onClicked.addListener((info) => {
   const url = info.linkUrl || info.srcUrl || info.pageUrl;
-  if (url) sendCapture(url);
+  if (url) sendCapture(url, info.pageUrl);
 });
 
 // Messages depuis le popup.
@@ -154,7 +173,17 @@ chrome.runtime.onMessage.addListener((req, _sender, sendResponse) => {
     return false;
   }
   if (req.cmd === "send" && req.url) {
-    sendCapture(req.url).then((ok) => sendResponse({ ok }));
+    (async () => {
+      let referrer;
+      try {
+        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+        referrer = tab && tab.url;
+      } catch (_e) {
+        // pas d'onglet : referer absent
+      }
+      const ok = await sendCapture(req.url, referrer);
+      sendResponse({ ok });
+    })();
     return true; // réponse asynchrone
   }
   if (req.cmd === "reconnect") {
