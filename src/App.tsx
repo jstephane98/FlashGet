@@ -78,14 +78,15 @@ export default function App() {
       <div className="flex-1 overflow-auto">
         <DownloadTable
           downloads={visible}
+          allDownloads={downloads}
           speeds={speeds}
           onPause={(id) => withRefresh(() => api.pauseDownload(id))}
           onResume={(id) => withRefresh(() => api.startDownload(id))}
-          onCancel={(id) => { api.cancelDownload(id); setDownloads((l) => l.filter((d) => d.id !== id)); }}
+          onCancel={(id) => withRefresh(() => api.cancelDownload(id))}
           onPriority={(id, p: Priority) => withRefresh(() => api.setPriority(id, p))}
           onOpenFile={(id) => withRefresh(() => api.openFile(id))}
           onOpenFolder={(id) => withRefresh(() => api.openFolder(id))}
-          onRemove={(id) => { api.removeFromList(id).catch((e) => setError(String(e))); setDownloads((l) => l.filter((d) => d.id !== id)); }}
+          onRemove={(id) => withRefresh(() => api.removeFromList(id))}
         />
       </div>
       <AddUrlDialog open={dialogOpen} onClose={() => setDialogOpen(false)} onAdd={handleAdd} />

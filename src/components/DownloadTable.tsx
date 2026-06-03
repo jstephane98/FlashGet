@@ -5,6 +5,7 @@ const RANK: Record<Priority, number> = { high: 0, normal: 1, low: 2 };
 
 export function DownloadTable({
   downloads,
+  allDownloads,
   speeds,
   onPause,
   onResume,
@@ -15,6 +16,7 @@ export function DownloadTable({
   onRemove,
 }: {
   downloads: Download[];
+  allDownloads: Download[];
   speeds: Record<string, number>;
   onPause: (id: string) => void;
   onResume: (id: string) => void;
@@ -24,7 +26,7 @@ export function DownloadTable({
   onOpenFolder: (id: string) => void;
   onRemove: (id: string) => void;
 }) {
-  const queued = downloads
+  const queued = allDownloads
     .map((d, i) => ({ d, i }))
     .filter((x) => x.d.status === "queued")
     .sort((a, b) => RANK[a.d.priority] - RANK[b.d.priority] || a.i - b.i);

@@ -105,15 +105,23 @@ pub fn pause_download(app: AppHandle, id: String) -> Result<(), String> {
 
 #[tauri::command]
 pub fn cancel_download(app: AppHandle, id: String) -> Result<(), String> {
-    {
-        let state = app.state::<AppState>();
+    let state = app.state::<AppState>();
+    let was_active = {
         let mut handles = state.handles.lock().unwrap();
         if let Some(h) = handles.get(&id) {
             h.cancel();
         }
-        handles.remove(&id);
-        state.storage.delete(&id).map_err(|e| e.to_string())?;
+        handles.remove(&id).is_some()
+    };
+    // Non actif => aucune tâche moteur ne supprimera le fichier partiel : on le fait ici.
+    if !was_active {
+        if let Ok(Some(d)) = state.storage.get_by_id(&id) {
+            let p = std::path::PathBuf::from(&d.dest_path);
+            let _ = std::fs::remove_file(&p);
+            download_core::resume::clear(&p);
+        }
     }
+    state.storage.delete(&id).map_err(|e| e.to_string())?;
     reevaluate(&app);
     Ok(())
 }
