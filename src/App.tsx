@@ -1,18 +1,19 @@
 import { useEffect, useState } from "react";
 import "./index.css";
-import type { Download } from "./types";
+import type { Download, Priority } from "./types";
 import * as api from "./api";
 import { Toolbar } from "./components/Toolbar";
 import { AddUrlDialog } from "./components/AddUrlDialog";
 import { DownloadTable } from "./components/DownloadTable";
+import { SettingsDialog } from "./components/SettingsDialog";
 
-// Dossier de destination par défaut (Phase 1 : Téléchargements de l'utilisateur).
-const DEST_DIR = ""; // chaîne vide => le backend pourra défaulter ; voir note plan.
+const DEST_DIR = ""; // vide => le backend défaut sur le dossier Téléchargements
 
 export default function App() {
   const [downloads, setDownloads] = useState<Download[]>([]);
   const [speeds, setSpeeds] = useState<Record<string, number>>({});
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function refresh() {
@@ -30,6 +31,10 @@ export default function App() {
             : d,
         ),
       );
+      // Un changement d'état terminal peut avoir démarré un autre téléchargement : resync.
+      if (p.status === "completed" || p.status === "paused" || p.status === "error") {
+        refresh();
+      }
     });
     return () => {
       un.then((f) => f());
@@ -39,51 +44,52 @@ export default function App() {
   async function handleAdd(url: string) {
     setDialogOpen(false);
     setError(null);
-    let d: Download;
     try {
-      d = await api.addDownload(url, DEST_DIR);
+      await api.addDownload(url, DEST_DIR);
+      await refresh(); // le backend démarre automatiquement si un slot est libre
     } catch (e) {
-      // Échec de la sonde (réseau/DNS/URL) — afficher la vraie cause au lieu de planter.
       setError(`Impossible d'ajouter ce lien : ${String(e)}`);
-      return;
     }
-    setDownloads((list) => [...list, d]);
+  }
+
+  async function withRefresh(fn: () => Promise<void>) {
     try {
-      await api.startDownload(d.id);
+      await fn();
     } catch (e) {
-      console.error("start failed", e);
-      setError(`Le téléchargement n'a pas pu démarrer : ${String(e)}`);
-      await refresh(); // resync with backend truth
+      setError(String(e));
     }
+    await refresh();
   }
 
   return (
     <div className="h-screen flex flex-col">
-      <Toolbar onAdd={() => setDialogOpen(true)} />
+      <Toolbar
+        onAdd={() => setDialogOpen(true)}
+        onPauseAll={() => withRefresh(api.pauseAll)}
+        onResumeAll={() => withRefresh(api.resumeAll)}
+        onSettings={() => setSettingsOpen(true)}
+      />
       {error && (
         <div className="flex items-start gap-2 px-3 py-2 bg-red-50 border-b border-red-200 text-sm text-red-700">
           <span className="flex-1 break-words">{error}</span>
-          <button
-            className="px-2 py-0.5 rounded bg-red-100 text-red-700 shrink-0"
-            onClick={() => setError(null)}
-          >
-            ✕
-          </button>
+          <button className="px-2 py-0.5 rounded bg-red-100 text-red-700 shrink-0" onClick={() => setError(null)}>✕</button>
         </div>
       )}
       <div className="flex-1 overflow-auto">
         <DownloadTable
           downloads={downloads}
           speeds={speeds}
-          onPause={(id) => api.pauseDownload(id)}
-          onResume={(id) => api.startDownload(id)}
+          onPause={(id) => withRefresh(() => api.pauseDownload(id))}
+          onResume={(id) => withRefresh(() => api.startDownload(id))}
           onCancel={(id) => {
             api.cancelDownload(id);
             setDownloads((l) => l.filter((d) => d.id !== id));
           }}
+          onPriority={(id, p: Priority) => withRefresh(() => api.setPriority(id, p))}
         />
       </div>
       <AddUrlDialog open={dialogOpen} onClose={() => setDialogOpen(false)} onAdd={handleAdd} />
+      <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
     </div>
   );
 }

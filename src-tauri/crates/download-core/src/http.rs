@@ -20,6 +20,7 @@ pub trait ByteFetcher: Send + Sync {
 }
 
 /// Implémentation de production basée sur reqwest.
+#[derive(Clone)]
 pub struct ReqwestFetcher {
     client: reqwest::Client,
 }

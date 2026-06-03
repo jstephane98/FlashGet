@@ -1,4 +1,4 @@
-use crate::model::{Download, DownloadStatus};
+use crate::model::{Download, DownloadStatus, Priority, Settings};
 use crate::CoreError;
 use rusqlite::Connection;
 use std::path::Path;
@@ -34,17 +34,26 @@ impl Storage {
             );",
         )
         .map_err(|e| CoreError::Storage(e.to_string()))?;
+        // Migration additive : colonne priority (ignorer l'erreur si déjà présente).
+        let _ = conn.execute(
+            "ALTER TABLE downloads ADD COLUMN priority TEXT NOT NULL DEFAULT 'normal'",
+            [],
+        );
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
+        )
+        .map_err(|e| CoreError::Storage(e.to_string()))?;
         Ok(Self { conn: Mutex::new(conn) })
     }
 
     pub fn upsert(&self, d: &Download) -> Result<(), CoreError> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO downloads (id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+            "INSERT INTO downloads (id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
              ON CONFLICT(id) DO UPDATE SET
                 url=?2, file_name=?3, dest_path=?4, total_bytes=?5,
-                downloaded_bytes=?6, status=?7, supports_ranges=?8, error=?9",
+                downloaded_bytes=?6, status=?7, supports_ranges=?8, error=?9, priority=?10",
             rusqlite::params![
                 d.id, d.url, d.file_name, d.dest_path,
                 d.total_bytes.map(|v| v as i64),
@@ -52,6 +61,7 @@ impl Storage {
                 status_to_str(d.status),
                 d.supports_ranges as i64,
                 d.error,
+                priority_to_str(d.priority),
             ],
         )
         .map_err(|e| CoreError::Storage(e.to_string()))?;
@@ -61,7 +71,7 @@ impl Storage {
     pub fn list(&self) -> Result<Vec<Download>, CoreError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn
-            .prepare("SELECT id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error FROM downloads")
+            .prepare("SELECT id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority FROM downloads ORDER BY rowid")
             .map_err(|e| CoreError::Storage(e.to_string()))?;
         let rows = stmt
             .query_map([], |row| {
@@ -75,6 +85,7 @@ impl Storage {
                     status: status_from_str(&row.get::<_, String>(6)?),
                     supports_ranges: row.get::<_, i64>(7)? != 0,
                     error: row.get(8)?,
+                    priority: priority_from_str(&row.get::<_, String>(9)?),
                 })
             })
             .map_err(|e| CoreError::Storage(e.to_string()))?;
@@ -103,6 +114,17 @@ impl Storage {
         Ok(())
     }
 
+    /// Passe un téléchargement en `downloading` SANS écraser un statut terminal
+    /// (completed/error). No-op si l'id n'existe pas ou est déjà terminé.
+    pub fn mark_active(&self, id: &str, downloaded_bytes: u64) -> Result<(), CoreError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE downloads SET downloaded_bytes=?1, status='downloading' WHERE id=?2 AND status NOT IN ('completed','error')",
+            rusqlite::params![downloaded_bytes as i64, id],
+        ).map_err(|e| CoreError::Storage(e.to_string()))?;
+        Ok(())
+    }
+
     /// Marque un téléchargement en erreur (no-op si l'id n'existe plus).
     pub fn mark_error(&self, id: &str, downloaded_bytes: u64, message: &str) -> Result<(), CoreError> {
         let conn = self.conn.lock().unwrap();
@@ -110,6 +132,73 @@ impl Storage {
             "UPDATE downloads SET downloaded_bytes=?1, status='error', error=?2 WHERE id=?3",
             rusqlite::params![downloaded_bytes as i64, message, id],
         ).map_err(|e| CoreError::Storage(e.to_string()))?;
+        Ok(())
+    }
+
+    pub fn get_by_id(&self, id: &str) -> Result<Option<Download>, CoreError> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare("SELECT id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority FROM downloads WHERE id=?1")
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        let mut rows = stmt
+            .query_map([id], |row| {
+                Ok(Download {
+                    id: row.get(0)?,
+                    url: row.get(1)?,
+                    file_name: row.get(2)?,
+                    dest_path: row.get(3)?,
+                    total_bytes: row.get::<_, Option<i64>>(4)?.map(|v| v as u64),
+                    downloaded_bytes: row.get::<_, i64>(5)? as u64,
+                    status: status_from_str(&row.get::<_, String>(6)?),
+                    supports_ranges: row.get::<_, i64>(7)? != 0,
+                    error: row.get(8)?,
+                    priority: priority_from_str(&row.get::<_, String>(9)?),
+                })
+            })
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        match rows.next() {
+            Some(r) => Ok(Some(r.map_err(|e| CoreError::Storage(e.to_string()))?)),
+            None => Ok(None),
+        }
+    }
+
+    pub fn set_priority(&self, id: &str, priority: Priority) -> Result<(), CoreError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE downloads SET priority=?1 WHERE id=?2",
+            rusqlite::params![priority_to_str(priority), id],
+        )
+        .map_err(|e| CoreError::Storage(e.to_string()))?;
+        Ok(())
+    }
+
+    pub fn get_settings(&self) -> Result<Settings, CoreError> {
+        let conn = self.conn.lock().unwrap();
+        let read = |key: &str| -> Option<String> {
+            conn.query_row("SELECT value FROM settings WHERE key=?1", [key], |r| r.get::<_, String>(0)).ok()
+        };
+        let mut s = Settings::default();
+        if let Some(v) = read("max_concurrent") {
+            if let Ok(n) = v.parse::<u32>() { s.max_concurrent = n; }
+        }
+        if let Some(v) = read("max_speed_bps") {
+            if let Ok(n) = v.parse::<u64>() { s.max_speed_bps = n; }
+        }
+        Ok(s)
+    }
+
+    pub fn set_settings(&self, s: &Settings) -> Result<(), CoreError> {
+        let conn = self.conn.lock().unwrap();
+        let put = |key: &str, val: String| -> Result<(), CoreError> {
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value=?2",
+                rusqlite::params![key, val],
+            )
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+            Ok(())
+        };
+        put("max_concurrent", s.max_concurrent.to_string())?;
+        put("max_speed_bps", s.max_speed_bps.to_string())?;
         Ok(())
     }
 }
@@ -134,6 +223,22 @@ fn status_from_str(s: &str) -> DownloadStatus {
     }
 }
 
+fn priority_to_str(p: Priority) -> &'static str {
+    match p {
+        Priority::High => "high",
+        Priority::Normal => "normal",
+        Priority::Low => "low",
+    }
+}
+
+fn priority_from_str(s: &str) -> Priority {
+    match s {
+        "high" => Priority::High,
+        "low" => Priority::Low,
+        _ => Priority::Normal,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -149,6 +254,7 @@ mod tests {
             status: DownloadStatus::Paused,
             supports_ranges: true,
             error: None,
+            priority: Priority::Normal,
         }
     }
 
@@ -219,5 +325,67 @@ mod tests {
         let s = Storage::open_in_memory().unwrap();
         s.mark_error("ghost", 5, "boom").unwrap();
         assert!(s.list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn round_trips_priority() {
+        let s = Storage::open_in_memory().unwrap();
+        let mut d = sample("p");
+        d.priority = Priority::High;
+        s.upsert(&d).unwrap();
+        assert_eq!(s.list().unwrap()[0].priority, Priority::High);
+    }
+
+    #[test]
+    fn set_priority_updates_row() {
+        let s = Storage::open_in_memory().unwrap();
+        s.upsert(&sample("a")).unwrap();
+        s.set_priority("a", Priority::Low).unwrap();
+        assert_eq!(s.get_by_id("a").unwrap().unwrap().priority, Priority::Low);
+    }
+
+    #[test]
+    fn get_by_id_absent_is_none() {
+        let s = Storage::open_in_memory().unwrap();
+        assert!(s.get_by_id("nope").unwrap().is_none());
+    }
+
+    #[test]
+    fn settings_default_then_roundtrip() {
+        let s = Storage::open_in_memory().unwrap();
+        assert_eq!(s.get_settings().unwrap(), Settings::default());
+        s.set_settings(&Settings { max_concurrent: 5, max_speed_bps: 1024 }).unwrap();
+        assert_eq!(s.get_settings().unwrap(), Settings { max_concurrent: 5, max_speed_bps: 1024 });
+    }
+
+    #[test]
+    fn list_is_ordered_by_insertion() {
+        let s = Storage::open_in_memory().unwrap();
+        s.upsert(&sample("first")).unwrap();
+        s.upsert(&sample("second")).unwrap();
+        let ids: Vec<String> = s.list().unwrap().into_iter().map(|d| d.id).collect();
+        assert_eq!(ids, vec!["first", "second"]);
+    }
+
+    #[test]
+    fn mark_active_sets_downloading() {
+        let s = Storage::open_in_memory().unwrap();
+        s.upsert(&sample("ma1")).unwrap(); // starts as Paused
+        s.mark_active("ma1", 10).unwrap();
+        let d = s.get_by_id("ma1").unwrap().unwrap();
+        assert_eq!(d.status, DownloadStatus::Downloading);
+        assert_eq!(d.downloaded_bytes, 10);
+    }
+
+    #[test]
+    fn mark_active_noop_when_completed() {
+        let s = Storage::open_in_memory().unwrap();
+        s.upsert(&sample("ma2")).unwrap();
+        s.update_state("ma2", 50, DownloadStatus::Completed).unwrap();
+        s.mark_active("ma2", 99).unwrap();
+        let d = s.get_by_id("ma2").unwrap().unwrap();
+        // status must remain Completed, not flipped back to Downloading
+        assert_eq!(d.status, DownloadStatus::Completed);
+        assert_eq!(d.downloaded_bytes, 50);
     }
 }

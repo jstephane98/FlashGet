@@ -10,6 +10,29 @@ pub enum DownloadStatus {
     Error,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Priority {
+    High,
+    #[default]
+    Normal,
+    Low,
+}
+
+/// Réglages persistants de l'application.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Settings {
+    pub max_concurrent: u32,
+    /// Vitesse de téléchargement max en octets/seconde (0 = illimité).
+    pub max_speed_bps: u64,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self { max_concurrent: 3, max_speed_bps: 0 }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Download {
     pub id: String,
@@ -21,6 +44,8 @@ pub struct Download {
     pub status: DownloadStatus,
     pub supports_ranges: bool,
     pub error: Option<String>,
+    #[serde(default)]
+    pub priority: Priority,
 }
 
 /// Résultat de la requête d'inspection (HEAD/GET partiel) faite avant de télécharger.

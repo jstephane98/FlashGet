@@ -4,6 +4,8 @@ pub mod http;
 pub mod resume;
 pub mod engine;
 pub mod storage;
+pub mod rate_limiter;
+pub mod scheduler;
 
 use thiserror::Error;
 

@@ -1,7 +1,8 @@
 use crate::state::AppState;
 use download_core::engine::{self, DownloadHandle};
-use download_core::http::{ByteFetcher, ReqwestFetcher};
-use download_core::model::{Download, DownloadStatus, Progress};
+use download_core::http::ByteFetcher;
+use download_core::model::{Download, DownloadStatus, Priority, Progress, Settings};
+use download_core::scheduler::pick_to_start;
 use std::path::PathBuf;
 use std::time::Instant;
 use tauri::{AppHandle, Emitter, Manager, State};
@@ -13,31 +14,22 @@ pub struct AddArgs {
     pub dest_dir: String,
 }
 
-/// Crée un téléchargement (statut Queued) et le persiste. Retourne l'objet créé.
+/// Crée un téléchargement (statut Queued), le persiste, puis ré-évalue la file.
 #[tauri::command]
 pub async fn add_download(app: AppHandle, args: AddArgs) -> Result<Download, String> {
-    // Inspection préalable via le trait public du cœur (évite de modifier le crate `download-core`).
-    let fetcher = ReqwestFetcher::new();
-    // FIX M4 — bound the probe so a hung server can't hang the command forever.
+    let fetcher = { app.state::<AppState>().fetcher.clone() };
     let probe = tokio::time::timeout(std::time::Duration::from_secs(30), fetcher.probe(&args.url))
         .await
         .map_err(|_| "timeout while probing URL".to_string())?
         .map_err(|e| e.to_string())?;
-    let file_name = probe
-        .file_name
-        .clone()
-        .unwrap_or_else(|| "download.bin".to_string());
+    let file_name = probe.file_name.clone().unwrap_or_else(|| "download.bin".to_string());
 
-    // Répertoire de destination : si vide, on tombe sur le dossier "Téléchargements" du système.
     let dest_dir = if args.dest_dir.trim().is_empty() {
         app.path().download_dir().map_err(|e| e.to_string())?
     } else {
         PathBuf::from(&args.dest_dir)
     };
     let dest_path = dest_dir.join(&file_name);
-
-    // FIX C1 — defensive containment: file_name is a single sanitized component,
-    // so dest_path's parent must be exactly dest_dir.
     if dest_path.parent() != Some(dest_dir.as_path()) {
         return Err("invalid file name derived from URL".to_string());
     }
@@ -52,10 +44,14 @@ pub async fn add_download(app: AppHandle, args: AddArgs) -> Result<Download, Str
         status: DownloadStatus::Queued,
         supports_ranges: probe.supports_ranges,
         error: None,
+        priority: Priority::Normal,
     };
 
-    let state = app.state::<AppState>();
-    state.storage.upsert(&download).map_err(|e| e.to_string())?;
+    {
+        let state = app.state::<AppState>();
+        state.storage.upsert(&download).map_err(|e| e.to_string())?;
+    }
+    reevaluate(&app);
     Ok(download)
 }
 
@@ -64,49 +60,153 @@ pub fn list_downloads(state: State<AppState>) -> Result<Vec<Download>, String> {
     state.storage.list().map_err(|e| e.to_string())
 }
 
-/// Démarre (ou reprend) un téléchargement. Lance une tâche async qui émet la progression.
+/// Reprend un téléchargement (le repasse `Queued`) puis ré-évalue.
 #[tauri::command]
-pub async fn start_download(app: AppHandle, id: String) -> Result<(), String> {
-    let download = {
+pub fn start_download(app: AppHandle, id: String) -> Result<(), String> {
+    {
         let state = app.state::<AppState>();
-        state
-            .storage
-            .list()
-            .map_err(|e| e.to_string())?
-            .into_iter()
-            .find(|d| d.id == id)
-            .ok_or_else(|| format!("download not found: {id}"))?
-    };
+        let d = state.storage.get_by_id(&id).map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("download not found: {id}"))?;
+        // Ne pas reprendre un téléchargement déjà terminé.
+        if d.status == DownloadStatus::Completed {
+            return Ok(());
+        }
+        // Ne rien faire si déjà actif.
+        if state.handles.lock().unwrap().contains_key(&id) {
+            return Ok(());
+        }
+        state.storage.update_state(&id, d.downloaded_bytes, DownloadStatus::Queued)
+            .map_err(|e| e.to_string())?;
+    }
+    reevaluate(&app);
+    Ok(())
+}
 
-    // FIX I5 — guard against double-start
+#[tauri::command]
+pub fn pause_download(app: AppHandle, id: String) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    if let Some(h) = state.handles.lock().unwrap().get(&id) {
+        h.pause();
+    }
+    // Le slot se libérera quand la tâche moteur se terminera (elle ré-évalue alors).
+    Ok(())
+}
+
+#[tauri::command]
+pub fn cancel_download(app: AppHandle, id: String) -> Result<(), String> {
     {
         let state = app.state::<AppState>();
         let mut handles = state.handles.lock().unwrap();
-        if handles.contains_key(&id) {
-            return Err(format!("download already running: {id}"));
+        if let Some(h) = handles.get(&id) {
+            h.cancel();
         }
-        let handle = DownloadHandle::new();
-        handles.insert(id.clone(), handle);
+        handles.remove(&id);
+        state.storage.delete(&id).map_err(|e| e.to_string())?;
     }
+    reevaluate(&app);
+    Ok(())
+}
 
-    // FIX I2 — persist Downloading status before spawning tasks
+#[tauri::command]
+pub fn set_priority(app: AppHandle, id: String, priority: Priority) -> Result<(), String> {
     {
         let state = app.state::<AppState>();
-        state
-            .storage
-            .update_state(&id, download.downloaded_bytes, DownloadStatus::Downloading)
-            .map_err(|e| e.to_string())?;
+        state.storage.set_priority(&id, priority).map_err(|e| e.to_string())?;
     }
+    reevaluate(&app);
+    Ok(())
+}
 
+#[tauri::command]
+pub fn get_settings(state: State<AppState>) -> Result<Settings, String> {
+    state.storage.get_settings().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn update_settings(app: AppHandle, max_concurrent: u32, max_speed_bps: u64) -> Result<(), String> {
+    {
+        let state = app.state::<AppState>();
+        let s = Settings { max_concurrent: max_concurrent.max(1), max_speed_bps };
+        state.storage.set_settings(&s).map_err(|e| e.to_string())?;
+        state.limiter.set_rate(s.max_speed_bps);
+    }
+    reevaluate(&app);
+    Ok(())
+}
+
+#[tauri::command]
+pub fn pause_all(state: State<AppState>) -> Result<(), String> {
+    let handles = state.handles.lock().unwrap();
+    for h in handles.values() {
+        h.pause();
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn resume_all(app: AppHandle) -> Result<(), String> {
+    {
+        let state = app.state::<AppState>();
+        let downloads = state.storage.list().map_err(|e| e.to_string())?;
+        for d in downloads.iter().filter(|d| d.status == DownloadStatus::Paused) {
+            state.storage.update_state(&d.id, d.downloaded_bytes, DownloadStatus::Queued)
+                .map_err(|e| e.to_string())?;
+        }
+    }
+    reevaluate(&app);
+    Ok(())
+}
+
+/// Ré-évalue la file : démarre les `Queued` élus selon la limite + priorités.
+/// Atomique vis-à-vis de la map `handles` (verrou tenu pendant pick + launch).
+fn reevaluate(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let settings = match state.storage.get_settings() {
+        Ok(s) => s,
+        Err(e) => { eprintln!("reevaluate: get_settings failed: {e}"); return; }
+    };
+    let downloads = match state.storage.list() {
+        Ok(d) => d,
+        Err(e) => { eprintln!("reevaluate: list failed: {e}"); return; }
+    };
+    let to_start = pick_to_start(&downloads, settings.max_concurrent);
+    if to_start.is_empty() {
+        return;
+    }
+    // Verrou tenu pour rendre pick+launch atomique (évite un double-démarrage concurrent).
+    let mut handles = state.handles.lock().unwrap();
+    let mut free = settings.max_concurrent.saturating_sub(handles.len() as u32);
+    for id in to_start {
+        if free == 0 {
+            break;
+        }
+        if handles.contains_key(&id) {
+            continue; // déjà actif
+        }
+        let download = match downloads.iter().find(|d| d.id == id) {
+            Some(d) => d.clone(),
+            None => continue,
+        };
+        let handle = DownloadHandle::new();
+        handles.insert(id.clone(), handle.clone());
+        // Marquer Downloading conditionnellement — ne jamais écraser un statut terminal.
+        let _ = state.storage.mark_active(&id, download.downloaded_bytes);
+        launch(app, download, handle);
+        free -= 1;
+    }
+}
+
+/// Lance les deux tâches (relais de progression + moteur) pour un téléchargement.
+fn launch(app: &AppHandle, download: Download, handle: DownloadHandle) {
+    let id = download.id.clone();
     let (tx, mut rx) = mpsc::unbounded_channel::<Progress>();
 
-    // Tâche d'émission : calcule la vitesse et relaie vers l'UI + persiste.
+    // Relais de progression : vitesse + emit + persistance des états terminaux.
     let app_for_rx = app.clone();
     let id_for_rx = id.clone();
     tokio::spawn(async move {
         let mut last_t = Instant::now();
         let mut last_bytes = 0u64;
-        // FIX I1 — keep last known speed; only recompute when dt >= 0.5
         let mut current_speed: u64 = 0;
         while let Some(mut p) = rx.recv().await {
             let now = Instant::now();
@@ -117,16 +217,10 @@ pub async fn start_download(app: AppHandle, id: String) -> Result<(), String> {
                 last_t = now;
                 last_bytes = p.downloaded_bytes;
             }
-            // Always emit the last known rolling speed (never 0 between windows)
             p.speed_bps = current_speed;
             let _ = app_for_rx.emit("download://progress", &p);
-            // FIX C1 — UPDATE-only persistence: won't recreate a deleted/cancelled row
-            if matches!(
-                p.status,
-                DownloadStatus::Completed | DownloadStatus::Paused | DownloadStatus::Error
-            ) {
+            if matches!(p.status, DownloadStatus::Completed | DownloadStatus::Paused | DownloadStatus::Error) {
                 let st = app_for_rx.state::<AppState>();
-                // FIX I4 — log storage write failures instead of silently dropping
                 if let Err(e) = st.storage.update_state(&id_for_rx, p.downloaded_bytes, p.status) {
                     eprintln!("failed to persist download {id_for_rx}: {e}");
                 }
@@ -134,68 +228,40 @@ pub async fn start_download(app: AppHandle, id: String) -> Result<(), String> {
         }
     });
 
-    // Tâche de téléchargement.
+    // Tâche moteur.
+    let app_for_dl = app.clone();
     let dest = PathBuf::from(&download.dest_path);
     let url = download.url.clone();
     let id_for_dl = id.clone();
-    // Retrieve the handle we inserted above
-    let handle = {
-        let state = app.state::<AppState>();
-        let guard = state.handles.lock().unwrap();
-        guard.get(&id_for_dl).cloned().unwrap()
-    };
-    // FIX I2 — clone the handle before it's moved into the engine so we can read
-    // how many bytes were downloaded if the download fails.
     let handle_for_err = handle.clone();
+    let (fetcher, limiter) = {
+        let st = app.state::<AppState>();
+        (st.fetcher.clone(), st.limiter.clone())
+    };
     tokio::spawn(async move {
-        let fetcher = ReqwestFetcher::new();
-        match engine::download(&fetcher, &id_for_dl, &url, &dest, handle, tx).await {
+        match engine::download(&fetcher, &id_for_dl, &url, &dest, handle, limiter, tx).await {
             Ok(_) => {}
             Err(e) => {
                 eprintln!("download {id_for_dl} failed: {e}");
                 let bytes = handle_for_err.downloaded();
-                let st = app.state::<AppState>();
+                let st = app_for_dl.state::<AppState>();
                 if let Err(se) = st.storage.mark_error(&id_for_dl, bytes, &e.to_string()) {
                     eprintln!("failed to persist error for {id_for_dl}: {se}");
                 }
-                let _ = app.emit(
-                    "download://progress",
-                    &Progress {
-                        id: id_for_dl.clone(),
-                        downloaded_bytes: bytes,
-                        total_bytes: None,
-                        speed_bps: 0,
-                        status: DownloadStatus::Error,
-                    },
-                );
+                let _ = app_for_dl.emit("download://progress", &Progress {
+                    id: id_for_dl.clone(),
+                    downloaded_bytes: bytes,
+                    total_bytes: None,
+                    speed_bps: 0,
+                    status: DownloadStatus::Error,
+                });
             }
         }
-        // Nettoyage du handle une fois terminé/pausé/échoué.
-        let st = app.state::<AppState>();
-        st.handles.lock().unwrap().remove(&id_for_dl);
-    });
-
-    Ok(())
-}
-
-#[tauri::command]
-pub fn pause_download(state: State<AppState>, id: String) -> Result<(), String> {
-    if let Some(h) = state.handles.lock().unwrap().get(&id) {
-        h.pause();
-    }
-    Ok(())
-}
-
-#[tauri::command]
-pub fn cancel_download(state: State<AppState>, id: String) -> Result<(), String> {
-    // FIX m4 — cancel signal + remove handle + delete from storage, all tight
-    {
-        let mut handles = state.handles.lock().unwrap();
-        if let Some(h) = handles.get(&id) {
-            h.cancel();
+        // Libérer le slot et relancer la file.
+        {
+            let st = app_for_dl.state::<AppState>();
+            st.handles.lock().unwrap().remove(&id_for_dl);
         }
-        handles.remove(&id);
-    }
-    state.storage.delete(&id).map_err(|e| e.to_string())?;
-    Ok(())
+        reevaluate(&app_for_dl);
+    });
 }
