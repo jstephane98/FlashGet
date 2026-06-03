@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { Download, Progress, Priority, Settings, Category, CategoryDirs } from "./types";
+import type { Download, Progress, Priority, Settings, Category, CategoryDirs, BridgeInfo } from "./types";
 
 export function addDownload(url: string, destDir: string): Promise<Download> {
   return invoke<Download>("add_download", { args: { url, dest_dir: destDir } });
@@ -68,4 +68,12 @@ export function openFile(id: string): Promise<void> {
 
 export function openFolder(id: string): Promise<void> {
   return invoke("open_folder", { id });
+}
+
+export function getBridgeInfo(): Promise<BridgeInfo> {
+  return invoke<BridgeInfo>("get_bridge_info");
+}
+
+export function regenerateBridgeToken(): Promise<string> {
+  return invoke<string>("regenerate_bridge_token");
 }

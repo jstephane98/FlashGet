@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import * as api from "../api";
-import type { Category, CategoryDirs } from "../types";
+import type { BridgeInfo, Category, CategoryDirs } from "../types";
 
 const CATS: { key: Category; label: string }[] = [
   { key: "video", label: "🎬 Vidéos" },
@@ -17,6 +17,8 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
   const [speedValue, setSpeedValue] = useState(0);
   const [unlimited, setUnlimited] = useState(true);
   const [dirs, setDirs] = useState<CategoryDirs | null>(null);
+  const [bridge, setBridge] = useState<BridgeInfo | null>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -26,6 +28,7 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
       else { setUnlimited(false); setSpeedValue(Math.round((s.max_speed_bps / (1024 * 1024)) * 10) / 10); }
     });
     api.getCategoryDirs().then(setDirs);
+    api.getBridgeInfo().then(setBridge);
   }, [open]);
 
   if (!open) return null;
@@ -41,6 +44,18 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
   async function clearDir(cat: Category) {
     await api.setCategoryDir(cat, null);
     setDirs(await api.getCategoryDirs());
+  }
+
+  async function copyToken() {
+    if (!bridge) return;
+    await navigator.clipboard.writeText(bridge.token);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }
+
+  async function regenToken() {
+    const token = await api.regenerateBridgeToken();
+    setBridge((b) => (b ? { ...b, token } : b));
   }
 
   async function save() {
@@ -84,6 +99,42 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
               )}
             </div>
           ))}
+        </div>
+        <div className="px-4 py-3 border-t border-gray-100">
+          <div className="font-medium mb-2">🧩 Extension navigateur</div>
+          <div className="flex items-center gap-2 mb-2 text-sm">
+            <span
+              className={
+                "inline-block w-2 h-2 rounded-full " +
+                (bridge?.listening ? "bg-green-500" : "bg-gray-400")
+              }
+            />
+            <span className="text-gray-600">
+              {bridge?.listening
+                ? `Serveur local à l'écoute (port ${bridge.port})`
+                : "Serveur local indisponible"}
+            </span>
+          </div>
+          <label className="block text-xs text-gray-500 mb-1">
+            Jeton d'appairage (à coller dans les options de l'extension)
+          </label>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 truncate bg-gray-100 rounded px-2 py-1 text-xs">
+              {bridge?.token ?? "…"}
+            </code>
+            <button
+              className="text-xs border rounded px-2 py-1 hover:bg-gray-50"
+              onClick={copyToken}
+            >
+              {copied ? "Copié ✓" : "Copier"}
+            </button>
+            <button
+              className="text-xs border rounded px-2 py-1 hover:bg-gray-50"
+              onClick={regenToken}
+            >
+              Régénérer
+            </button>
+          </div>
         </div>
         <div className="flex justify-end gap-2 px-4 py-3 border-t border-gray-100">
           <button className="px-3 py-1.5 text-sm rounded-md bg-gray-100" onClick={onClose}>Fermer</button>
