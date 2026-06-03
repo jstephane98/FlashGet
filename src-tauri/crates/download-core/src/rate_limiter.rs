@@ -81,6 +81,12 @@ impl RateLimiter {
     /// Calcul pur : recharge le bucket selon le temps écoulé, retire `n` octets,
     /// et renvoie le nombre de secondes à attendre (0 si budget suffisant ou illimité).
     /// Ne tient AUCUN verrou pendant l'attente (l'appelant dort après).
+    ///
+    /// Modèle de dette assumé : sous N appelants concurrents, `tokens` peut devenir
+    /// très négatif et chaque appelant dort sa propre part de la dette. Le débit
+    /// *moyen agrégé* reste borné à `rate` ; `cap` ne borne que l'accumulation à
+    /// l'inactivité (le burst), pas la profondeur de dette sous charge concurrente.
+    #[must_use]
     fn take(&self, n: u64) -> f64 {
         let mut b = self.inner.lock().unwrap();
         if b.rate <= 0.0 {
