@@ -67,6 +67,10 @@ pub fn start_download(app: AppHandle, id: String) -> Result<(), String> {
         let state = app.state::<AppState>();
         let d = state.storage.get_by_id(&id).map_err(|e| e.to_string())?
             .ok_or_else(|| format!("download not found: {id}"))?;
+        // Ne pas reprendre un téléchargement déjà terminé.
+        if d.status == DownloadStatus::Completed {
+            return Ok(());
+        }
         // Ne rien faire si déjà actif.
         if state.handles.lock().unwrap().contains_key(&id) {
             return Ok(());
