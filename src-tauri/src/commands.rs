@@ -56,6 +56,9 @@ pub(crate) async fn add_url(app: &AppHandle, url: &str, dest_dir: &str) -> Resul
         error: None,
         priority: Priority::Normal,
         category,
+        referrer: None,
+        cookie: None,
+        user_agent: None,
     };
 
     {

@@ -60,6 +60,31 @@ pub struct Download {
     pub priority: Priority,
     #[serde(default)]
     pub category: Category,
+    #[serde(default)]
+    pub referrer: Option<String>,
+    #[serde(default)]
+    pub cookie: Option<String>,
+    #[serde(default)]
+    pub user_agent: Option<String>,
+}
+
+/// En-têtes HTTP optionnels transmis par le navigateur pour un téléchargement capturé.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct RequestHeaders {
+    pub referrer: Option<String>,
+    pub cookie: Option<String>,
+    pub user_agent: Option<String>,
+}
+
+impl Download {
+    /// Copie les en-têtes HTTP optionnels associés à ce téléchargement.
+    pub fn request_headers(&self) -> RequestHeaders {
+        RequestHeaders {
+            referrer: self.referrer.clone(),
+            cookie: self.cookie.clone(),
+            user_agent: self.user_agent.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]

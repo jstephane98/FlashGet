@@ -48,6 +48,9 @@ mod tests {
             error: None,
             priority,
             category: Category::Other,
+            referrer: None,
+            cookie: None,
+            user_agent: None,
         }
     }
 
