@@ -1,5 +1,6 @@
-import type { Download } from "../types";
+import type { Download, Priority } from "../types";
 import { formatBytes, formatSpeed, percent } from "../format";
+import { PriorityPill } from "./PriorityPill";
 
 const STATUS_LABEL: Record<string, string> = {
   queued: "En file",
@@ -12,17 +13,25 @@ const STATUS_LABEL: Record<string, string> = {
 export function DownloadRow({
   d,
   speed,
+  queuePosition,
   onPause,
   onResume,
   onCancel,
+  onPriority,
 }: {
   d: Download;
   speed: number;
+  queuePosition: number | null;
   onPause: () => void;
   onResume: () => void;
   onCancel: () => void;
+  onPriority: (p: Priority) => void;
 }) {
   const pct = percent(d.downloaded_bytes, d.total_bytes);
+  const stateLabel =
+    d.status === "queued" && queuePosition !== null
+      ? `En file (${queuePosition})`
+      : `${STATUS_LABEL[d.status]} · ${pct}%`;
   return (
     <div className="flex items-center gap-3 px-3 py-2 border-b border-gray-100 text-sm">
       <div className="flex-[2] min-w-0">
@@ -35,7 +44,8 @@ export function DownloadRow({
         </div>
       </div>
       <div className="flex-1">{d.total_bytes ? formatBytes(d.total_bytes) : "—"}</div>
-      <div className="flex-1">{STATUS_LABEL[d.status]} · {pct}%</div>
+      <div className="flex-1"><PriorityPill value={d.priority} onChange={onPriority} /></div>
+      <div className="flex-1">{stateLabel}</div>
       <div className="flex-1">{d.status === "downloading" ? formatSpeed(speed) : "—"}</div>
       <div className="flex gap-1">
         {d.status === "downloading" ? (

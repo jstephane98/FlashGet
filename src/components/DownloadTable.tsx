@@ -1,5 +1,7 @@
-import type { Download } from "../types";
+import type { Download, Priority } from "../types";
 import { DownloadRow } from "./DownloadRow";
+
+const RANK: Record<Priority, number> = { high: 0, normal: 1, low: 2 };
 
 export function DownloadTable({
   downloads,
@@ -7,18 +9,29 @@ export function DownloadTable({
   onPause,
   onResume,
   onCancel,
+  onPriority,
 }: {
   downloads: Download[];
   speeds: Record<string, number>;
   onPause: (id: string) => void;
   onResume: (id: string) => void;
   onCancel: (id: string) => void;
+  onPriority: (id: string, p: Priority) => void;
 }) {
+  // Position dans la file = rang parmi les "queued", trié par priorité puis ordre d'origine.
+  const queued = downloads
+    .map((d, i) => ({ d, i }))
+    .filter((x) => x.d.status === "queued")
+    .sort((a, b) => RANK[a.d.priority] - RANK[b.d.priority] || a.i - b.i);
+  const position: Record<string, number> = {};
+  queued.forEach((x, idx) => { position[x.d.id] = idx + 1; });
+
   return (
     <div>
       <div className="flex gap-3 px-3 py-2 text-[10px] uppercase tracking-wide text-gray-400 border-b border-gray-200 bg-gray-50">
         <div className="flex-[2]">Nom</div>
         <div className="flex-1">Taille</div>
+        <div className="flex-1">Priorité</div>
         <div className="flex-1">État</div>
         <div className="flex-1">Vitesse</div>
         <div className="w-16" />
@@ -31,9 +44,11 @@ export function DownloadTable({
             key={d.id}
             d={d}
             speed={speeds[d.id] ?? 0}
+            queuePosition={position[d.id] ?? null}
             onPause={() => onPause(d.id)}
             onResume={() => onResume(d.id)}
             onCancel={() => onCancel(d.id)}
+            onPriority={(p) => onPriority(d.id, p)}
           />
         ))
       )}
