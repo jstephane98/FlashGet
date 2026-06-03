@@ -55,3 +55,28 @@ async fn probe_without_headers_sends_no_cookie() {
     let joined = seen.lock().unwrap().join("\n").to_lowercase();
     assert!(!joined.contains("cookie:"), "aucun cookie ne doit être envoyé: {joined}");
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn fetch_range_forwards_headers() {
+    // Parité avec probe : le chemin fetch_range (exécuté N fois par téléchargement
+    // multi-segments) doit aussi transmettre Cookie/Referer/User-Agent.
+    let seen = Arc::new(Mutex::new(Vec::<String>::new()));
+    let port = start_recording_server(seen.clone());
+    let fetcher = ReqwestFetcher::new();
+    let url = format!("http://127.0.0.1:{port}/file.bin");
+    let headers = RequestHeaders {
+        referrer: Some("http://example.com/ref".to_string()),
+        cookie: Some("session=xyz".to_string()),
+        user_agent: Some("UA/test".to_string()),
+    };
+
+    let _ = fetcher
+        .fetch_range(&url, Some((0, 10)), &headers)
+        .await
+        .expect("fetch_range should succeed");
+
+    let joined = seen.lock().unwrap().join("\n").to_lowercase();
+    assert!(joined.contains("referer: http://example.com/ref"), "referer manquant: {joined}");
+    assert!(joined.contains("cookie: session=xyz"), "cookie manquant: {joined}");
+    assert!(joined.contains("user-agent: ua/test"), "user-agent manquant: {joined}");
+}
