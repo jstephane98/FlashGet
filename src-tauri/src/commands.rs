@@ -204,7 +204,7 @@ fn launch(app: &AppHandle, download: Download, handle: DownloadHandle) {
     // Relais de progression : vitesse + emit + persistance des états terminaux.
     let app_for_rx = app.clone();
     let id_for_rx = id.clone();
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         let mut last_t = Instant::now();
         let mut last_bytes = 0u64;
         let mut current_speed: u64 = 0;
@@ -238,7 +238,7 @@ fn launch(app: &AppHandle, download: Download, handle: DownloadHandle) {
         let st = app.state::<AppState>();
         (st.fetcher.clone(), st.limiter.clone())
     };
-    tokio::spawn(async move {
+    tauri::async_runtime::spawn(async move {
         match engine::download(&fetcher, &id_for_dl, &url, &dest, handle, limiter, tx).await {
             Ok(_) => {}
             Err(e) => {
