@@ -44,3 +44,9 @@ export interface Progress {
   speed_bps: number;
   status: DownloadStatus;
 }
+
+export interface BridgeInfo {
+  token: string;
+  port: number;
+  listening: boolean;
+}

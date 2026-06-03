@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 420px; margin: 24px auto; padding: 0 16px; }
+      label { display: block; font-size: 13px; margin: 12px 0 4px; }
+      input { width: 100%; box-sizing: border-box; padding: 6px; }
+      button { margin-top: 16px; padding: 6px 14px; cursor: pointer; }
+      #saved { color: #16a34a; font-size: 13px; margin-left: 8px; }
+    </style>
+  </head>
+  <body>
+    <h3>Options FlashGet</h3>
+    <label for="token">Jeton d'appairage (copié depuis l'application)</label>
+    <input id="token" type="text" placeholder="Coller le jeton…" />
+    <label for="port">Port</label>
+    <input id="port" type="number" value="15151" />
+    <div>
+      <button id="save">Enregistrer</button>
+      <span id="saved"></span>
+    </div>
+    <script src="options.js" type="module"></script>
+  </body>
+</html>

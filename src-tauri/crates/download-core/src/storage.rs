@@ -4,6 +4,9 @@ use rusqlite::Connection;
 use std::path::Path;
 use std::sync::Mutex;
 
+/// Clé du jeton du bridge navigateur dans la table key/value `settings`.
+const BRIDGE_TOKEN_KEY: &str = "bridge.token";
+
 pub struct Storage {
     conn: Mutex<Connection>,
 }
@@ -212,6 +215,34 @@ impl Storage {
         Ok(())
     }
 
+    /// Jeton du bridge navigateur (persisté en `settings`, clé `bridge.token`).
+    /// Généré fort au premier appel, puis stable.
+    pub fn get_or_create_bridge_token(&self) -> Result<String, CoreError> {
+        let conn = self.conn.lock().unwrap();
+        let existing: Option<String> = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key=?1",
+                [BRIDGE_TOKEN_KEY],
+                |r| r.get::<_, String>(0),
+            )
+            .ok()
+            .filter(|s| !s.is_empty());
+        if let Some(tok) = existing {
+            return Ok(tok);
+        }
+        let token = new_bridge_token();
+        upsert_bridge_token(&conn, &token)?;
+        Ok(token)
+    }
+
+    /// Régénère et persiste un nouveau jeton ; renvoie la nouvelle valeur.
+    pub fn regenerate_bridge_token(&self) -> Result<String, CoreError> {
+        let token = new_bridge_token();
+        let conn = self.conn.lock().unwrap();
+        upsert_bridge_token(&conn, &token)?;
+        Ok(token)
+    }
+
     pub fn clear_completed(&self) -> Result<(), CoreError> {
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM downloads WHERE status='completed'", [])
@@ -306,6 +337,25 @@ fn category_from_str(s: &str) -> Category {
         "music" => Category::Music,
         _ => Category::Other,
     }
+}
+
+/// Jeton aléatoire fort : deux UUID v4 concaténés en hexadécimal (64 caractères).
+fn new_bridge_token() -> String {
+    format!(
+        "{}{}",
+        uuid::Uuid::new_v4().simple(),
+        uuid::Uuid::new_v4().simple()
+    )
+}
+
+/// Upsert le jeton du bridge dans la table `settings`.
+fn upsert_bridge_token(conn: &Connection, token: &str) -> Result<(), CoreError> {
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value=?2",
+        rusqlite::params![BRIDGE_TOKEN_KEY, token],
+    )
+    .map_err(|e| CoreError::Storage(e.to_string()))?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -501,5 +551,26 @@ mod tests {
         s.clear_completed().unwrap();
         let ids: Vec<String> = s.list().unwrap().into_iter().map(|d| d.id).collect();
         assert_eq!(ids, vec!["b"]);
+    }
+
+    #[test]
+    fn bridge_token_is_stable_and_non_empty() {
+        let s = Storage::open_in_memory().unwrap();
+        let a = s.get_or_create_bridge_token().unwrap();
+        let b = s.get_or_create_bridge_token().unwrap();
+        assert!(!a.is_empty());
+        assert_eq!(a.len(), 64, "le jeton doit faire 64 caractères hex");
+        assert_eq!(a, b, "le jeton doit être stable entre appels");
+    }
+
+    #[test]
+    fn regenerate_bridge_token_changes_value() {
+        let s = Storage::open_in_memory().unwrap();
+        let a = s.get_or_create_bridge_token().unwrap();
+        let b = s.regenerate_bridge_token().unwrap();
+        assert_ne!(a, b, "régénérer doit changer le jeton");
+        assert!(!b.is_empty());
+        // Le nouveau jeton est désormais celui qui persiste.
+        assert_eq!(b, s.get_or_create_bridge_token().unwrap());
     }
 }

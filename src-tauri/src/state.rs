@@ -3,6 +3,7 @@ use download_core::http::ReqwestFetcher;
 use download_core::rate_limiter::RateLimiter;
 use download_core::storage::Storage;
 use std::collections::HashMap;
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 
 /// État global géré par Tauri.
@@ -13,6 +14,8 @@ pub struct AppState {
     pub fetcher: ReqwestFetcher,
     /// Limiteur de bande passante global partagé.
     pub limiter: Arc<RateLimiter>,
+    /// `true` une fois le serveur WebSocket du bridge à l'écoute sur la loopback.
+    pub bridge_listening: Arc<AtomicBool>,
 }
 
 impl AppState {
@@ -22,6 +25,7 @@ impl AppState {
             handles: Mutex::new(HashMap::new()),
             fetcher: ReqwestFetcher::new(),
             limiter: Arc::new(RateLimiter::new(max_speed_bps)),
+            bridge_listening: Arc::new(AtomicBool::new(false)),
         }
     }
 }
