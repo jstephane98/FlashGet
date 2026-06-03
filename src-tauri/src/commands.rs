@@ -171,7 +171,11 @@ fn reevaluate(app: &AppHandle) {
     }
     // Verrou tenu pour rendre pick+launch atomique (évite un double-démarrage concurrent).
     let mut handles = state.handles.lock().unwrap();
+    let mut free = settings.max_concurrent.saturating_sub(handles.len() as u32);
     for id in to_start {
+        if free == 0 {
+            break;
+        }
         if handles.contains_key(&id) {
             continue; // déjà actif
         }
@@ -181,9 +185,10 @@ fn reevaluate(app: &AppHandle) {
         };
         let handle = DownloadHandle::new();
         handles.insert(id.clone(), handle.clone());
-        // Marquer Downloading tout de suite (source de vérité pour les prochains pick).
-        let _ = state.storage.update_state(&id, download.downloaded_bytes, DownloadStatus::Downloading);
+        // Marquer Downloading conditionnellement — ne jamais écraser un statut terminal.
+        let _ = state.storage.mark_active(&id, download.downloaded_bytes);
         launch(app, download, handle);
+        free -= 1;
     }
 }
 

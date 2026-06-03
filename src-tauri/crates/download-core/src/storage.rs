@@ -114,6 +114,17 @@ impl Storage {
         Ok(())
     }
 
+    /// Passe un téléchargement en `downloading` SANS écraser un statut terminal
+    /// (completed/error). No-op si l'id n'existe pas ou est déjà terminé.
+    pub fn mark_active(&self, id: &str, downloaded_bytes: u64) -> Result<(), CoreError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE downloads SET downloaded_bytes=?1, status='downloading' WHERE id=?2 AND status NOT IN ('completed','error')",
+            rusqlite::params![downloaded_bytes as i64, id],
+        ).map_err(|e| CoreError::Storage(e.to_string()))?;
+        Ok(())
+    }
+
     /// Marque un téléchargement en erreur (no-op si l'id n'existe plus).
     pub fn mark_error(&self, id: &str, downloaded_bytes: u64, message: &str) -> Result<(), CoreError> {
         let conn = self.conn.lock().unwrap();
@@ -178,7 +189,7 @@ impl Storage {
 
     pub fn set_settings(&self, s: &Settings) -> Result<(), CoreError> {
         let conn = self.conn.lock().unwrap();
-        let mut put = |key: &str, val: String| -> Result<(), CoreError> {
+        let put = |key: &str, val: String| -> Result<(), CoreError> {
             conn.execute(
                 "INSERT INTO settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value=?2",
                 rusqlite::params![key, val],
@@ -354,5 +365,27 @@ mod tests {
         s.upsert(&sample("second")).unwrap();
         let ids: Vec<String> = s.list().unwrap().into_iter().map(|d| d.id).collect();
         assert_eq!(ids, vec!["first", "second"]);
+    }
+
+    #[test]
+    fn mark_active_sets_downloading() {
+        let s = Storage::open_in_memory().unwrap();
+        s.upsert(&sample("ma1")).unwrap(); // starts as Paused
+        s.mark_active("ma1", 10).unwrap();
+        let d = s.get_by_id("ma1").unwrap().unwrap();
+        assert_eq!(d.status, DownloadStatus::Downloading);
+        assert_eq!(d.downloaded_bytes, 10);
+    }
+
+    #[test]
+    fn mark_active_noop_when_completed() {
+        let s = Storage::open_in_memory().unwrap();
+        s.upsert(&sample("ma2")).unwrap();
+        s.update_state("ma2", 50, DownloadStatus::Completed).unwrap();
+        s.mark_active("ma2", 99).unwrap();
+        let d = s.get_by_id("ma2").unwrap().unwrap();
+        // status must remain Completed, not flipped back to Downloading
+        assert_eq!(d.status, DownloadStatus::Completed);
+        assert_eq!(d.downloaded_bytes, 50);
     }
 }
