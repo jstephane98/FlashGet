@@ -605,6 +605,10 @@ mod tests {
         assert_eq!(got.cookie.as_deref(), Some("sid=abc; theme=dark"));
         assert_eq!(got.user_agent.as_deref(), Some("Mozilla/5.0 (Test)"));
 
+        // Vérifier aussi le chemin `list` (même SELECT/mapping que get_by_id).
+        let from_list = s.list().unwrap().into_iter().find(|x| x.id == "h1").unwrap();
+        assert_eq!(from_list.cookie.as_deref(), Some("sid=abc; theme=dark"));
+
         // Absents => NULL => None.
         let plain = sample("h2");
         s.upsert(&plain).unwrap();
