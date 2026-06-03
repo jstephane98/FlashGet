@@ -4,6 +4,9 @@ use rusqlite::Connection;
 use std::path::Path;
 use std::sync::Mutex;
 
+/// Clé du jeton du bridge navigateur dans la table key/value `settings`.
+const BRIDGE_TOKEN_KEY: &str = "bridge.token";
+
 pub struct Storage {
     conn: Mutex<Connection>,
 }
@@ -217,18 +220,18 @@ impl Storage {
     pub fn get_or_create_bridge_token(&self) -> Result<String, CoreError> {
         let conn = self.conn.lock().unwrap();
         let existing: Option<String> = conn
-            .query_row("SELECT value FROM settings WHERE key='bridge.token'", [], |r| r.get::<_, String>(0))
+            .query_row(
+                "SELECT value FROM settings WHERE key=?1",
+                [BRIDGE_TOKEN_KEY],
+                |r| r.get::<_, String>(0),
+            )
             .ok()
             .filter(|s| !s.is_empty());
         if let Some(tok) = existing {
             return Ok(tok);
         }
         let token = new_bridge_token();
-        conn.execute(
-            "INSERT INTO settings (key, value) VALUES ('bridge.token', ?1) ON CONFLICT(key) DO UPDATE SET value=?1",
-            [token.as_str()],
-        )
-        .map_err(|e| CoreError::Storage(e.to_string()))?;
+        upsert_bridge_token(&conn, &token)?;
         Ok(token)
     }
 
@@ -236,11 +239,7 @@ impl Storage {
     pub fn regenerate_bridge_token(&self) -> Result<String, CoreError> {
         let token = new_bridge_token();
         let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "INSERT INTO settings (key, value) VALUES ('bridge.token', ?1) ON CONFLICT(key) DO UPDATE SET value=?1",
-            [token.as_str()],
-        )
-        .map_err(|e| CoreError::Storage(e.to_string()))?;
+        upsert_bridge_token(&conn, &token)?;
         Ok(token)
     }
 
@@ -347,6 +346,16 @@ fn new_bridge_token() -> String {
         uuid::Uuid::new_v4().simple(),
         uuid::Uuid::new_v4().simple()
     )
+}
+
+/// Upsert le jeton du bridge dans la table `settings`.
+fn upsert_bridge_token(conn: &Connection, token: &str) -> Result<(), CoreError> {
+    conn.execute(
+        "INSERT INTO settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value=?2",
+        rusqlite::params![BRIDGE_TOKEN_KEY, token],
+    )
+    .map_err(|e| CoreError::Storage(e.to_string()))?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -550,6 +559,7 @@ mod tests {
         let a = s.get_or_create_bridge_token().unwrap();
         let b = s.get_or_create_bridge_token().unwrap();
         assert!(!a.is_empty());
+        assert_eq!(a.len(), 64, "le jeton doit faire 64 caractères hex");
         assert_eq!(a, b, "le jeton doit être stable entre appels");
     }
 
