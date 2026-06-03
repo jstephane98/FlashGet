@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body { font-family: system-ui, sans-serif; width: 260px; margin: 0; padding: 12px; }
+      .status { display: flex; align-items: center; gap: 6px; font-size: 13px; margin-bottom: 10px; }
+      .dot { width: 8px; height: 8px; border-radius: 50%; }
+      .on { background: #22c55e; } .off { background: #9ca3af; }
+      input { width: 100%; box-sizing: border-box; padding: 6px; margin-bottom: 8px; }
+      button { width: 100%; padding: 6px; margin-bottom: 6px; cursor: pointer; }
+      .muted { font-size: 12px; color: #6b7280; }
+      .hidden { display: none; }
+      #toast { font-size: 12px; color: #16a34a; }
+    </style>
+  </head>
+  <body>
+    <div class="status">
+      <span id="dot" class="dot off"></span>
+      <span id="statusText">…</span>
+    </div>
+
+    <div id="connectedView" class="hidden">
+      <input id="url" type="text" placeholder="Coller une URL…" />
+      <button id="sendUrl">Envoyer à FlashGet</button>
+      <button id="sendTab">Envoyer l'onglet courant</button>
+      <div id="toast"></div>
+    </div>
+
+    <div id="disconnectedView" class="hidden">
+      <p class="muted">FlashGet non détecté. Lancez l'application.</p>
+      <button id="openOptions">Options</button>
+      <button id="retry">Réessayer</button>
+    </div>
+
+    <script src="popup.js" type="module"></script>
+  </body>
+</html>
