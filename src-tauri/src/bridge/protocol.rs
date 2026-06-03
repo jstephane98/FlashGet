@@ -7,7 +7,13 @@ use serde::Deserialize;
 #[derive(Debug, Clone, PartialEq)]
 pub enum ClientMessage {
     Auth { token: String },
-    Capture { url: String, filename: Option<String>, referrer: Option<String> },
+    Capture {
+        url: String,
+        filename: Option<String>,
+        referrer: Option<String>,
+        cookie: Option<String>,
+        user_agent: Option<String>,
+    },
     Unknown,
 }
 
@@ -17,7 +23,13 @@ pub enum ServerReply {
     Authed,
     AuthFailed,
     NeedAuth,
-    CaptureRequested { url: String, filename: Option<String>, referrer: Option<String> },
+    CaptureRequested {
+        url: String,
+        filename: Option<String>,
+        referrer: Option<String>,
+        cookie: Option<String>,
+        user_agent: Option<String>,
+    },
     Error { msg: String },
 }
 
@@ -31,6 +43,10 @@ enum RawMessage {
         filename: Option<String>,
         #[serde(default)]
         referrer: Option<String>,
+        #[serde(default)]
+        cookie: Option<String>,
+        #[serde(default)]
+        user_agent: Option<String>,
     },
 }
 
@@ -38,8 +54,8 @@ enum RawMessage {
 pub fn parse_client_message(text: &str) -> ClientMessage {
     match serde_json::from_str::<RawMessage>(text) {
         Ok(RawMessage::Auth { token }) => ClientMessage::Auth { token },
-        Ok(RawMessage::Capture { url, filename, referrer }) => {
-            ClientMessage::Capture { url, filename, referrer }
+        Ok(RawMessage::Capture { url, filename, referrer, cookie, user_agent }) => {
+            ClientMessage::Capture { url, filename, referrer, cookie, user_agent }
         }
         Err(_) => ClientMessage::Unknown,
     }
@@ -60,9 +76,9 @@ pub fn handle_message(
                 (false, ServerReply::AuthFailed)
             }
         }
-        ClientMessage::Capture { url, filename, referrer } => {
+        ClientMessage::Capture { url, filename, referrer, cookie, user_agent } => {
             if authed {
-                (authed, ServerReply::CaptureRequested { url, filename, referrer })
+                (authed, ServerReply::CaptureRequested { url, filename, referrer, cookie, user_agent })
             } else {
                 (authed, ServerReply::NeedAuth)
             }
@@ -135,5 +151,22 @@ mod tests {
         let (authed, reply) = handle_message(true, "secret", msg);
         assert!(authed);
         assert!(matches!(reply, ServerReply::Authed));
+    }
+
+    #[test]
+    fn capture_carries_cookie_and_user_agent() {
+        let msg = parse_client_message(
+            r#"{"type":"capture","url":"http://x/f.zip","referrer":"http://x/page","cookie":"sid=1","user_agent":"UA/1"}"#,
+        );
+        let (_authed, reply) = handle_message(true, "secret", msg);
+        match reply {
+            ServerReply::CaptureRequested { url, referrer, cookie, user_agent, .. } => {
+                assert_eq!(url, "http://x/f.zip");
+                assert_eq!(referrer.as_deref(), Some("http://x/page"));
+                assert_eq!(cookie.as_deref(), Some("sid=1"));
+                assert_eq!(user_agent.as_deref(), Some("UA/1"));
+            }
+            other => panic!("attendu CaptureRequested, obtenu {other:?}"),
+        }
     }
 }
