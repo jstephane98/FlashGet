@@ -17,9 +17,9 @@ pub struct AddArgs {
 
 /// Crée un téléchargement (statut Queued), le persiste, puis ré-évalue la file.
 /// Logique réutilisable par la commande Tauri ET par le bridge navigateur.
-pub(crate) async fn add_url(app: &AppHandle, url: &str, dest_dir: &str) -> Result<Download, String> {
+pub(crate) async fn add_url(app: &AppHandle, url: &str, dest_dir: &str, headers: RequestHeaders) -> Result<Download, String> {
     let fetcher = { app.state::<AppState>().fetcher.clone() };
-    let probe = tokio::time::timeout(std::time::Duration::from_secs(30), fetcher.probe(url, &RequestHeaders::default()))
+    let probe = tokio::time::timeout(std::time::Duration::from_secs(30), fetcher.probe(url, &headers))
         .await
         .map_err(|_| "timeout while probing URL".to_string())?
         .map_err(|e| e.to_string())?;
@@ -56,9 +56,9 @@ pub(crate) async fn add_url(app: &AppHandle, url: &str, dest_dir: &str) -> Resul
         error: None,
         priority: Priority::Normal,
         category,
-        referrer: None,
-        cookie: None,
-        user_agent: None,
+        referrer: headers.referrer,
+        cookie: headers.cookie,
+        user_agent: headers.user_agent,
     };
 
     {
@@ -72,7 +72,7 @@ pub(crate) async fn add_url(app: &AppHandle, url: &str, dest_dir: &str) -> Resul
 /// Crée un téléchargement (statut Queued), le persiste, puis ré-évalue la file.
 #[tauri::command]
 pub async fn add_download(app: AppHandle, args: AddArgs) -> Result<Download, String> {
-    add_url(&app, &args.url, &args.dest_dir).await
+    add_url(&app, &args.url, &args.dest_dir, RequestHeaders::default()).await
 }
 
 #[tauri::command]
