@@ -7,6 +7,17 @@ export type DownloadStatus =
 
 export type Priority = "high" | "normal" | "low";
 
+export type Category = "video" | "document" | "program" | "archive" | "music" | "other";
+
+export interface CategoryDirs {
+  video: string | null;
+  document: string | null;
+  program: string | null;
+  archive: string | null;
+  music: string | null;
+  other: string | null;
+}
+
 export interface Download {
   id: string;
   url: string;
@@ -18,6 +29,7 @@ export interface Download {
   supports_ranges: boolean;
   error: string | null;
   priority: Priority;
+  category: Category;
 }
 
 export interface Settings {

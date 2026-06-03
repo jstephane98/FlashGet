@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { Download, Progress, Priority, Settings } from "./types";
+import type { Download, Progress, Priority, Settings, Category, CategoryDirs } from "./types";
 
 export function addDownload(url: string, destDir: string): Promise<Download> {
   return invoke<Download>("add_download", { args: { url, dest_dir: destDir } });
@@ -44,4 +44,28 @@ export function pauseAll(): Promise<void> {
 
 export function resumeAll(): Promise<void> {
   return invoke("resume_all");
+}
+
+export function getCategoryDirs(): Promise<CategoryDirs> {
+  return invoke<CategoryDirs>("get_category_dirs");
+}
+
+export function setCategoryDir(category: Category, path: string | null): Promise<void> {
+  return invoke("set_category_dir", { category, path });
+}
+
+export function removeFromList(id: string): Promise<void> {
+  return invoke("remove_from_list", { id });
+}
+
+export function clearCompleted(): Promise<void> {
+  return invoke("clear_completed");
+}
+
+export function openFile(id: string): Promise<void> {
+  return invoke("open_file", { id });
+}
+
+export function openFolder(id: string): Promise<void> {
+  return invoke("open_folder", { id });
 }
