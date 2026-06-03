@@ -16,10 +16,10 @@ pub struct AddArgs {
 }
 
 /// Crée un téléchargement (statut Queued), le persiste, puis ré-évalue la file.
-#[tauri::command]
-pub async fn add_download(app: AppHandle, args: AddArgs) -> Result<Download, String> {
+/// Logique réutilisable par la commande Tauri ET par le bridge navigateur.
+pub(crate) async fn add_url(app: &AppHandle, url: &str, dest_dir: &str) -> Result<Download, String> {
     let fetcher = { app.state::<AppState>().fetcher.clone() };
-    let probe = tokio::time::timeout(std::time::Duration::from_secs(30), fetcher.probe(&args.url))
+    let probe = tokio::time::timeout(std::time::Duration::from_secs(30), fetcher.probe(url))
         .await
         .map_err(|_| "timeout while probing URL".to_string())?
         .map_err(|e| e.to_string())?;
@@ -28,8 +28,8 @@ pub async fn add_download(app: AppHandle, args: AddArgs) -> Result<Download, Str
     let category = download_core::categorizer::categorize(&file_name);
 
     // Dossier : argument explicite > dossier configuré pour la catégorie > dossier Téléchargements.
-    let dest_dir = if !args.dest_dir.trim().is_empty() {
-        PathBuf::from(&args.dest_dir)
+    let dest_dir = if !dest_dir.trim().is_empty() {
+        PathBuf::from(dest_dir)
     } else {
         let configured = { app.state::<AppState>().storage.category_dir(category).map_err(|e| e.to_string())? };
         match configured {
@@ -46,7 +46,7 @@ pub async fn add_download(app: AppHandle, args: AddArgs) -> Result<Download, Str
 
     let download = Download {
         id: uuid::Uuid::new_v4().to_string(),
-        url: args.url.clone(),
+        url: url.to_string(),
         file_name,
         dest_path: dest_path.to_string_lossy().to_string(),
         total_bytes: probe.total_bytes,
@@ -62,8 +62,14 @@ pub async fn add_download(app: AppHandle, args: AddArgs) -> Result<Download, Str
         let state = app.state::<AppState>();
         state.storage.upsert(&download).map_err(|e| e.to_string())?;
     }
-    reevaluate(&app);
+    reevaluate(app);
     Ok(download)
+}
+
+/// Crée un téléchargement (statut Queued), le persiste, puis ré-évalue la file.
+#[tauri::command]
+pub async fn add_download(app: AppHandle, args: AddArgs) -> Result<Download, String> {
+    add_url(&app, &args.url, &args.dest_dir).await
 }
 
 #[tauri::command]
@@ -323,4 +329,28 @@ fn launch(app: &AppHandle, download: Download, handle: DownloadHandle) {
         }
         reevaluate(&app_for_dl);
     });
+}
+
+#[derive(serde::Serialize)]
+pub struct BridgeInfo {
+    pub token: String,
+    pub port: u16,
+    pub listening: bool,
+}
+
+/// Renvoie le jeton (créé si absent), le port d'écoute et l'état du serveur local.
+#[tauri::command]
+pub fn get_bridge_info(state: State<AppState>) -> Result<BridgeInfo, String> {
+    let token = state.storage.get_or_create_bridge_token().map_err(|e| e.to_string())?;
+    Ok(BridgeInfo {
+        token,
+        port: crate::bridge::PORT,
+        listening: state.bridge_listening.load(std::sync::atomic::Ordering::Relaxed),
+    })
+}
+
+/// Régénère le jeton du bridge et renvoie la nouvelle valeur.
+#[tauri::command]
+pub fn regenerate_bridge_token(state: State<AppState>) -> Result<String, String> {
+    state.storage.regenerate_bridge_token().map_err(|e| e.to_string())
 }

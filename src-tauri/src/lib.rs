@@ -17,6 +17,7 @@ pub fn run() {
             let storage = Storage::open(&dir.join("downloads.sqlite")).map_err(|e| Box::<dyn std::error::Error>::from(e.to_string()))?;
             let settings = storage.get_settings().map_err(|e| Box::<dyn std::error::Error>::from(e.to_string()))?;
             app.manage(AppState::new(storage, settings.max_speed_bps));
+            bridge::start(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -36,6 +37,8 @@ pub fn run() {
             commands::clear_completed,
             commands::open_file,
             commands::open_folder,
+            commands::get_bridge_info,
+            commands::regenerate_bridge_token,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
