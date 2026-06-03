@@ -52,6 +52,7 @@ pub async fn add_download(app: AppHandle, args: AddArgs) -> Result<Download, Str
         status: DownloadStatus::Queued,
         supports_ranges: probe.supports_ranges,
         error: None,
+        priority: download_core::model::Priority::Normal,
     };
 
     let state = app.state::<AppState>();
