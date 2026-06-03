@@ -83,7 +83,11 @@ async fn handle_conn(app: AppHandle, stream: TcpStream) {
                 let headers = RequestHeaders { referrer, cookie, user_agent };
                 match commands::add_url(&app, &url, "", headers).await {
                     Ok(d) => {
+                        // Notifier le frontend pour qu'il rafraîchisse sa liste : sans cet
+                        // événement la capture n'apparaît qu'à la complétion (l'UI n'insère
+                        // pas les downloads inconnus reçus via `download://progress`).
                         let _ = app.emit("download://added", &d);
+                        // Faire surgir la fenêtre de l'app au premier plan (UX type IDM).
                         if let Some(win) = app.get_webview_window("main") {
                             let _ = win.unminimize();
                             let _ = win.show();
