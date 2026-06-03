@@ -13,6 +13,7 @@ export default function App() {
   const [downloads, setDownloads] = useState<Download[]>([]);
   const [speeds, setSpeeds] = useState<Record<string, number>>({});
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function refresh() {
     setDownloads(await api.listDownloads());
@@ -37,12 +38,21 @@ export default function App() {
 
   async function handleAdd(url: string) {
     setDialogOpen(false);
-    const d = await api.addDownload(url, DEST_DIR);
+    setError(null);
+    let d: Download;
+    try {
+      d = await api.addDownload(url, DEST_DIR);
+    } catch (e) {
+      // Échec de la sonde (réseau/DNS/URL) — afficher la vraie cause au lieu de planter.
+      setError(`Impossible d'ajouter ce lien : ${String(e)}`);
+      return;
+    }
     setDownloads((list) => [...list, d]);
     try {
       await api.startDownload(d.id);
     } catch (e) {
       console.error("start failed", e);
+      setError(`Le téléchargement n'a pas pu démarrer : ${String(e)}`);
       await refresh(); // resync with backend truth
     }
   }
@@ -50,6 +60,17 @@ export default function App() {
   return (
     <div className="h-screen flex flex-col">
       <Toolbar onAdd={() => setDialogOpen(true)} />
+      {error && (
+        <div className="flex items-start gap-2 px-3 py-2 bg-red-50 border-b border-red-200 text-sm text-red-700">
+          <span className="flex-1 break-words">{error}</span>
+          <button
+            className="px-2 py-0.5 rounded bg-red-100 text-red-700 shrink-0"
+            onClick={() => setError(null)}
+          >
+            ✕
+          </button>
+        </div>
+      )}
       <div className="flex-1 overflow-auto">
         <DownloadTable
           downloads={downloads}

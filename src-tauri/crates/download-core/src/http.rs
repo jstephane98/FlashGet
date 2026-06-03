@@ -26,7 +26,14 @@ pub struct ReqwestFetcher {
 
 impl ReqwestFetcher {
     pub fn new() -> Self {
-        Self { client: reqwest::Client::new() }
+        let client = reqwest::Client::builder()
+            // Échouer vite et clairement si la connexion ne s'établit pas
+            // (DNS, route absente, pare-feu) au lieu de pendre indéfiniment.
+            .connect_timeout(std::time::Duration::from_secs(20))
+            .user_agent(concat!("FlashGet/", env!("CARGO_PKG_VERSION")))
+            .build()
+            .expect("failed to build reqwest client (TLS backend init failed)");
+        Self { client }
     }
 }
 
@@ -44,7 +51,7 @@ impl ByteFetcher for ReqwestFetcher {
             .header(reqwest::header::RANGE, "bytes=0-0")
             .send()
             .await
-            .map_err(|e| CoreError::Network(e.to_string()))?;
+            .map_err(|e| CoreError::Network(describe_reqwest_error(&e)))?;
 
         let status = resp.status();
         let headers = resp.headers().clone();
@@ -90,14 +97,43 @@ impl ByteFetcher for ReqwestFetcher {
         if let Some((start, end)) = range {
             req = req.header(reqwest::header::RANGE, format!("bytes={start}-{end}"));
         }
-        let resp = req.send().await.map_err(|e| CoreError::Network(e.to_string()))?;
-        let resp = resp.error_for_status().map_err(|e| CoreError::Network(e.to_string()))?;
+        let resp = req.send().await.map_err(|e| CoreError::Network(describe_reqwest_error(&e)))?;
+        let resp = resp.error_for_status().map_err(|e| CoreError::Network(describe_reqwest_error(&e)))?;
 
         let stream = resp
             .bytes_stream()
-            .map(|chunk| chunk.map_err(|e| CoreError::Network(e.to_string())));
+            .map(|chunk| chunk.map_err(|e| CoreError::Network(describe_reqwest_error(&e))));
         Ok(stream.boxed())
     }
+}
+
+/// Construit un message d'erreur réseau détaillé. Le message de surface de
+/// reqwest est générique (« error sending request for url ») ; la vraie raison
+/// (échec DNS, connexion refusée, certificat invalide, timeout…) vit dans la
+/// chaîne `source()`. On la déroule pour la rendre visible à l'utilisateur.
+pub fn describe_reqwest_error(e: &reqwest::Error) -> String {
+    let mut kinds = Vec::new();
+    if e.is_timeout() { kinds.push("timeout"); }
+    if e.is_connect() { kinds.push("connexion"); }
+    if e.is_request() { kinds.push("requête"); }
+    if e.is_body() { kinds.push("corps"); }
+    if e.is_decode() { kinds.push("décodage"); }
+    let prefix = if kinds.is_empty() {
+        String::new()
+    } else {
+        format!("[{}] ", kinds.join("/"))
+    };
+
+    let mut chain = vec![e.to_string()];
+    let mut src = std::error::Error::source(e);
+    while let Some(s) = src {
+        let msg = s.to_string();
+        if chain.last().map(|l| l != &msg).unwrap_or(true) {
+            chain.push(msg);
+        }
+        src = s.source();
+    }
+    format!("{prefix}{}", chain.join(" → "))
 }
 
 /// Déduit un nom de fichier depuis l'URL (dernier segment de chemin), assaini.
