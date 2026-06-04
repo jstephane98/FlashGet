@@ -46,7 +46,8 @@ export default function App() {
     // Un download créé hors UI (capture par l'extension via le bridge) : rafraîchir la liste.
     const unAdded = api.onDownloadAdded(() => refresh());
     const unMedia = api.onMediaVariants((e) => setMediaEvent(e));
-    return () => { un.then((f) => f()); unAdded.then((f) => f()); unMedia.then((f) => f()); };
+    const unMediaErr = api.onMediaError((e) => setError(`Vidéo : ${e.message}`));
+    return () => { un.then((f) => f()); unAdded.then((f) => f()); unMedia.then((f) => f()); unMediaErr.then((f) => f()); };
   }, []);
 
   async function handleHlsConfirm(probeId: string, variantIndex: number) {

@@ -95,8 +95,13 @@ pub struct MediaVariantsEvent {
     pub variants: Vec<HlsVariant>,
 }
 
-/// Sonde un master/media HLS, mémorise le probe et émet `media://variants`.
-pub(crate) async fn probe_hls(
+#[derive(serde::Serialize, Clone)]
+pub struct MediaErrorEvent {
+    pub message: String,
+}
+
+/// Corps interne : sonde un master/media HLS, mémorise le probe et émet `media://variants`.
+async fn probe_hls_inner(
     app: &AppHandle,
     url: &str,
     headers: RequestHeaders,
@@ -158,9 +163,13 @@ pub(crate) async fn probe_hls(
     let file_name = suggested_name.unwrap_or_else(|| "video".to_string());
     {
         let state = app.state::<AppState>();
-        state.pending_media.lock().unwrap().insert(
+        let mut pending = state.pending_media.lock().unwrap();
+        // Éviction TTL : retire les probes jamais confirmés depuis > 30 min.
+        let ttl = std::time::Duration::from_secs(30 * 60);
+        pending.retain(|_, pm| pm.created.elapsed() < ttl);
+        pending.insert(
             probe_id.clone(),
-            PendingMedia { master, headers, file_name: file_name.clone() },
+            PendingMedia { master, headers, file_name: file_name.clone(), created: std::time::Instant::now() },
         );
     }
     let _ = app.emit("media://variants", MediaVariantsEvent { probe_id, file_name, variants });
@@ -170,6 +179,25 @@ pub(crate) async fn probe_hls(
         let _ = win.set_focus();
     }
     Ok(())
+}
+
+/// Sonde un master/media HLS ; en cas d'échec, émet `media://error` et fait surgir la fenêtre.
+pub(crate) async fn probe_hls(
+    app: &AppHandle,
+    url: &str,
+    headers: RequestHeaders,
+    suggested_name: Option<String>,
+) -> Result<(), String> {
+    let result = probe_hls_inner(app, url, headers, suggested_name).await;
+    if let Err(e) = &result {
+        let _ = app.emit("media://error", MediaErrorEvent { message: e.clone() });
+        if let Some(win) = app.get_webview_window("main") {
+            let _ = win.unminimize();
+            let _ = win.show();
+            let _ = win.set_focus();
+        }
+    }
+    result
 }
 
 /// Lit entièrement une ressource texte (playlist) via le fetcher.

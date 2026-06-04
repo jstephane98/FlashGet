@@ -7,6 +7,7 @@ use download_core::storage::Storage;
 use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 /// État global géré par Tauri.
 pub struct AppState {
@@ -40,4 +41,6 @@ pub struct PendingMedia {
     pub master: MasterPlaylist,
     pub headers: RequestHeaders,
     pub file_name: String,
+    /// Horodatage d'insertion, pour l'éviction TTL des probes jamais confirmés.
+    pub created: Instant,
 }

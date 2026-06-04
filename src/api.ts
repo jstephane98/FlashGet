@@ -19,6 +19,14 @@ export function onMediaVariants(cb: (e: MediaVariantsEvent) => void): Promise<Un
   return listen<MediaVariantsEvent>("media://variants", (e) => cb(e.payload));
 }
 
+export interface MediaErrorEvent {
+  message: string;
+}
+
+export function onMediaError(cb: (e: MediaErrorEvent) => void): Promise<UnlistenFn> {
+  return listen<MediaErrorEvent>("media://error", (e) => cb(e.payload));
+}
+
 export function addHlsDownload(probeId: string, variantIndex: number): Promise<Download> {
   return invoke<Download>("add_hls_download", { probeId, variantIndex });
 }
