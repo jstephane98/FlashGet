@@ -366,6 +366,17 @@ pub fn pause_download(app: AppHandle, id: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Arrête (finalise) un enregistrement live : pose le drapeau `stop` ; le moteur
+/// remux le partiel et émet `Completed`. No-op si le handle n'est plus actif.
+#[tauri::command]
+pub fn stop_recording(app: AppHandle, id: String) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    if let Some(h) = state.handles.lock().unwrap().get(&id) {
+        h.stop();
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn cancel_download(app: AppHandle, id: String) -> Result<(), String> {
     let state = app.state::<AppState>();
@@ -531,6 +542,7 @@ fn launch(app: &AppHandle, download: Download, handle: DownloadHandle) {
         let mut last_t = Instant::now();
         let mut last_bytes = 0u64;
         let mut current_speed: u64 = 0;
+        let mut last_persisted: Option<DownloadStatus> = None;
         while let Some(mut p) = rx.recv().await {
             let now = Instant::now();
             let dt = now.duration_since(last_t).as_secs_f64();
@@ -542,11 +554,14 @@ fn launch(app: &AppHandle, download: Download, handle: DownloadHandle) {
             }
             p.speed_bps = current_speed;
             let _ = app_for_rx.emit("download://progress", &p);
-            if matches!(p.status, DownloadStatus::Completed | DownloadStatus::Paused | DownloadStatus::Error) {
+            let persist = matches!(p.status, DownloadStatus::Completed | DownloadStatus::Paused | DownloadStatus::Error)
+                || (p.status == DownloadStatus::Recording && last_persisted != Some(DownloadStatus::Recording));
+            if persist {
                 let st = app_for_rx.state::<AppState>();
                 if let Err(e) = st.storage.update_state(&id_for_rx, p.downloaded_bytes, p.status) {
                     eprintln!("failed to persist download {id_for_rx}: {e}");
                 }
+                last_persisted = Some(p.status);
             }
         }
     });

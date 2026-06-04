@@ -28,6 +28,7 @@ pub fn run() {
             commands::list_downloads,
             commands::start_download,
             commands::pause_download,
+            commands::stop_recording,
             commands::cancel_download,
             commands::set_priority,
             commands::get_settings,
