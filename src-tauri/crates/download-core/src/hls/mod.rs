@@ -3,3 +3,4 @@
 pub mod playlist;
 pub mod crypto;
 pub mod select;
+pub mod remux;
