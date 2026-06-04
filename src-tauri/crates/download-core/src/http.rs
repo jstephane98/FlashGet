@@ -18,6 +18,17 @@ pub trait ByteFetcher: Send + Sync {
         range: Option<(u64, u64)>,
         headers: &RequestHeaders,
     ) -> Result<BoxStream<'static, Result<Bytes, CoreError>>, CoreError>;
+
+    /// POST (corps JSON p. ex. licence ClearKey). Impl par défaut = non supporté.
+    async fn post(
+        &self,
+        _url: &str,
+        _body: &[u8],
+        _content_type: &str,
+        _headers: &RequestHeaders,
+    ) -> Result<Vec<u8>, CoreError> {
+        Err(CoreError::Media("POST non supporté par ce fetcher".into()))
+    }
 }
 
 /// Implémentation de production basée sur reqwest.
@@ -111,6 +122,22 @@ impl ByteFetcher for ReqwestFetcher {
             .bytes_stream()
             .map(|chunk| chunk.map_err(|e| CoreError::Network(describe_reqwest_error(&e))));
         Ok(stream.boxed())
+    }
+
+    async fn post(
+        &self,
+        url: &str,
+        body: &[u8],
+        content_type: &str,
+        headers: &RequestHeaders,
+    ) -> Result<Vec<u8>, CoreError> {
+        let req = self.client.post(url).header(reqwest::header::CONTENT_TYPE, content_type).body(body.to_vec());
+        let resp = apply_headers(req, headers)
+            .send()
+            .await
+            .map_err(|e| CoreError::Network(describe_reqwest_error(&e)))?;
+        let bytes = resp.bytes().await.map_err(|e| CoreError::Network(describe_reqwest_error(&e)))?;
+        Ok(bytes.to_vec())
     }
 }
 
