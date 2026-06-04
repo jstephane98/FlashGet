@@ -160,7 +160,7 @@ pub(crate) async fn probe_hls(
         let state = app.state::<AppState>();
         state.pending_media.lock().unwrap().insert(
             probe_id.clone(),
-            PendingMedia { master, headers, file_name: file_name.clone(), total_duration },
+            PendingMedia { master, headers, file_name: file_name.clone() },
         );
     }
     let _ = app.emit("media://variants", MediaVariantsEvent { probe_id, file_name, variants });

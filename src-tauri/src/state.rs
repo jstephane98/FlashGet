@@ -40,6 +40,4 @@ pub struct PendingMedia {
     pub master: MasterPlaylist,
     pub headers: RequestHeaders,
     pub file_name: String,
-    /// Durée totale (s) d'une variante de référence (pour estimer la taille).
-    pub total_duration: f64,
 }
