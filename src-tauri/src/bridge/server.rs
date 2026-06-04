@@ -78,25 +78,32 @@ async fn handle_conn(app: AppHandle, stream: TcpStream) {
             ServerReply::Error { msg } => {
                 serde_json::json!({ "type": "error", "error": msg }).to_string()
             }
-            ServerReply::CaptureRequested { url, filename, referrer, cookie, user_agent } => {
-                // Capture via le pipeline d'ajout existant, en transmettant les en-têtes du navigateur
-                // et le nom de fichier suggéré par le navigateur.
+            ServerReply::CaptureRequested { url, filename, referrer, cookie, user_agent, kind } => {
                 let headers = RequestHeaders { referrer, cookie, user_agent };
-                match commands::add_url(&app, &url, "", headers, filename).await {
-                    Ok(d) => {
-                        // Notifier le frontend pour qu'il rafraîchisse sa liste : sans cet
-                        // événement la capture n'apparaît qu'à la complétion (l'UI n'insère
-                        // pas les downloads inconnus reçus via `download://progress`).
-                        let _ = app.emit("download://added", &d);
-                        // Faire surgir la fenêtre de l'app au premier plan (UX type IDM).
-                        if let Some(win) = app.get_webview_window("main") {
-                            let _ = win.unminimize();
-                            let _ = win.show();
-                            let _ = win.set_focus();
-                        }
-                        serde_json::json!({ "type": "ack", "id": d.id }).to_string()
+                if kind.as_deref() == Some("hls") {
+                    match commands::probe_hls(&app, &url, headers, filename).await {
+                        Ok(()) => serde_json::json!({ "type": "ack", "kind": "hls" }).to_string(),
+                        Err(e) => serde_json::json!({ "type": "error", "error": e }).to_string(),
                     }
-                    Err(e) => serde_json::json!({ "type": "error", "error": e }).to_string(),
+                } else {
+                    // Capture via le pipeline d'ajout existant, en transmettant les en-têtes du navigateur
+                    // et le nom de fichier suggéré par le navigateur.
+                    match commands::add_url(&app, &url, "", headers, filename).await {
+                        Ok(d) => {
+                            // Notifier le frontend pour qu'il rafraîchisse sa liste : sans cet
+                            // événement la capture n'apparaît qu'à la complétion (l'UI n'insère
+                            // pas les downloads inconnus reçus via `download://progress`).
+                            let _ = app.emit("download://added", &d);
+                            // Faire surgir la fenêtre de l'app au premier plan (UX type IDM).
+                            if let Some(win) = app.get_webview_window("main") {
+                                let _ = win.unminimize();
+                                let _ = win.show();
+                                let _ = win.set_focus();
+                            }
+                            serde_json::json!({ "type": "ack", "id": d.id }).to_string()
+                        }
+                        Err(e) => serde_json::json!({ "type": "error", "error": e }).to_string(),
+                    }
                 }
             }
         };

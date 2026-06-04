@@ -13,6 +13,7 @@ pub enum ClientMessage {
         referrer: Option<String>,
         cookie: Option<String>,
         user_agent: Option<String>,
+        kind: Option<String>,
     },
     Unknown,
 }
@@ -29,6 +30,7 @@ pub enum ServerReply {
         referrer: Option<String>,
         cookie: Option<String>,
         user_agent: Option<String>,
+        kind: Option<String>,
     },
     Error { msg: String },
 }
@@ -47,6 +49,8 @@ enum RawMessage {
         cookie: Option<String>,
         #[serde(default)]
         user_agent: Option<String>,
+        #[serde(default)]
+        kind: Option<String>,
     },
 }
 
@@ -54,8 +58,8 @@ enum RawMessage {
 pub fn parse_client_message(text: &str) -> ClientMessage {
     match serde_json::from_str::<RawMessage>(text) {
         Ok(RawMessage::Auth { token }) => ClientMessage::Auth { token },
-        Ok(RawMessage::Capture { url, filename, referrer, cookie, user_agent }) => {
-            ClientMessage::Capture { url, filename, referrer, cookie, user_agent }
+        Ok(RawMessage::Capture { url, filename, referrer, cookie, user_agent, kind }) => {
+            ClientMessage::Capture { url, filename, referrer, cookie, user_agent, kind }
         }
         Err(_) => ClientMessage::Unknown,
     }
@@ -76,9 +80,9 @@ pub fn handle_message(
                 (false, ServerReply::AuthFailed)
             }
         }
-        ClientMessage::Capture { url, filename, referrer, cookie, user_agent } => {
+        ClientMessage::Capture { url, filename, referrer, cookie, user_agent, kind } => {
             if authed {
-                (authed, ServerReply::CaptureRequested { url, filename, referrer, cookie, user_agent })
+                (authed, ServerReply::CaptureRequested { url, filename, referrer, cookie, user_agent, kind })
             } else {
                 (authed, ServerReply::NeedAuth)
             }
@@ -166,6 +170,18 @@ mod tests {
                 assert_eq!(cookie.as_deref(), Some("sid=1"));
                 assert_eq!(user_agent.as_deref(), Some("UA/1"));
             }
+            other => panic!("attendu CaptureRequested, obtenu {other:?}"),
+        }
+    }
+
+    #[test]
+    fn capture_carries_kind_hls() {
+        let msg = parse_client_message(
+            r#"{"type":"capture","url":"http://x/m.m3u8","kind":"hls"}"#,
+        );
+        let (_authed, reply) = handle_message(true, "secret", msg);
+        match reply {
+            ServerReply::CaptureRequested { kind, .. } => assert_eq!(kind.as_deref(), Some("hls")),
             other => panic!("attendu CaptureRequested, obtenu {other:?}"),
         }
     }
