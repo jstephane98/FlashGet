@@ -315,6 +315,7 @@ fn status_to_str(s: DownloadStatus) -> &'static str {
     match s {
         DownloadStatus::Queued => "queued",
         DownloadStatus::Downloading => "downloading",
+        DownloadStatus::Recording => "recording",
         DownloadStatus::Paused => "paused",
         DownloadStatus::Completed => "completed",
         DownloadStatus::Error => "error",
@@ -324,6 +325,7 @@ fn status_to_str(s: DownloadStatus) -> &'static str {
 fn status_from_str(s: &str) -> DownloadStatus {
     match s {
         "downloading" => DownloadStatus::Downloading,
+        "recording" => DownloadStatus::Recording,
         "paused" => DownloadStatus::Paused,
         "completed" => DownloadStatus::Completed,
         "error" => DownloadStatus::Error,
@@ -639,6 +641,12 @@ mod tests {
         let plain = sample("d2");
         s.upsert(&plain).unwrap();
         assert_eq!(s.get_by_id("d2").unwrap().unwrap().media_selection, None);
+    }
+
+    #[test]
+    fn status_recording_round_trips() {
+        assert_eq!(super::status_from_str(super::status_to_str(DownloadStatus::Recording)), DownloadStatus::Recording);
+        assert_eq!(super::status_to_str(DownloadStatus::Recording), "recording");
     }
 
     #[test]

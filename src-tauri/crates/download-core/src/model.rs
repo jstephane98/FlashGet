@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 pub enum DownloadStatus {
     Queued,
     Downloading,
+    Recording,
     Paused,
     Completed,
     Error,
