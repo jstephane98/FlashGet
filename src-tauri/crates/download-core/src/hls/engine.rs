@@ -87,6 +87,9 @@ pub async fn download_hls<F: ByteFetcher, R: Remuxer>(
     if video_pl.is_live {
         return Err(CoreError::Media("flux live non supporté (à venir)".into()));
     }
+    if video_pl.segments.is_empty() {
+        return Err(CoreError::Media("playlist HLS sans segment (master au lieu de media ?)".into()));
+    }
     // Refuse tout chiffrement non géré.
     for seg in &video_pl.segments {
         if let Some(k) = &seg.key {
@@ -158,10 +161,19 @@ pub async fn download_hls<F: ByteFetcher, R: Remuxer>(
         }
     }
 
-    // 5. Concatène chaque piste en un fichier unique, puis remux.
-    let video_cat = concat_track(&work, "v", video_pl.map.is_some())?;
+    // 5. Concatène chaque piste en un fichier unique (IO lourde ⇒ thread bloquant), puis remux.
+    let work_v = work.clone();
+    let v_has_init = video_pl.map.is_some();
+    let video_cat = tokio::task::spawn_blocking(move || concat_track(&work_v, "v", v_has_init))
+        .await
+        .map_err(|e| CoreError::Media(format!("tâche de concaténation interrompue: {e}")))??;
     let audio_cat = if let Some(ap) = &audio_pl {
-        Some(concat_track(&work, "a", ap.map.is_some())?)
+        let work_a = work.clone();
+        let a_has_init = ap.map.is_some();
+        let cat = tokio::task::spawn_blocking(move || concat_track(&work_a, "a", a_has_init))
+            .await
+            .map_err(|e| CoreError::Media(format!("tâche de concaténation interrompue: {e}")))??;
+        Some(cat)
     } else {
         None
     };
@@ -267,6 +279,9 @@ fn concat_track(work: &Path, prefix: &str, has_init: bool) -> Result<std::path::
                 .unwrap_or(false)
         })
         .collect();
+    // Tri lexical == ordre numérique car les indices sont zéro-paddés sur 5 chiffres
+    // ({idx:05}). Limite assumée : au-delà de 99999 segments le padding s'élargit
+    // et l'ordre lexical ne tient plus (≈ plusieurs jours de VOD — hors périmètre 4a).
     segs.sort();
     for s in segs {
         out.write_all(&std::fs::read(s)?)?;
