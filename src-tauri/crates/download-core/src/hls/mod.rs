@@ -2,3 +2,4 @@
 //! sélection de variante, moteur de download (segments → remux ffmpeg).
 pub mod playlist;
 pub mod crypto;
+pub mod select;
