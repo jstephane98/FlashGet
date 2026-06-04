@@ -323,6 +323,8 @@ fn launch(app: &AppHandle, download: Download, handle: DownloadHandle) {
                     total_bytes: None,
                     speed_bps: 0,
                     status: DownloadStatus::Error,
+                    segments_done: None,
+                    segments_total: None,
                 });
             }
         }

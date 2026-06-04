@@ -113,4 +113,8 @@ pub struct Progress {
     pub total_bytes: Option<u64>,
     pub speed_bps: u64,
     pub status: DownloadStatus,
+    #[serde(default)]
+    pub segments_done: Option<u32>,
+    #[serde(default)]
+    pub segments_total: Option<u32>,
 }
