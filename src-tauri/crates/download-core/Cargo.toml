@@ -16,6 +16,8 @@ uuid = { version = "1", features = ["v4"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
 aes = "0.8"
 cbc = { version = "0.1", features = ["alloc"] }
+roxmltree = "0.20"
+base64 = "0.22"
 
 [dev-dependencies]
 tempfile = "3"
