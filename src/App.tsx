@@ -105,6 +105,7 @@ export default function App() {
           onPause={(id) => withRefresh(() => api.pauseDownload(id))}
           onResume={(id) => withRefresh(() => api.startDownload(id))}
           onCancel={(id) => withRefresh(() => api.cancelDownload(id))}
+          onStop={(id) => withRefresh(() => api.stopRecording(id))}
           onPriority={(id, p: Priority) => withRefresh(() => api.setPriority(id, p))}
           onOpenFile={(id) => withRefresh(() => api.openFile(id))}
           onOpenFolder={(id) => withRefresh(() => api.openFolder(id))}

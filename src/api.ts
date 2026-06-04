@@ -51,6 +51,10 @@ export function cancelDownload(id: string): Promise<void> {
   return invoke("cancel_download", { id });
 }
 
+export function stopRecording(id: string): Promise<void> {
+  return invoke("stop_recording", { id });
+}
+
 export function onProgress(cb: (p: Progress) => void): Promise<UnlistenFn> {
   return listen<Progress>("download://progress", (e) => cb(e.payload));
 }

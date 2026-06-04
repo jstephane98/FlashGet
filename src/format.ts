@@ -21,3 +21,14 @@ export function percent(downloaded: number, total: number | null): number {
   if (!total || total <= 0) return 0;
   return Math.min(100, Math.round((downloaded / total) * 100));
 }
+
+export function formatElapsed(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  const mm = String(Math.floor(s / 60)).padStart(2, "0");
+  const ss = String(s % 60).padStart(2, "0");
+  return `${mm}:${ss}`;
+}
+
+export function recordingLabel(segDone: number, bytes: number, elapsedSec: number): string {
+  return `Enregistrement · ${formatElapsed(elapsedSec)} · ${segDone} segments · ${formatBytes(bytes)}`;
+}
