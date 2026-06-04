@@ -20,6 +20,7 @@ pub fn run() {
             let settings = storage.get_settings().map_err(|e| Box::<dyn std::error::Error>::from(e.to_string()))?;
             app.manage(AppState::new(storage, settings.max_speed_bps));
             bridge::start(app.handle().clone());
+            commands::recover_interrupted_recordings(app.handle());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
