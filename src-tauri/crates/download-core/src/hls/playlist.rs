@@ -9,11 +9,15 @@ pub(crate) fn parse_attributes(s: &str) -> HashMap<String, String> {
     let mut i = 0;
     while i < bytes.len() {
         let key_start = i;
-        while i < bytes.len() && bytes[i] != b'=' {
+        while i < bytes.len() && bytes[i] != b'=' && bytes[i] != b',' {
             i += 1;
         }
-        if i >= bytes.len() {
-            break;
+        // Token sans '=' (malformé ou vide) : on saute jusqu'à la prochaine virgule et on continue.
+        if i >= bytes.len() || bytes[i] == b',' {
+            if i < bytes.len() {
+                i += 1; // saute la virgule
+            }
+            continue;
         }
         let key = s[key_start..i].trim().to_string();
         i += 1; // saute '='
@@ -56,9 +60,13 @@ pub(crate) fn resolve_uri(base: &str, uri: &str) -> String {
     if uri.starts_with("http://") || uri.starts_with("https://") {
         return uri.to_string();
     }
-    let scheme_end = base.find("://").map(|p| p + 3).unwrap_or(0);
+    // Position de "://" dans la base ; `scheme` = partie avant (ex. "https"), vide si absente.
+    let colon = base.find("://");
+    let scheme = colon.map(|p| &base[..p]).unwrap_or("");
+    let scheme_end = colon.map(|p| p + 3).unwrap_or(0);
     if let Some(rest) = uri.strip_prefix("//") {
-        let scheme = &base[..scheme_end.saturating_sub(3).max(0)];
+        // Protocole-relatif : hérite du scheme de la base, sinon https par défaut.
+        let scheme = if scheme.is_empty() { "https" } else { scheme };
         return format!("{scheme}://{rest}");
     }
     // origine = scheme://host (jusqu'au premier '/' après le scheme)
@@ -105,5 +113,21 @@ mod tests {
     #[test]
     fn resolve_root_relative() {
         assert_eq!(resolve_uri("https://h/p/x.m3u8", "/v/seg0.ts"), "https://h/v/seg0.ts");
+    }
+
+    #[test]
+    fn resolve_protocol_relative() {
+        assert_eq!(
+            resolve_uri("https://h/p/x.m3u8", "//cdn.example.com/seg.ts"),
+            "https://cdn.example.com/seg.ts"
+        );
+    }
+
+    #[test]
+    fn attributes_empty_and_malformed_tokens() {
+        assert!(parse_attributes("").is_empty());
+        // Un token malformé (sans '=') ne doit pas faire perdre les paires valides suivantes.
+        let m = parse_attributes("GARBAGE,BANDWIDTH=42");
+        assert_eq!(m.get("BANDWIDTH").unwrap(), "42");
     }
 }
