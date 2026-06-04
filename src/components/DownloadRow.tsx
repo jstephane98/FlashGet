@@ -37,13 +37,13 @@ export function DownloadRow({
   onOpenFolder: () => void;
   onRemove: () => void;
 }) {
-  const isHls = d.kind === "hls";
+  const isSegmented = d.kind === "hls" || d.kind === "dash";
   const segPct = seg && seg.total > 0 ? Math.round((seg.done / seg.total) * 100) : 0;
-  const pct = isHls && seg ? segPct : percent(d.downloaded_bytes, d.total_bytes);
+  const pct = isSegmented && seg ? segPct : percent(d.downloaded_bytes, d.total_bytes);
   const stateLabel =
     d.status === "queued" && queuePosition !== null
       ? `En file (${queuePosition})`
-      : isHls && seg && d.status === "downloading"
+      : isSegmented && seg && d.status === "downloading"
         ? `En cours · ${seg.done}/${seg.total} segments`
         : `${STATUS_LABEL[d.status]} · ${pct}%`;
   return (
@@ -52,6 +52,9 @@ export function DownloadRow({
         <div className="font-semibold truncate">
           {d.kind === "hls" && (
             <span className="mr-1 px-1 py-0.5 text-[10px] rounded bg-indigo-100 text-indigo-700 align-middle">HLS</span>
+          )}
+          {d.kind === "dash" && (
+            <span className="mr-1 px-1 py-0.5 text-[10px] rounded bg-violet-100 text-violet-700 align-middle">DASH</span>
           )}
           {d.file_name}
         </div>

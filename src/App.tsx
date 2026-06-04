@@ -53,7 +53,7 @@ export default function App() {
   async function handleHlsConfirm(probeId: string, variantIndex: number) {
     setMediaEvent(null);
     try {
-      await api.addHlsDownload(probeId, variantIndex);
+      await api.addMediaDownload(probeId, variantIndex);
       await refresh();
     } catch (e) {
       setError(`Impossible de démarrer la vidéo : ${String(e)}`);
