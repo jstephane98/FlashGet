@@ -69,11 +69,11 @@ pub fn concat_track(work: &Path, prefix: &str, has_init: bool) -> Result<PathBuf
         .filter_map(|e| e.ok().map(|e| e.path()))
         .filter_map(|p| {
             let name = p.file_name()?.to_str()?.to_string();
-            if !(name.starts_with(prefix) && name.ends_with(".seg") && !name.contains("_init")) {
+            if name.contains("_init") {
                 return None;
             }
-            // <prefix><digits>.seg → digits
-            let digits = &name[prefix.len()..name.len() - 4];
+            // <prefix><digits>.seg → digits (strip_prefix/suffix : pas d'arithmétique d'index).
+            let digits = name.strip_prefix(prefix)?.strip_suffix(".seg")?;
             let seq: u64 = digits.parse().ok()?;
             Some((seq, p))
         })
