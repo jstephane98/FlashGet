@@ -103,14 +103,17 @@ pub(crate) async fn probe_hls(
     suggested_name: Option<String>,
 ) -> Result<(), String> {
     let fetcher = { app.state::<AppState>().fetcher.clone() };
-    let text = fetch_text(&fetcher, url, &headers).await.map_err(|e| e.to_string())?;
+    let text = tokio::time::timeout(std::time::Duration::from_secs(30), fetch_text(&fetcher, url, &headers))
+        .await
+        .map_err(|_| "délai dépassé lors de la récupération de la playlist".to_string())?
+        .map_err(|e| e.to_string())?;
 
     let (master, total_duration) = if is_master(&text) {
         let m = parse_master(&text, url);
         let dur = if let Some(v) = m.variants.get(best_variant(&m)) {
-            match fetch_text(&fetcher, &v.uri, &headers).await {
-                Ok(t) => parse_media(&t, &v.uri).total_duration(),
-                Err(_) => 0.0,
+            match tokio::time::timeout(std::time::Duration::from_secs(30), fetch_text(&fetcher, &v.uri, &headers)).await {
+                Ok(Ok(t)) => parse_media(&t, &v.uri).total_duration(),
+                _ => 0.0,
             }
         } else {
             0.0
@@ -193,7 +196,8 @@ pub async fn add_hls_download(app: AppHandle, probe_id: String, variant_index: u
             .get(variant_index as usize)
             .ok_or_else(|| "variante invalide".to_string())?;
         let audio_url = pick_audio(&pm.master, variant).and_then(|a| a.uri.clone());
-        let file_name = download_core::naming::with_extension(&pm.file_name, "mp4");
+        let safe = download_core::naming::choose_file_name(Some(&pm.file_name), None);
+        let file_name = download_core::naming::with_extension(&safe, "mp4");
         let tuple = (variant.uri.clone(), audio_url, file_name, pm.headers.clone());
         pending.remove(&probe_id);
         tuple
