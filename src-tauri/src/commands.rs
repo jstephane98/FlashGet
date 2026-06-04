@@ -64,6 +64,7 @@ pub(crate) async fn add_url(app: &AppHandle, url: &str, dest_dir: &str, headers:
         user_agent: headers.user_agent,
         kind: DownloadKind::Regular,
         audio_url: None,
+        media_selection: None,
     };
 
     {
@@ -261,6 +262,7 @@ pub async fn add_hls_download(app: AppHandle, probe_id: String, variant_index: u
         user_agent: headers.user_agent,
         kind: download_core::model::DownloadKind::Hls,
         audio_url,
+        media_selection: None,
     };
     {
         let state = app.state::<AppState>();
@@ -525,6 +527,9 @@ fn launch(app: &AppHandle, download: Download, handle: DownloadHandle) {
                     &headers,
                 )
                 .await
+            }
+            download_core::model::DownloadKind::Dash => {
+                Err(download_core::CoreError::Media("DASH engine not yet implemented".into()))
             }
         };
         match result {
