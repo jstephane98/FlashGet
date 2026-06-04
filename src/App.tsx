@@ -33,8 +33,10 @@ export default function App() {
     refresh();
     const un = api.onProgress((p) => {
       setSpeeds((s) => ({ ...s, [p.id]: p.speed_bps }));
-      if (p.segments_total != null && p.segments_done != null) {
-        setSegs((m) => ({ ...m, [p.id]: { done: p.segments_done!, total: p.segments_total! } }));
+      // Live : segments_done croît mais segments_total est null (total inconnu) ;
+      // on stocke quand même la progression segments (total 0 = indéterminé).
+      if (p.segments_done != null) {
+        setSegs((m) => ({ ...m, [p.id]: { done: p.segments_done!, total: p.segments_total ?? 0 } }));
       }
       setDownloads((list) =>
         list.map((d) =>
