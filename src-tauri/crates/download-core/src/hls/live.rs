@@ -27,6 +27,8 @@ impl RefreshInterval {
 
 /// Dort jusqu'à `dur` en vérifiant stop/cancel toutes les 50 ms.
 /// Renvoie `true` si interrompu (stop ou cancel demandé) avant l'échéance.
+// Utilisé par download_hls_live (Task 5) ; l'allow tombera quand le moteur l'appellera.
+#[allow(dead_code)]
 pub(crate) async fn responsive_sleep(dur: Duration, handle: &DownloadHandle) -> bool {
     let tick = Duration::from_millis(50);
     let mut elapsed = Duration::ZERO;
