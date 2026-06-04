@@ -305,49 +305,41 @@ mod tests {
     #[tokio::test]
     async fn live_playlist_is_recorded_not_rejected() {
         use std::sync::Mutex as StdMutex;
-        struct TwoStepFetcher {
+        // Playlist live (sans ENDLIST) → download_hls délègue au moteur live.
+        // Le fetcher pose stop() en servant le segment : le moteur capture ce
+        // segment puis finalise (pas d'attente de rafraîchissement → test rapide).
+        struct StopAfterFirst {
             url: String,
-            live: Vec<u8>,
-            ended: Vec<u8>,
-            calls: StdMutex<usize>,
+            body: Vec<u8>,
             segs: Map<String, Vec<u8>>,
+            handle: DownloadHandle,
+            calls: StdMutex<usize>,
         }
         #[async_trait]
-        impl ByteFetcher for TwoStepFetcher {
+        impl ByteFetcher for StopAfterFirst {
             async fn probe(&self, _u: &str, _h: &RequestHeaders) -> Result<ProbeResult, CoreError> {
                 Ok(ProbeResult { total_bytes: None, supports_ranges: false, file_name: None })
             }
-            async fn fetch_range(
-                &self, url: &str, _r: Option<(u64, u64)>, _h: &RequestHeaders,
-            ) -> Result<BoxStream<'static, Result<Bytes, CoreError>>, CoreError> {
+            async fn fetch_range(&self, url: &str, _r: Option<(u64, u64)>, _h: &RequestHeaders)
+                -> Result<BoxStream<'static, Result<Bytes, CoreError>>, CoreError> {
                 let data = if url == self.url {
-                    let mut n = self.calls.lock().unwrap();
-                    let b = if *n == 0 { self.live.clone() } else { self.ended.clone() };
-                    *n += 1;
-                    b
+                    self.body.clone()
                 } else {
-                    self.segs.get(url).cloned().unwrap_or_default()
+                    *self.calls.lock().unwrap() += 1;
+                    let d = self.segs.get(url).cloned().unwrap_or_default();
+                    self.handle.stop(); // stoppe après avoir servi un segment
+                    d
                 };
                 Ok(stream::iter(vec![Ok(Bytes::from(data))]).boxed())
             }
         }
-        // 1re fetch de la playlist : pas d'ENDLIST → is_live=true → délègue au live engine.
-        // 2e fetch (par le live engine) : ENDLIST → termine la boucle.
-        let live = b"#EXTM3U\n#EXT-X-TARGETDURATION:1\n#EXT-X-MEDIA-SEQUENCE:0\n\
-#EXTINF:1.0,\nhttps://h/p/seg0.ts\n"
-            .to_vec();
-        let ended = b"#EXTM3U\n#EXT-X-TARGETDURATION:1\n#EXT-X-MEDIA-SEQUENCE:0\n\
-#EXTINF:1.0,\nhttps://h/p/seg0.ts\n#EXTINF:1.0,\nhttps://h/p/seg1.ts\n#EXT-X-ENDLIST\n"
-            .to_vec();
+        let body = b"#EXTM3U\n#EXT-X-TARGETDURATION:1\n#EXT-X-MEDIA-SEQUENCE:0\n#EXTINF:1.0,\nseg0.ts\n".to_vec();
         let mut segs = Map::new();
         segs.insert("https://h/p/seg0.ts".to_string(), b"AAAA".to_vec());
-        segs.insert("https://h/p/seg1.ts".to_string(), b"BBBB".to_vec());
-        let fetcher = TwoStepFetcher {
+        let handle = DownloadHandle::new();
+        let fetcher = StopAfterFirst {
             url: "https://h/p/index.m3u8".to_string(),
-            live,
-            ended,
-            calls: StdMutex::new(0),
-            segs,
+            body, segs, handle: handle.clone(), calls: StdMutex::new(0),
         };
         let remux = FakeRemuxer::default();
         let dir = tempdir().unwrap();
@@ -355,12 +347,11 @@ mod tests {
         let (tx, _rx) = mpsc::unbounded_channel();
         let outcome = download_hls(
             &fetcher, &remux, "idlive", "https://h/p/index.m3u8", None, &dest,
-            DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default(),
-        )
-        .await
-        .unwrap();
+            handle, unlimited(), tx, &RequestHeaders::default(),
+        ).await.unwrap();
+        // Délégation au live engine : la playlist live n'est plus rejetée ;
+        // le segment capturé est finalisé.
         assert_eq!(outcome, Outcome::Completed);
-        // 1er tour (live) : seg0 ; 2e tour (ENDLIST) : seg1 ; finalise.
-        assert_eq!(std::fs::read(&dest).unwrap(), b"AAAABBBB");
+        assert_eq!(std::fs::read(&dest).unwrap(), b"AAAA");
     }
 }
