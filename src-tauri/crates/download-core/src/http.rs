@@ -136,6 +136,9 @@ impl ByteFetcher for ReqwestFetcher {
             .send()
             .await
             .map_err(|e| CoreError::Network(describe_reqwest_error(&e)))?;
+        let resp = resp
+            .error_for_status()
+            .map_err(|e| CoreError::Network(describe_reqwest_error(&e)))?;
         let bytes = resp.bytes().await.map_err(|e| CoreError::Network(describe_reqwest_error(&e)))?;
         Ok(bytes.to_vec())
     }
