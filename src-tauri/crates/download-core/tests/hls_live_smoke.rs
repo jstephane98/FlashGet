@@ -168,9 +168,11 @@ fn assert_decodes(ffmpeg: &Path, dest: &Path) {
     let (ok, stderr) = ffmpeg_decode_check(ffmpeg, dest);
     eprintln!("--- ffmpeg decode stderr ---\n{stderr}\n--- fin stderr ---");
     assert!(ok, "ffmpeg n'a pas décodé le mp4 (exit != 0) — stderr:\n{stderr}");
+    // ffmpeg `-v error` émet en minuscules : on teste tout sur `low` (sinon un
+    // « error decoding » minuscule passerait inaperçu).
     let low = stderr.to_lowercase();
     assert!(
-        !low.contains("invalid data") && !stderr.contains("Error"),
+        !low.contains("invalid data") && !low.contains("error"),
         "le décodage signale une erreur dure — stderr:\n{stderr}"
     );
 }
@@ -324,6 +326,7 @@ async fn hls_live_stop_finalizes_partial() {
     let fetcher = ReqwestFetcher::new();
     let remux = CliRemuxer { ffmpeg: ffmpeg.clone() };
     let dest = dir.path().join("out_stop.mp4");
+    let dest_check = dest.clone(); // `dest` est déplacé dans la tâche ; on garde un clone pour les assertions.
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<Progress>();
     let media_url = format!("http://127.0.0.1:{port}/live.m3u8");
     let handle = DownloadHandle::new();
@@ -360,12 +363,11 @@ async fn hls_live_stop_finalizes_partial() {
     tokio::time::sleep(Duration::from_millis(200)).await;
     handle.stop();
 
-    let dest2 = dir.path().join("out_stop.mp4");
     let outcome = task.await.expect("tâche live").expect("live stop doit réussir");
     assert_eq!(outcome, Outcome::Completed);
-    assert!(dest2.exists(), "le .mp4 partiel doit exister");
-    let size = std::fs::metadata(&dest2).unwrap().len();
+    assert!(dest_check.exists(), "le .mp4 partiel doit exister");
+    let size = std::fs::metadata(&dest_check).unwrap().len();
     assert!(size > 1000, "mp4 partiel trop petit ({size} octets)");
-    assert_decodes(&ffmpeg, &dest2);
+    assert_decodes(&ffmpeg, &dest_check);
     eprintln!("OK : stop mid-recording → mp4 partiel lisible ({size} octets)");
 }
