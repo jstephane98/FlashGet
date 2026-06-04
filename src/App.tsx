@@ -8,6 +8,8 @@ import { CategoryTabs } from "./components/CategoryTabs";
 import { AddUrlDialog } from "./components/AddUrlDialog";
 import { DownloadTable } from "./components/DownloadTable";
 import { SettingsDialog } from "./components/SettingsDialog";
+import { HlsVariantDialog } from "./components/HlsVariantDialog";
+import type { MediaVariantsEvent } from "./api";
 
 const DEST_DIR = "";
 
@@ -20,6 +22,8 @@ export default function App() {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<Category | "all">("all");
   const [status, setStatus] = useState<DownloadStatus | "all">("all");
+  const [mediaEvent, setMediaEvent] = useState<MediaVariantsEvent | null>(null);
+  const [segs, setSegs] = useState<Record<string, { done: number; total: number }>>({});
 
   async function refresh() {
     setDownloads(await api.listDownloads());
@@ -29,6 +33,9 @@ export default function App() {
     refresh();
     const un = api.onProgress((p) => {
       setSpeeds((s) => ({ ...s, [p.id]: p.speed_bps }));
+      if (p.segments_total != null && p.segments_done != null) {
+        setSegs((m) => ({ ...m, [p.id]: { done: p.segments_done!, total: p.segments_total! } }));
+      }
       setDownloads((list) =>
         list.map((d) =>
           d.id === p.id ? { ...d, downloaded_bytes: p.downloaded_bytes, status: p.status, total_bytes: p.total_bytes } : d,
@@ -38,8 +45,19 @@ export default function App() {
     });
     // Un download créé hors UI (capture par l'extension via le bridge) : rafraîchir la liste.
     const unAdded = api.onDownloadAdded(() => refresh());
-    return () => { un.then((f) => f()); unAdded.then((f) => f()); };
+    const unMedia = api.onMediaVariants((e) => setMediaEvent(e));
+    return () => { un.then((f) => f()); unAdded.then((f) => f()); unMedia.then((f) => f()); };
   }, []);
+
+  async function handleHlsConfirm(probeId: string, variantIndex: number) {
+    setMediaEvent(null);
+    try {
+      await api.addHlsDownload(probeId, variantIndex);
+      await refresh();
+    } catch (e) {
+      setError(`Impossible de démarrer la vidéo : ${String(e)}`);
+    }
+  }
 
   async function handleAdd(url: string) {
     setDialogOpen(false);
@@ -82,6 +100,7 @@ export default function App() {
           downloads={visible}
           allDownloads={downloads}
           speeds={speeds}
+          segments={segs}
           onPause={(id) => withRefresh(() => api.pauseDownload(id))}
           onResume={(id) => withRefresh(() => api.startDownload(id))}
           onCancel={(id) => withRefresh(() => api.cancelDownload(id))}
@@ -93,6 +112,7 @@ export default function App() {
       </div>
       <AddUrlDialog open={dialogOpen} onClose={() => setDialogOpen(false)} onAdd={handleAdd} />
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <HlsVariantDialog event={mediaEvent} onClose={() => setMediaEvent(null)} onConfirm={handleHlsConfirm} />
     </div>
   );
 }

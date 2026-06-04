@@ -7,6 +7,7 @@ export function DownloadTable({
   downloads,
   allDownloads,
   speeds,
+  segments,
   onPause,
   onResume,
   onCancel,
@@ -18,6 +19,7 @@ export function DownloadTable({
   downloads: Download[];
   allDownloads: Download[];
   speeds: Record<string, number>;
+  segments: Record<string, { done: number; total: number }>;
   onPause: (id: string) => void;
   onResume: (id: string) => void;
   onCancel: (id: string) => void;
@@ -52,6 +54,7 @@ export function DownloadTable({
             d={d}
             speed={speeds[d.id] ?? 0}
             queuePosition={position[d.id] ?? null}
+            seg={segments[d.id]}
             onPause={() => onPause(d.id)}
             onResume={() => onResume(d.id)}
             onCancel={() => onCancel(d.id)}

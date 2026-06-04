@@ -16,6 +16,7 @@ export function DownloadRow({
   d,
   speed,
   queuePosition,
+  seg,
   onPause,
   onResume,
   onCancel,
@@ -27,6 +28,7 @@ export function DownloadRow({
   d: Download;
   speed: number;
   queuePosition: number | null;
+  seg?: { done: number; total: number };
   onPause: () => void;
   onResume: () => void;
   onCancel: () => void;
@@ -35,15 +37,24 @@ export function DownloadRow({
   onOpenFolder: () => void;
   onRemove: () => void;
 }) {
-  const pct = percent(d.downloaded_bytes, d.total_bytes);
+  const isHls = d.kind === "hls";
+  const segPct = seg && seg.total > 0 ? Math.round((seg.done / seg.total) * 100) : 0;
+  const pct = isHls && seg ? segPct : percent(d.downloaded_bytes, d.total_bytes);
   const stateLabel =
     d.status === "queued" && queuePosition !== null
       ? `En file (${queuePosition})`
-      : `${STATUS_LABEL[d.status]} · ${pct}%`;
+      : isHls && seg && d.status === "downloading"
+        ? `En cours · ${seg.done}/${seg.total} segments`
+        : `${STATUS_LABEL[d.status]} · ${pct}%`;
   return (
     <div className="flex items-center gap-3 px-3 py-2 border-b border-gray-100 text-sm">
       <div className="flex-[2] min-w-0">
-        <div className="font-semibold truncate">{d.file_name}</div>
+        <div className="font-semibold truncate">
+          {d.kind === "hls" && (
+            <span className="mr-1 px-1 py-0.5 text-[10px] rounded bg-indigo-100 text-indigo-700 align-middle">HLS</span>
+          )}
+          {d.file_name}
+        </div>
         <div className="h-1.5 mt-1 rounded bg-gray-200 overflow-hidden">
           <div className={`h-full rounded ${d.status === "completed" ? "bg-green-500" : "bg-indigo-600"}`} style={{ width: `${pct}%` }} />
         </div>
