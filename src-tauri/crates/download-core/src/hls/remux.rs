@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 pub struct RemuxInputs {
     pub video: PathBuf,
     pub audio: Option<PathBuf>,
+    pub decryption_key: Option<String>,
 }
 
 /// Assemble les pistes en un conteneur de sortie (sans ré-encodage).
@@ -54,7 +55,7 @@ mod tests {
         std::fs::write(&v, b"VIDEO").unwrap();
         let out = dir.path().join("out.mp4");
         let r = FakeRemuxer::default();
-        r.remux(RemuxInputs { video: v.clone(), audio: None }, &out).await.unwrap();
+        r.remux(RemuxInputs { video: v.clone(), audio: None, decryption_key: None }, &out).await.unwrap();
         assert_eq!(std::fs::read(&out).unwrap(), b"VIDEO");
         assert_eq!(r.calls.lock().unwrap().len(), 1);
     }

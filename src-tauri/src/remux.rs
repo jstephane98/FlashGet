@@ -20,9 +20,17 @@ impl SidecarRemuxer {
 impl Remuxer for SidecarRemuxer {
     async fn remux(&self, inputs: RemuxInputs, output: &Path) -> Result<(), CoreError> {
         let mut args: Vec<String> = vec!["-y".into()];
+        if let Some(key) = &inputs.decryption_key {
+            args.push("-decryption_key".into());
+            args.push(key.clone());
+        }
         args.push("-i".into());
         args.push(inputs.video.to_string_lossy().to_string());
         if let Some(audio) = &inputs.audio {
+            if let Some(key) = &inputs.decryption_key {
+                args.push("-decryption_key".into());
+                args.push(key.clone());
+            }
             args.push("-i".into());
             args.push(audio.to_string_lossy().to_string());
         }

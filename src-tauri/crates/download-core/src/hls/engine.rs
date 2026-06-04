@@ -149,7 +149,7 @@ pub async fn download_hls<F: ByteFetcher, R: Remuxer>(
         None
     };
     remux
-        .remux(RemuxInputs { video: video_cat, audio: audio_cat }, dest)
+        .remux(RemuxInputs { video: video_cat, audio: audio_cat, decryption_key: None }, dest)
         .await?;
 
     // 6. Nettoyage + progression finale.
