@@ -24,9 +24,11 @@ export function percent(downloaded: number, total: number | null): number {
 
 export function formatElapsed(seconds: number): string {
   const s = Math.max(0, Math.floor(seconds));
-  const mm = String(Math.floor(s / 60)).padStart(2, "0");
+  const h = Math.floor(s / 3600);
+  const mm = String(Math.floor((s % 3600) / 60)).padStart(2, "0");
   const ss = String(s % 60).padStart(2, "0");
-  return `${mm}:${ss}`;
+  // Au-delà d'une heure (lives longs), préfixe les heures : H:MM:SS.
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
 export function recordingLabel(segDone: number, bytes: number, elapsedSec: number): string {

@@ -19,11 +19,12 @@ describe("format", () => {
     expect(percent(0, null)).toBe(0);
   });
 
-  it("formats elapsed as MM:SS", () => {
+  it("formats elapsed as MM:SS, or H:MM:SS past an hour", () => {
     expect(formatElapsed(0)).toBe("00:00");
     expect(formatElapsed(5)).toBe("00:05");
     expect(formatElapsed(65)).toBe("01:05");
-    expect(formatElapsed(3725)).toBe("62:05");
+    expect(formatElapsed(3725)).toBe("1:02:05");
+    expect(formatElapsed(7384)).toBe("2:03:04");
     expect(formatElapsed(-3)).toBe("00:00");
   });
 
