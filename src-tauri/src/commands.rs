@@ -1,5 +1,8 @@
 use crate::state::AppState;
+use crate::state::PendingMedia;
 use download_core::engine::{self, DownloadHandle};
+use download_core::hls::playlist::{is_master, parse_master, parse_media, MasterPlaylist, Variant};
+use download_core::hls::select::{best_variant, estimated_size, pick_audio};
 use download_core::http::ByteFetcher;
 use download_core::model::{Download, DownloadKind, DownloadStatus, Priority, Progress, RequestHeaders, Settings, Category, CategoryDirs};
 use download_core::scheduler::pick_to_start;
@@ -77,6 +80,164 @@ pub async fn add_download(app: AppHandle, args: AddArgs) -> Result<Download, Str
     add_url(&app, &args.url, &args.dest_dir, RequestHeaders::default(), None).await
 }
 
+#[derive(serde::Serialize, Clone)]
+pub struct HlsVariant {
+    pub index: u32,
+    pub resolution: Option<String>,
+    pub bandwidth: u64,
+    pub est_size: Option<u64>,
+}
+
+#[derive(serde::Serialize, Clone)]
+pub struct MediaVariantsEvent {
+    pub probe_id: String,
+    pub file_name: String,
+    pub variants: Vec<HlsVariant>,
+}
+
+/// Sonde un master/media HLS, mémorise le probe et émet `media://variants`.
+pub(crate) async fn probe_hls(
+    app: &AppHandle,
+    url: &str,
+    headers: RequestHeaders,
+    suggested_name: Option<String>,
+) -> Result<(), String> {
+    let fetcher = { app.state::<AppState>().fetcher.clone() };
+    let text = fetch_text(&fetcher, url, &headers).await.map_err(|e| e.to_string())?;
+
+    let (master, total_duration) = if is_master(&text) {
+        let m = parse_master(&text, url);
+        let dur = if let Some(v) = m.variants.get(best_variant(&m)) {
+            match fetch_text(&fetcher, &v.uri, &headers).await {
+                Ok(t) => parse_media(&t, &v.uri).total_duration(),
+                Err(_) => 0.0,
+            }
+        } else {
+            0.0
+        };
+        (m, dur)
+    } else {
+        let media = parse_media(&text, url);
+        let dur = media.total_duration();
+        let m = MasterPlaylist {
+            variants: vec![Variant {
+                uri: url.to_string(),
+                bandwidth: 0,
+                resolution: None,
+                audio_group: None,
+            }],
+            audio: vec![],
+        };
+        (m, dur)
+    };
+
+    if master.variants.is_empty() {
+        return Err("aucune variante HLS trouvée".into());
+    }
+
+    let variants: Vec<HlsVariant> = master
+        .variants
+        .iter()
+        .enumerate()
+        .map(|(i, v)| HlsVariant {
+            index: i as u32,
+            resolution: v.resolution.map(|(w, h)| format!("{w}x{h}")),
+            bandwidth: v.bandwidth,
+            est_size: if v.bandwidth > 0 && total_duration > 0.0 {
+                Some(estimated_size(v.bandwidth, total_duration))
+            } else {
+                None
+            },
+        })
+        .collect();
+
+    let probe_id = uuid::Uuid::new_v4().to_string();
+    let file_name = suggested_name.unwrap_or_else(|| "video".to_string());
+    {
+        let state = app.state::<AppState>();
+        state.pending_media.lock().unwrap().insert(
+            probe_id.clone(),
+            PendingMedia { master, headers, file_name: file_name.clone(), total_duration },
+        );
+    }
+    let _ = app.emit("media://variants", MediaVariantsEvent { probe_id, file_name, variants });
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.unminimize();
+        let _ = win.show();
+        let _ = win.set_focus();
+    }
+    Ok(())
+}
+
+/// Lit entièrement une ressource texte (playlist) via le fetcher.
+async fn fetch_text<F: ByteFetcher>(fetcher: &F, url: &str, headers: &RequestHeaders) -> Result<String, download_core::CoreError> {
+    use futures_util::StreamExt;
+    let mut stream = fetcher.fetch_range(url, None, headers).await?;
+    let mut buf = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        buf.extend_from_slice(&chunk?);
+    }
+    Ok(String::from_utf8_lossy(&buf).to_string())
+}
+
+/// Crée un download HLS à partir d'un probe et de la variante choisie.
+#[tauri::command]
+pub async fn add_hls_download(app: AppHandle, probe_id: String, variant_index: u32) -> Result<Download, String> {
+    let (media_url, audio_url, file_name, headers) = {
+        let state = app.state::<AppState>();
+        let mut pending = state.pending_media.lock().unwrap();
+        let pm = pending.get(&probe_id).ok_or_else(|| "probe expiré".to_string())?;
+        let variant = pm
+            .master
+            .variants
+            .get(variant_index as usize)
+            .ok_or_else(|| "variante invalide".to_string())?;
+        let audio_url = pick_audio(&pm.master, variant).and_then(|a| a.uri.clone());
+        let file_name = download_core::naming::with_extension(&pm.file_name, "mp4");
+        let tuple = (variant.uri.clone(), audio_url, file_name, pm.headers.clone());
+        pending.remove(&probe_id);
+        tuple
+    };
+
+    let dest_dir = {
+        let state = app.state::<AppState>();
+        match state.storage.category_dir(Category::Video).map_err(|e| e.to_string())? {
+            Some(p) => PathBuf::from(p),
+            None => app.path().download_dir().map_err(|e| e.to_string())?,
+        }
+    };
+    std::fs::create_dir_all(&dest_dir).map_err(|e| format!("dossier de destination inaccessible: {e}"))?;
+    let dest_path = dest_dir.join(&file_name);
+    if dest_path.parent() != Some(dest_dir.as_path()) {
+        return Err("nom de fichier invalide".into());
+    }
+
+    let download = Download {
+        id: uuid::Uuid::new_v4().to_string(),
+        url: media_url,
+        file_name,
+        dest_path: dest_path.to_string_lossy().to_string(),
+        total_bytes: None,
+        downloaded_bytes: 0,
+        status: DownloadStatus::Queued,
+        supports_ranges: false,
+        error: None,
+        priority: Priority::Normal,
+        category: Category::Video,
+        referrer: headers.referrer,
+        cookie: headers.cookie,
+        user_agent: headers.user_agent,
+        kind: download_core::model::DownloadKind::Hls,
+        audio_url,
+    };
+    {
+        let state = app.state::<AppState>();
+        state.storage.upsert(&download).map_err(|e| e.to_string())?;
+    }
+    reevaluate(&app);
+    Ok(download)
+}
+
 #[tauri::command]
 pub fn list_downloads(state: State<AppState>) -> Result<Vec<Download>, String> {
     state.storage.list().map_err(|e| e.to_string())
@@ -130,6 +291,7 @@ pub fn cancel_download(app: AppHandle, id: String) -> Result<(), String> {
             let p = std::path::PathBuf::from(&d.dest_path);
             let _ = std::fs::remove_file(&p);
             download_core::resume::clear(&p);
+            let _ = std::fs::remove_dir_all(format!("{}.fghls", d.dest_path));
         }
     }
     state.storage.delete(&id).map_err(|e| e.to_string())?;
@@ -305,12 +467,35 @@ fn launch(app: &AppHandle, download: Download, handle: DownloadHandle) {
     let headers = download.request_headers();
     let id_for_dl = id.clone();
     let handle_for_err = handle.clone();
+    let kind = download.kind;
+    let audio_url = download.audio_url.clone();
     let (fetcher, limiter) = {
         let st = app.state::<AppState>();
         (st.fetcher.clone(), st.limiter.clone())
     };
     tauri::async_runtime::spawn(async move {
-        match engine::download(&fetcher, &id_for_dl, &url, &dest, handle, limiter, tx, &headers).await {
+        let result = match kind {
+            download_core::model::DownloadKind::Regular => {
+                engine::download(&fetcher, &id_for_dl, &url, &dest, handle, limiter, tx, &headers).await
+            }
+            download_core::model::DownloadKind::Hls => {
+                let remux = crate::remux::SidecarRemuxer::new(app_for_dl.clone());
+                download_core::hls::engine::download_hls(
+                    &fetcher,
+                    &remux,
+                    &id_for_dl,
+                    &url,
+                    audio_url.as_deref(),
+                    &dest,
+                    handle,
+                    limiter,
+                    tx,
+                    &headers,
+                )
+                .await
+            }
+        };
+        match result {
             Ok(_) => {}
             Err(e) => {
                 eprintln!("download {id_for_dl} failed: {e}");
