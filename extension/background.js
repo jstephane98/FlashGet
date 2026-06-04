@@ -199,11 +199,17 @@ chrome.downloads.onDeterminingFilename.addListener((item) => {
     }
     try {
       await chrome.downloads.cancel(item.id);
+    } catch (_e) {
+      return; // annulation impossible : laisser le navigateur, ne pas double-télécharger
+    }
+    // L'annulation a réussi : le download navigateur est arrêté, on prend le relais même si
+    // le nettoyage de l'historique échoue (best-effort, ne doit pas faire perdre la capture).
+    try {
       await chrome.downloads.erase({ id: item.id });
     } catch (_e) {
-      return; // annulation impossible : ne pas double-télécharger
+      // nettoyage best-effort
     }
-    sendCapture(url, item.referrer, basename(item.filename));
+    sendCapture(url, item.referrer, basename(item.filename)).catch(() => {});
   })();
   // Listener synchrone : on n'appelle pas suggest() (le navigateur garde son nom par défaut
   // pour les downloads non capturés ; les capturés sont annulés ci-dessus).
