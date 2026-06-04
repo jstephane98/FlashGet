@@ -158,6 +158,7 @@ pub async fn download_hls_live<F: ByteFetcher, R: Remuxer>(
     let mut a = LiveTrack::new("a");
     let mut total_done: u32 = 0;
     let mut pending_video = initial;
+    let mut first_pass = true;
 
     loop {
         // --- piste vidéo ---
@@ -169,6 +170,11 @@ pub async fn download_hls_live<F: ByteFetcher, R: Remuxer>(
             },
         };
         reject_unsupported_crypto(&vpl)?;
+        if first_pass && vpl.segments.is_empty() && vpl.map.is_none() {
+            finish_cancelled(&work);
+            return Err(CoreError::Media("playlist HLS sans segment (master au lieu de media ?)".into()));
+        }
+        first_pass = false;
         match v.capture(&vpl, fetcher, &work, headers, &limiter, &handle, &progress, id, &mut total_done).await? {
             Step::Cancelled => { finish_cancelled(&work); return Ok(Outcome::Cancelled); }
             Step::Stopped => break,
@@ -441,5 +447,63 @@ mod tests {
     async fn responsive_sleep_completes_when_not_interrupted() {
         let h = DownloadHandle::new();
         assert!(!responsive_sleep(Duration::from_millis(10), &h).await);
+    }
+
+    #[tokio::test]
+    async fn captures_separate_audio_track() {
+        let base = "https://h/p/";
+        let vbody = pl(0, &["v0.ts", "v1.ts"], true);
+        let abody = pl(0, &["a0.ts", "a1.ts"], true);
+        let mut segs = Map::new();
+        segs.insert(format!("{base}audio.m3u8"), abody.into_bytes());
+        for (n, b) in [("v0.ts","V0"),("v1.ts","V1"),("a0.ts","A0"),("a1.ts","A1")] {
+            segs.insert(format!("{base}{n}"), b.as_bytes().to_vec());
+        }
+        let fetcher = EvolvingFetcher {
+            playlist_url: format!("{base}video.m3u8"), playlists: vec![vbody], calls: Mutex::new(0),
+            segs, handle: None, stop_after_segs: 0, cancel_after_segs: 0,
+            seg_fetches: Arc::new(Mutex::new(0)),
+        };
+        let remux = FakeRemuxer::default();
+        let dir = tempdir().unwrap();
+        let dest = dir.path().join("out.mp4");
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let outcome = download_hls_live(
+            &fetcher, &remux, "L5", &format!("{base}video.m3u8"),
+            Some(&format!("{base}audio.m3u8")), &dest,
+            DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default(),
+            None, RefreshInterval::Fixed(Duration::from_millis(0)),
+        ).await.unwrap();
+        assert_eq!(outcome, Outcome::Completed);
+        // FakeRemuxer concatène vidéo puis audio.
+        assert_eq!(std::fs::read(&dest).unwrap(), b"V0V1A0A1");
+    }
+
+    #[tokio::test]
+    async fn prepends_fmp4_init_map() {
+        let base = "https://h/p/";
+        let body = format!("#EXTM3U\n#EXT-X-TARGETDURATION:1\n#EXT-X-MEDIA-SEQUENCE:0\n\
+#EXT-X-MAP:URI=\"{base}init.mp4\"\n#EXTINF:1.0,\ns0.ts\n#EXTINF:1.0,\ns1.ts\n#EXT-X-ENDLIST\n");
+        let mut segs = Map::new();
+        for (n, b) in [("init.mp4","INIT"),("s0.ts","AA"),("s1.ts","BB")] {
+            segs.insert(format!("{base}{n}"), b.as_bytes().to_vec());
+        }
+        let fetcher = EvolvingFetcher {
+            playlist_url: format!("{base}live.m3u8"), playlists: vec![body], calls: Mutex::new(0),
+            segs, handle: None, stop_after_segs: 0, cancel_after_segs: 0,
+            seg_fetches: Arc::new(Mutex::new(0)),
+        };
+        let remux = FakeRemuxer::default();
+        let dir = tempdir().unwrap();
+        let dest = dir.path().join("out.mp4");
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let outcome = download_hls_live(
+            &fetcher, &remux, "L6", &format!("{base}live.m3u8"), None, &dest,
+            DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default(),
+            None, RefreshInterval::Fixed(Duration::from_millis(0)),
+        ).await.unwrap();
+        assert_eq!(outcome, Outcome::Completed);
+        // init (EXT-X-MAP) préfixé puis les 2 segments.
+        assert_eq!(std::fs::read(&dest).unwrap(), b"INITAABB");
     }
 }
