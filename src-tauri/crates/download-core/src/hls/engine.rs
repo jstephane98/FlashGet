@@ -41,7 +41,12 @@ pub async fn download_hls<F: ByteFetcher, R: Remuxer>(
     };
     let video_pl = parse_media(&String::from_utf8_lossy(&video_pl_bytes), media_url);
     if video_pl.is_live {
-        return Err(CoreError::Media("flux live non supporté (à venir)".into()));
+        // Live : délègue au moteur d'enregistrement (passe la playlist déjà parsée).
+        return crate::hls::live::download_hls_live(
+            fetcher, remux, id, media_url, audio_url, dest,
+            handle, limiter, progress, headers,
+            Some(video_pl), crate::hls::live::RefreshInterval::FromTargetDuration,
+        ).await;
     }
     if video_pl.segments.is_empty() {
         return Err(CoreError::Media("playlist HLS sans segment (master au lieu de media ?)".into()));
@@ -298,22 +303,64 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rejects_live_stream() {
-        let media = "#EXTM3U\n#EXTINF:1.0,\nseg0.ts\n"; // pas d'ENDLIST
-        let mut routes = Map::new();
-        routes.insert("https://h/p/index.m3u8".to_string(), media.as_bytes().to_vec());
-        let fetcher = MapFetcher { routes };
+    async fn live_playlist_is_recorded_not_rejected() {
+        use std::sync::Mutex as StdMutex;
+        struct TwoStepFetcher {
+            url: String,
+            live: Vec<u8>,
+            ended: Vec<u8>,
+            calls: StdMutex<usize>,
+            segs: Map<String, Vec<u8>>,
+        }
+        #[async_trait]
+        impl ByteFetcher for TwoStepFetcher {
+            async fn probe(&self, _u: &str, _h: &RequestHeaders) -> Result<ProbeResult, CoreError> {
+                Ok(ProbeResult { total_bytes: None, supports_ranges: false, file_name: None })
+            }
+            async fn fetch_range(
+                &self, url: &str, _r: Option<(u64, u64)>, _h: &RequestHeaders,
+            ) -> Result<BoxStream<'static, Result<Bytes, CoreError>>, CoreError> {
+                let data = if url == self.url {
+                    let mut n = self.calls.lock().unwrap();
+                    let b = if *n == 0 { self.live.clone() } else { self.ended.clone() };
+                    *n += 1;
+                    b
+                } else {
+                    self.segs.get(url).cloned().unwrap_or_default()
+                };
+                Ok(stream::iter(vec![Ok(Bytes::from(data))]).boxed())
+            }
+        }
+        // 1re fetch de la playlist : pas d'ENDLIST → is_live=true → délègue au live engine.
+        // 2e fetch (par le live engine) : ENDLIST → termine la boucle.
+        let live = b"#EXTM3U\n#EXT-X-TARGETDURATION:1\n#EXT-X-MEDIA-SEQUENCE:0\n\
+#EXTINF:1.0,\nhttps://h/p/seg0.ts\n"
+            .to_vec();
+        let ended = b"#EXTM3U\n#EXT-X-TARGETDURATION:1\n#EXT-X-MEDIA-SEQUENCE:0\n\
+#EXTINF:1.0,\nhttps://h/p/seg0.ts\n#EXTINF:1.0,\nhttps://h/p/seg1.ts\n#EXT-X-ENDLIST\n"
+            .to_vec();
+        let mut segs = Map::new();
+        segs.insert("https://h/p/seg0.ts".to_string(), b"AAAA".to_vec());
+        segs.insert("https://h/p/seg1.ts".to_string(), b"BBBB".to_vec());
+        let fetcher = TwoStepFetcher {
+            url: "https://h/p/index.m3u8".to_string(),
+            live,
+            ended,
+            calls: StdMutex::new(0),
+            segs,
+        };
         let remux = FakeRemuxer::default();
         let dir = tempdir().unwrap();
         let dest = dir.path().join("out.mp4");
         let (tx, _rx) = mpsc::unbounded_channel();
-
-        let err = download_hls(
-            &fetcher, &remux, "id2", "https://h/p/index.m3u8", None, &dest,
+        let outcome = download_hls(
+            &fetcher, &remux, "idlive", "https://h/p/index.m3u8", None, &dest,
             DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default(),
         )
         .await
-        .unwrap_err();
-        assert!(matches!(err, CoreError::Media(_)));
+        .unwrap();
+        assert_eq!(outcome, Outcome::Completed);
+        // 1er tour (live) : seg0 ; 2e tour (ENDLIST) : seg1 ; finalise.
+        assert_eq!(std::fs::read(&dest).unwrap(), b"AAAABBBB");
     }
 }
