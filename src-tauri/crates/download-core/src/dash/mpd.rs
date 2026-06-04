@@ -84,7 +84,7 @@ pub struct Mpd {
 pub fn parse_mpd(xml: &str, base_url: &str) -> Result<Mpd, CoreError> {
     let doc = Document::parse(xml).map_err(|e| CoreError::Media(format!("MPD invalide: {e}")))?;
     let root = doc.root_element();
-    let dynamic = attr(&root, "type") == Some("dynamic".to_string());
+    let dynamic = attr(&root, "type").as_deref() == Some("dynamic");
     let duration_secs = attr(&root, "mediaPresentationDuration")
         .and_then(|s| parse_iso8601_duration(&s))
         .unwrap_or(0.0);
@@ -142,10 +142,9 @@ fn parse_addressing(
         }));
     }
     if let Some(l) = rnode.children().find(|n| n.has_tag_name_local("SegmentList")) {
-        let init = l
-            .children()
-            .find(|n| n.has_tag_name_local("Initialization"))
-            .and_then(|i| attr(&i, "sourceURL"));
+        let init_node = l.children().find(|n| n.has_tag_name_local("Initialization"));
+        let init = init_node.as_ref().and_then(|i| attr(i, "sourceURL"));
+        let init_range = init_node.as_ref().and_then(|i| attr(i, "range").as_deref().and_then(parse_range));
         let segments = l
             .children()
             .filter(|n| n.has_tag_name_local("SegmentURL"))
@@ -154,7 +153,7 @@ fn parse_addressing(
                 range: attr(&s, "mediaRange").as_deref().and_then(parse_range),
             })
             .collect();
-        return Ok(Addressing::List(SegmentList { init, init_range: None, segments }));
+        return Ok(Addressing::List(SegmentList { init, init_range, segments }));
     }
     if let Some(t) = rnode.children().find(|n| n.has_tag_name_local("SegmentTemplate")) {
         return Ok(Addressing::Template(parse_segment_template(&t, rep_base)));
@@ -317,6 +316,32 @@ mod tests {
                 assert_eq!(t.timescale, 1000);
             }
             other => panic!("attendu Template, obtenu {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_segment_list_with_init_range() {
+        let xml = r#"<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static" mediaPresentationDuration="PT4S">
+  <Period><AdaptationSet contentType="video">
+    <Representation id="v0" bandwidth="1"><BaseURL>https://h/p/</BaseURL>
+      <SegmentList>
+        <Initialization sourceURL="init.mp4" range="0-99"/>
+        <SegmentURL media="s1.m4s" mediaRange="100-199"/>
+        <SegmentURL media="s2.m4s"/>
+      </SegmentList>
+    </Representation>
+  </AdaptationSet></Period>
+</MPD>"#;
+        let m = parse_mpd(xml, "https://h/p/m.mpd").unwrap();
+        match &m.periods[0].adaptation_sets[0].representations[0].addressing {
+            Addressing::List(l) => {
+                assert_eq!(l.init.as_deref(), Some("init.mp4"));
+                assert_eq!(l.init_range, Some((0, 99)));
+                assert_eq!(l.segments.len(), 2);
+                assert_eq!(l.segments[0].range, Some((100, 199)));
+                assert_eq!(l.segments[1].range, None);
+            }
+            other => panic!("attendu List, obtenu {other:?}"),
         }
     }
 
