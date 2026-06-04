@@ -47,6 +47,10 @@ impl Storage {
             "ALTER TABLE downloads ADD COLUMN category TEXT NOT NULL DEFAULT 'other'",
             [],
         );
+        // Migration additive : en-têtes optionnels (3b-1). Nullable, ignorer si déjà présent.
+        let _ = conn.execute("ALTER TABLE downloads ADD COLUMN referrer TEXT", []);
+        let _ = conn.execute("ALTER TABLE downloads ADD COLUMN cookie TEXT", []);
+        let _ = conn.execute("ALTER TABLE downloads ADD COLUMN user_agent TEXT", []);
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
         )
@@ -57,11 +61,12 @@ impl Storage {
     pub fn upsert(&self, d: &Download) -> Result<(), CoreError> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO downloads (id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority, category)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+            "INSERT INTO downloads (id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority, category, referrer, cookie, user_agent)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
              ON CONFLICT(id) DO UPDATE SET
                 url=?2, file_name=?3, dest_path=?4, total_bytes=?5,
-                downloaded_bytes=?6, status=?7, supports_ranges=?8, error=?9, priority=?10, category=?11",
+                downloaded_bytes=?6, status=?7, supports_ranges=?8, error=?9, priority=?10, category=?11,
+                referrer=?12, cookie=?13, user_agent=?14",
             rusqlite::params![
                 d.id, d.url, d.file_name, d.dest_path,
                 d.total_bytes.map(|v| v as i64),
@@ -71,6 +76,9 @@ impl Storage {
                 d.error,
                 priority_to_str(d.priority),
                 category_to_str(d.category),
+                d.referrer,
+                d.cookie,
+                d.user_agent,
             ],
         )
         .map_err(|e| CoreError::Storage(e.to_string()))?;
@@ -80,7 +88,7 @@ impl Storage {
     pub fn list(&self) -> Result<Vec<Download>, CoreError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn
-            .prepare("SELECT id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority, category FROM downloads ORDER BY rowid")
+            .prepare("SELECT id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority, category, referrer, cookie, user_agent FROM downloads ORDER BY rowid")
             .map_err(|e| CoreError::Storage(e.to_string()))?;
         let rows = stmt
             .query_map([], |row| {
@@ -96,6 +104,9 @@ impl Storage {
                     error: row.get(8)?,
                     priority: priority_from_str(&row.get::<_, String>(9)?),
                     category: category_from_str(&row.get::<_, String>(10)?),
+                    referrer: row.get(11)?,
+                    cookie: row.get(12)?,
+                    user_agent: row.get(13)?,
                 })
             })
             .map_err(|e| CoreError::Storage(e.to_string()))?;
@@ -148,7 +159,7 @@ impl Storage {
     pub fn get_by_id(&self, id: &str) -> Result<Option<Download>, CoreError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn
-            .prepare("SELECT id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority, category FROM downloads WHERE id=?1")
+            .prepare("SELECT id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority, category, referrer, cookie, user_agent FROM downloads WHERE id=?1")
             .map_err(|e| CoreError::Storage(e.to_string()))?;
         let mut rows = stmt
             .query_map([id], |row| {
@@ -164,6 +175,9 @@ impl Storage {
                     error: row.get(8)?,
                     priority: priority_from_str(&row.get::<_, String>(9)?),
                     category: category_from_str(&row.get::<_, String>(10)?),
+                    referrer: row.get(11)?,
+                    cookie: row.get(12)?,
+                    user_agent: row.get(13)?,
                 })
             })
             .map_err(|e| CoreError::Storage(e.to_string()))?;
@@ -375,6 +389,9 @@ mod tests {
             error: None,
             priority: Priority::Normal,
             category: Category::Other,
+            referrer: None,
+            cookie: None,
+            user_agent: None,
         }
     }
 
@@ -572,5 +589,32 @@ mod tests {
         assert!(!b.is_empty());
         // Le nouveau jeton est désormais celui qui persiste.
         assert_eq!(b, s.get_or_create_bridge_token().unwrap());
+    }
+
+    #[test]
+    fn upsert_then_list_roundtrips_headers() {
+        let s = Storage::open_in_memory().unwrap();
+        let mut d = sample("h1");
+        d.referrer = Some("http://example.com/page".into());
+        d.cookie = Some("sid=abc; theme=dark".into());
+        d.user_agent = Some("Mozilla/5.0 (Test)".into());
+        s.upsert(&d).unwrap();
+
+        let got = s.get_by_id("h1").unwrap().unwrap();
+        assert_eq!(got.referrer.as_deref(), Some("http://example.com/page"));
+        assert_eq!(got.cookie.as_deref(), Some("sid=abc; theme=dark"));
+        assert_eq!(got.user_agent.as_deref(), Some("Mozilla/5.0 (Test)"));
+
+        // Vérifier aussi le chemin `list` (même SELECT/mapping que get_by_id).
+        let from_list = s.list().unwrap().into_iter().find(|x| x.id == "h1").unwrap();
+        assert_eq!(from_list.cookie.as_deref(), Some("sid=abc; theme=dark"));
+
+        // Absents => NULL => None.
+        let plain = sample("h2");
+        s.upsert(&plain).unwrap();
+        let got2 = s.get_by_id("h2").unwrap().unwrap();
+        assert_eq!(got2.referrer, None);
+        assert_eq!(got2.cookie, None);
+        assert_eq!(got2.user_agent, None);
     }
 }

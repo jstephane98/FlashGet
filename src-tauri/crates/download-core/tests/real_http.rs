@@ -7,7 +7,7 @@
 
 use download_core::engine::{download, DownloadHandle, Outcome};
 use download_core::http::ReqwestFetcher;
-use download_core::model::Progress;
+use download_core::model::{Progress, RequestHeaders};
 use download_core::rate_limiter::RateLimiter;
 use std::sync::Arc;
 use tempfile::tempdir;
@@ -90,7 +90,7 @@ async fn real_http_multisegment_download_matches_payload() {
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<Progress>();
 
     let url = format!("http://127.0.0.1:{port}/file");
-    let outcome = download(&fetcher, "it1", &url, &dest, DownloadHandle::new(), Arc::new(RateLimiter::unlimited()), tx)
+    let outcome = download(&fetcher, "it1", &url, &dest, DownloadHandle::new(), Arc::new(RateLimiter::unlimited()), tx, &RequestHeaders::default())
         .await
         .expect("download should succeed");
 
@@ -113,7 +113,7 @@ async fn real_http_progress_reports_full_size() {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Progress>();
 
     let url = format!("http://127.0.0.1:{port}/file");
-    let outcome = download(&fetcher, "it2", &url, &dest, DownloadHandle::new(), Arc::new(RateLimiter::unlimited()), tx)
+    let outcome = download(&fetcher, "it2", &url, &dest, DownloadHandle::new(), Arc::new(RateLimiter::unlimited()), tx, &RequestHeaders::default())
         .await
         .expect("download should succeed");
     assert_eq!(outcome, Outcome::Completed);

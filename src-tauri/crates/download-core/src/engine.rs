@@ -1,5 +1,5 @@
 use crate::http::ByteFetcher;
-use crate::model::{DownloadStatus, Progress};
+use crate::model::{DownloadStatus, Progress, RequestHeaders};
 use crate::rate_limiter::RateLimiter;
 use crate::resume::{self, ResumeState};
 use crate::segments::compute_segments;
@@ -53,11 +53,12 @@ pub async fn download<F: ByteFetcher>(
     handle: DownloadHandle,
     limiter: Arc<RateLimiter>,
     progress: mpsc::UnboundedSender<Progress>,
+    headers: &RequestHeaders,
 ) -> Result<Outcome, CoreError> {
     use futures_util::future::join_all;
     use futures_util::StreamExt;
 
-    let probe = fetcher.probe(url).await?;
+    let probe = fetcher.probe(url, headers).await?;
     let probe_total = probe.total_bytes.unwrap_or(0);
 
     // Construire (ou recharger) l'état des segments.
@@ -112,7 +113,7 @@ pub async fn download<F: ByteFetcher>(
             .write(true)
             .open(dest)
             .await?;
-        let mut stream = fetcher.fetch_range(url, None).await?;
+        let mut stream = fetcher.fetch_range(url, None, headers).await?;
         while let Some(chunk) = stream.next().await {
             if handle.cancel.load(Ordering::SeqCst) {
                 resume::clear(dest);
@@ -162,6 +163,7 @@ pub async fn download<F: ByteFetcher>(
         let resume_from = seg_start + seg_done;
 
         let fetcher_ref = fetcher;
+        let headers_ref = headers;
         let url_owned = url.to_string();
         let dest_owned = dest.to_path_buf();
         let handle = handle.clone();
@@ -176,7 +178,7 @@ pub async fn download<F: ByteFetcher>(
                 .await?;
             file.seek(std::io::SeekFrom::Start(resume_from)).await?;
             let mut stream = fetcher_ref
-                .fetch_range(&url_owned, Some((resume_from, seg_end)))
+                .fetch_range(&url_owned, Some((resume_from, seg_end)), headers_ref)
                 .await?;
             while let Some(chunk) = stream.next().await {
                 if handle.cancel.load(Ordering::SeqCst) {
@@ -262,6 +264,7 @@ fn emit(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::RequestHeaders;
     use crate::rate_limiter::RateLimiter;
     use crate::tests::fake_fetcher::FakeFetcher;
     use tempfile::tempdir;
@@ -282,7 +285,7 @@ mod tests {
         let dest = collect_dest(&dir);
         let (tx, _rx) = mpsc::unbounded_channel();
 
-        let outcome = download(&fetcher, "id1", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx)
+        let outcome = download(&fetcher, "id1", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default())
             .await
             .unwrap();
 
@@ -299,7 +302,7 @@ mod tests {
         let dest = collect_dest(&dir);
         let (tx, _rx) = mpsc::unbounded_channel();
 
-        download(&fetcher, "id2", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx)
+        download(&fetcher, "id2", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default())
             .await
             .unwrap();
 
@@ -314,7 +317,7 @@ mod tests {
         let dest = collect_dest(&dir);
         let (tx, mut rx) = mpsc::unbounded_channel();
 
-        download(&fetcher, "id3", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx)
+        download(&fetcher, "id3", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default())
             .await
             .unwrap();
 
@@ -336,7 +339,7 @@ mod tests {
         let handle = DownloadHandle::new();
         handle.pause(); // pause avant le premier chunk => crée le sidecar
         let (tx, _rx) = mpsc::unbounded_channel();
-        let outcome = download(&fetcher, "id4", "http://x/f", &dest, handle, unlimited(), tx)
+        let outcome = download(&fetcher, "id4", "http://x/f", &dest, handle, unlimited(), tx, &RequestHeaders::default())
             .await
             .unwrap();
         assert_eq!(outcome, Outcome::Paused);
@@ -344,7 +347,7 @@ mod tests {
         // 2e run : reprise jusqu'à complétion.
         let fetcher2 = FakeFetcher::new(data.clone(), true);
         let (tx2, _rx2) = mpsc::unbounded_channel();
-        let outcome2 = download(&fetcher2, "id4", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx2)
+        let outcome2 = download(&fetcher2, "id4", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx2, &RequestHeaders::default())
             .await
             .unwrap();
         assert_eq!(outcome2, Outcome::Completed);
@@ -362,7 +365,7 @@ mod tests {
         // First run: download to completion.
         let fetcher = FakeFetcher::new(data.clone(), true);
         let (tx, _rx) = mpsc::unbounded_channel();
-        let outcome = download(&fetcher, "idr", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx)
+        let outcome = download(&fetcher, "idr", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default())
             .await
             .unwrap();
         assert_eq!(outcome, Outcome::Completed);
@@ -374,7 +377,7 @@ mod tests {
         let fetcher2 = FakeFetcher::new(data.clone(), true);
         let (tx2, _rx2) = mpsc::unbounded_channel();
         let outcome2 =
-            download(&fetcher2, "idr", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx2)
+            download(&fetcher2, "idr", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx2, &RequestHeaders::default())
                 .await
                 .unwrap();
         assert_eq!(outcome2, Outcome::Completed);
@@ -404,7 +407,7 @@ mod tests {
         let dest = dir.path().join("out.bin");
         let (tx, _rx) = mpsc::unbounded_channel();
 
-        download(&fetcher, "t", "http://x/f", &dest, DownloadHandle::new(), limiter, tx)
+        download(&fetcher, "t", "http://x/f", &dest, DownloadHandle::new(), limiter, tx, &RequestHeaders::default())
             .await
             .unwrap();
 
@@ -426,7 +429,7 @@ mod tests {
         let handle = DownloadHandle::new();
         handle.pause();
         let (tx, _rx) = mpsc::unbounded_channel();
-        let outcome = download(&fetcher, "ids", "http://x/f", &dest, handle, unlimited(), tx)
+        let outcome = download(&fetcher, "ids", "http://x/f", &dest, handle, unlimited(), tx, &RequestHeaders::default())
             .await
             .unwrap();
         assert_eq!(outcome, Outcome::Paused);
@@ -440,7 +443,7 @@ mod tests {
         let mut fetcher2 = FakeFetcher::new(data.clone(), true);
         fetcher2.probe_reports_size = false;
         let (tx2, _rx2) = mpsc::unbounded_channel();
-        let outcome2 = download(&fetcher2, "ids", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx2)
+        let outcome2 = download(&fetcher2, "ids", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx2, &RequestHeaders::default())
             .await
             .unwrap();
         assert_eq!(outcome2, Outcome::Completed);

@@ -30,6 +30,9 @@ export interface Download {
   error: string | null;
   priority: Priority;
   category: Category;
+  referrer?: string | null;
+  cookie?: string | null;
+  user_agent?: string | null;
 }
 
 export interface Settings {
