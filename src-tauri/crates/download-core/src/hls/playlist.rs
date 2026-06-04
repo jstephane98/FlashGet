@@ -1,5 +1,31 @@
 use std::collections::HashMap;
 
+/// Une variante de qualité d'un master playlist.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Variant {
+    pub uri: String,
+    pub bandwidth: u64,
+    pub resolution: Option<(u32, u32)>,
+    pub audio_group: Option<String>,
+}
+
+/// Une piste audio alternative (`#EXT-X-MEDIA:TYPE=AUDIO`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct AudioRendition {
+    pub group_id: String,
+    pub name: String,
+    pub uri: Option<String>,
+    pub default: bool,
+    pub autoselect: bool,
+}
+
+/// Master playlist : variantes + pistes audio alternatives.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct MasterPlaylist {
+    pub variants: Vec<Variant>,
+    pub audio: Vec<AudioRendition>,
+}
+
 /// Parse la liste d'attributs d'une ligne `#EXT-X-...:key=val,key="val,with,commas",...`.
 /// Gère les valeurs entre guillemets (qui peuvent contenir des virgules). Les guillemets
 /// sont retirés. Renvoie une map clé→valeur.
@@ -81,6 +107,51 @@ pub(crate) fn resolve_uri(base: &str, uri: &str) -> String {
     format!("{}{}", &base[..dir_end], uri)
 }
 
+/// Vrai si le texte est un master playlist (contient au moins un `EXT-X-STREAM-INF`).
+pub fn is_master(text: &str) -> bool {
+    text.lines().any(|l| l.trim_start().starts_with("#EXT-X-STREAM-INF"))
+}
+
+/// Parse un master playlist. Les URIs sont résolues contre `base_url`.
+pub fn parse_master(text: &str, base_url: &str) -> MasterPlaylist {
+    let mut out = MasterPlaylist::default();
+    let mut pending: Option<(u64, Option<(u32, u32)>, Option<String>)> = None;
+    for raw in text.lines() {
+        let line = raw.trim();
+        if line.starts_with("#EXT-X-MEDIA:") {
+            let attrs = parse_attributes(&line["#EXT-X-MEDIA:".len()..]);
+            if attrs.get("TYPE").map(|t| t == "AUDIO").unwrap_or(false) {
+                out.audio.push(AudioRendition {
+                    group_id: attrs.get("GROUP-ID").cloned().unwrap_or_default(),
+                    name: attrs.get("NAME").cloned().unwrap_or_default(),
+                    uri: attrs.get("URI").map(|u| resolve_uri(base_url, u)),
+                    default: attrs.get("DEFAULT").map(|v| v == "YES").unwrap_or(false),
+                    autoselect: attrs.get("AUTOSELECT").map(|v| v == "YES").unwrap_or(false),
+                });
+            }
+        } else if line.starts_with("#EXT-X-STREAM-INF:") {
+            let attrs = parse_attributes(&line["#EXT-X-STREAM-INF:".len()..]);
+            let bandwidth = attrs.get("BANDWIDTH").and_then(|v| v.parse().ok()).unwrap_or(0);
+            let resolution = attrs.get("RESOLUTION").and_then(|r| {
+                let (w, h) = r.split_once('x')?;
+                Some((w.parse().ok()?, h.parse().ok()?))
+            });
+            let audio_group = attrs.get("AUDIO").cloned();
+            pending = Some((bandwidth, resolution, audio_group));
+        } else if !line.is_empty() && !line.starts_with('#') {
+            if let Some((bandwidth, resolution, audio_group)) = pending.take() {
+                out.variants.push(Variant {
+                    uri: resolve_uri(base_url, line),
+                    bandwidth,
+                    resolution,
+                    audio_group,
+                });
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -129,5 +200,34 @@ mod tests {
         // Un token malformé (sans '=') ne doit pas faire perdre les paires valides suivantes.
         let m = parse_attributes("GARBAGE,BANDWIDTH=42");
         assert_eq!(m.get("BANDWIDTH").unwrap(), "42");
+    }
+
+    const MASTER: &str = "#EXTM3U\n\
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID=\"aud\",NAME=\"English\",DEFAULT=YES,AUTOSELECT=YES,URI=\"audio/en.m3u8\"\n\
+#EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360,AUDIO=\"aud\"\n\
+v360/index.m3u8\n\
+#EXT-X-STREAM-INF:BANDWIDTH=2400000,RESOLUTION=1280x720,AUDIO=\"aud\"\n\
+v720/index.m3u8\n";
+
+    #[test]
+    fn is_master_detects_stream_inf() {
+        assert!(is_master(MASTER));
+        assert!(!is_master("#EXTM3U\n#EXTINF:6.0,\nseg0.ts\n"));
+    }
+
+    #[test]
+    fn parses_master_variants_and_audio() {
+        let m = parse_master(MASTER, "https://h/p/master.m3u8");
+        assert_eq!(m.variants.len(), 2);
+        assert_eq!(m.variants[0].bandwidth, 800000);
+        assert_eq!(m.variants[0].resolution, Some((640, 360)));
+        assert_eq!(m.variants[0].uri, "https://h/p/v360/index.m3u8");
+        assert_eq!(m.variants[0].audio_group.as_deref(), Some("aud"));
+        assert_eq!(m.variants[1].resolution, Some((1280, 720)));
+
+        assert_eq!(m.audio.len(), 1);
+        assert_eq!(m.audio[0].group_id, "aud");
+        assert!(m.audio[0].default);
+        assert_eq!(m.audio[0].uri.as_deref(), Some("https://h/p/audio/en.m3u8"));
     }
 }
