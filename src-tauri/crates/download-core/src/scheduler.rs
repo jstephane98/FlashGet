@@ -3,7 +3,7 @@ use crate::model::{Download, DownloadStatus, Priority};
 /// Étant donné l'ensemble des téléchargements et la limite de simultanés,
 /// renvoie les ids des téléchargements `Queued` à démarrer, choisis par
 /// priorité décroissante puis par ordre d'arrivée (l'ordre du slice).
-/// Idempotent : ne renvoie jamais un id déjà `Downloading` / `Paused` / terminé.
+/// Idempotent : ne renvoie jamais un id déjà `Downloading` / `Recording` / `Paused` / terminé.
 pub fn pick_to_start(downloads: &[Download], max_concurrent: u32) -> Vec<String> {
     let active = downloads
         .iter()
