@@ -573,7 +573,7 @@ pub fn recover_interrupted_recordings(app: &AppHandle) {
                     rd.filter_map(|e| e.ok()).any(|e| {
                         e.file_name()
                             .to_str()
-                            .map(|n| n.starts_with('a') && n.ends_with(".seg"))
+                            .map(|n| n.starts_with('a') && n.ends_with(".seg") && !n.contains("_init"))
                             .unwrap_or(false)
                     })
                 })
