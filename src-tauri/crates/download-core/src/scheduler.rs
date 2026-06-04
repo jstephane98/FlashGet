@@ -53,6 +53,7 @@ mod tests {
             user_agent: None,
             kind: DownloadKind::Regular,
             audio_url: None,
+            media_selection: None,
         }
     }
 

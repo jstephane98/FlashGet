@@ -85,6 +85,11 @@ async fn handle_conn(app: AppHandle, stream: TcpStream) {
                         Ok(()) => serde_json::json!({ "type": "ack", "kind": "hls" }).to_string(),
                         Err(e) => serde_json::json!({ "type": "error", "error": e }).to_string(),
                     }
+                } else if kind.as_deref() == Some("dash") {
+                    match commands::probe_dash(&app, &url, headers, filename).await {
+                        Ok(()) => serde_json::json!({ "type": "ack", "kind": "dash" }).to_string(),
+                        Err(e) => serde_json::json!({ "type": "error", "error": e }).to_string(),
+                    }
                 } else {
                     // Capture via le pipeline d'ajout existant, en transmettant les en-têtes du navigateur
                     // et le nom de fichier suggéré par le navigateur.

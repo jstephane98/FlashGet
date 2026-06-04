@@ -9,6 +9,8 @@ pub mod storage;
 pub mod rate_limiter;
 pub mod scheduler;
 pub mod hls;
+pub mod dash;
+pub mod media_io;
 
 use thiserror::Error;
 

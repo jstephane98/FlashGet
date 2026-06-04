@@ -27,8 +27,8 @@ export function onMediaError(cb: (e: MediaErrorEvent) => void): Promise<Unlisten
   return listen<MediaErrorEvent>("media://error", (e) => cb(e.payload));
 }
 
-export function addHlsDownload(probeId: string, variantIndex: number): Promise<Download> {
-  return invoke<Download>("add_hls_download", { probeId, variantIndex });
+export function addMediaDownload(probeId: string, variantIndex: number): Promise<Download> {
+  return invoke<Download>("add_media_download", { probeId, variantIndex });
 }
 
 export function addDownload(url: string, destDir: string): Promise<Download> {

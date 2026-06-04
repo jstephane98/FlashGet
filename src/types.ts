@@ -7,7 +7,7 @@ export type DownloadStatus =
 
 export type Priority = "high" | "normal" | "low";
 
-export type DownloadKind = "regular" | "hls";
+export type DownloadKind = "regular" | "hls" | "dash";
 
 export type Category = "video" | "document" | "program" | "archive" | "music" | "other";
 
@@ -37,6 +37,7 @@ export interface Download {
   user_agent?: string | null;
   kind?: DownloadKind;
   audio_url?: string | null;
+  media_selection?: string | null;
 }
 
 export interface Settings {

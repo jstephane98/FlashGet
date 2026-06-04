@@ -2,64 +2,17 @@ use crate::hls::crypto::{decrypt_aes128_cbc, iv_for_segment};
 use crate::hls::playlist::{parse_media, KeyMethod};
 use crate::hls::remux::{RemuxInputs, Remuxer};
 use crate::http::ByteFetcher;
+use crate::media_io::{
+    concat_track, emit_segments, fetch_to_vec, finish_cancelled, seg_path, work_dir, write_segment,
+};
 use crate::model::{DownloadStatus, Progress, RequestHeaders};
 use crate::rate_limiter::RateLimiter;
 use crate::engine::{DownloadHandle, Outcome};
 use crate::CoreError;
-use futures_util::StreamExt;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-
-/// Répertoire de travail temporaire associé à un fichier de destination.
-fn work_dir(dest: &Path) -> std::path::PathBuf {
-    let mut s = dest.as_os_str().to_owned();
-    s.push(".fghls");
-    std::path::PathBuf::from(s)
-}
-
-/// Lit entièrement un flux d'octets (rate-limité, respecte pause/cancel, cumule la progression).
-async fn fetch_to_vec<F: ByteFetcher>(
-    fetcher: &F,
-    url: &str,
-    range: Option<(u64, u64)>,
-    headers: &RequestHeaders,
-    limiter: &RateLimiter,
-    handle: &DownloadHandle,
-) -> Result<Option<Vec<u8>>, CoreError> {
-    let mut stream = fetcher.fetch_range(url, range, headers).await?;
-    let mut buf = Vec::new();
-    while let Some(chunk) = stream.next().await {
-        if handle.is_cancelled() {
-            return Ok(None);
-        }
-        let chunk = chunk?;
-        limiter.acquire(chunk.len() as u64).await;
-        buf.extend_from_slice(&chunk);
-        handle.add_downloaded(chunk.len() as u64);
-    }
-    Ok(Some(buf))
-}
-
-fn emit_segments(
-    tx: &mpsc::UnboundedSender<Progress>,
-    id: &str,
-    handle: &DownloadHandle,
-    done: u32,
-    total: u32,
-    status: DownloadStatus,
-) {
-    let _ = tx.send(Progress {
-        id: id.to_string(),
-        downloaded_bytes: handle.downloaded(),
-        total_bytes: None,
-        speed_bps: 0,
-        status,
-        segments_done: Some(done),
-        segments_total: Some(total),
-    });
-}
 
 /// Télécharge un flux HLS VOD vers `dest` (.mp4) via le moteur Rust + remux ffmpeg.
 #[allow(clippy::too_many_arguments)]
@@ -81,7 +34,10 @@ pub async fn download_hls<F: ByteFetcher, R: Remuxer>(
     // 1. Récupère + parse la media playlist vidéo.
     let video_pl_bytes = match fetch_to_vec(fetcher, media_url, None, headers, &limiter, &handle).await? {
         Some(b) => b,
-        None => return finish_cancelled(&work),
+        None => {
+            finish_cancelled(&work);
+            return Ok(Outcome::Cancelled);
+        }
     };
     let video_pl = parse_media(&String::from_utf8_lossy(&video_pl_bytes), media_url);
     if video_pl.is_live {
@@ -103,7 +59,10 @@ pub async fn download_hls<F: ByteFetcher, R: Remuxer>(
     let audio_pl = if let Some(au) = audio_url {
         let bytes = match fetch_to_vec(fetcher, au, None, headers, &limiter, &handle).await? {
             Some(b) => b,
-            None => return finish_cancelled(&work),
+            None => {
+                finish_cancelled(&work);
+                return Ok(Outcome::Cancelled);
+            }
         };
         Some(parse_media(&String::from_utf8_lossy(&bytes), au))
     } else {
@@ -119,7 +78,10 @@ pub async fn download_hls<F: ByteFetcher, R: Remuxer>(
     if let Some(map_uri) = &video_pl.map {
         let init = match fetch_to_vec(fetcher, map_uri, None, headers, &limiter, &handle).await? {
             Some(b) => b,
-            None => return finish_cancelled(&work),
+            None => {
+                finish_cancelled(&work);
+                return Ok(Outcome::Cancelled);
+            }
         };
         std::fs::write(work.join("v_init.seg"), init)?;
     }
@@ -134,7 +96,10 @@ pub async fn download_hls<F: ByteFetcher, R: Remuxer>(
             emit_segments(&progress, id, &handle, done, total_segments, DownloadStatus::Paused);
             return Ok(Outcome::Paused); // work dir conservé pour la reprise
         }
-        Outcome::Cancelled => return finish_cancelled(&work),
+        Outcome::Cancelled => {
+            finish_cancelled(&work);
+            return Ok(Outcome::Cancelled);
+        }
     }
 
     // 4. Télécharge la piste audio si présente.
@@ -142,7 +107,10 @@ pub async fn download_hls<F: ByteFetcher, R: Remuxer>(
         if let Some(map_uri) = &ap.map {
             let init = match fetch_to_vec(fetcher, map_uri, None, headers, &limiter, &handle).await? {
                 Some(b) => b,
-                None => return finish_cancelled(&work),
+                None => {
+                    finish_cancelled(&work);
+                    return Ok(Outcome::Cancelled);
+                }
             };
             std::fs::write(work.join("a_init.seg"), init)?;
         }
@@ -157,7 +125,10 @@ pub async fn download_hls<F: ByteFetcher, R: Remuxer>(
                 emit_segments(&progress, id, &handle, done, total_segments, DownloadStatus::Paused);
                 return Ok(Outcome::Paused);
             }
-            Outcome::Cancelled => return finish_cancelled(&work),
+            Outcome::Cancelled => {
+                finish_cancelled(&work);
+                return Ok(Outcome::Cancelled);
+            }
         }
     }
 
@@ -178,7 +149,7 @@ pub async fn download_hls<F: ByteFetcher, R: Remuxer>(
         None
     };
     remux
-        .remux(RemuxInputs { video: video_cat, audio: audio_cat }, dest)
+        .remux(RemuxInputs { video: video_cat, audio: audio_cat, decryption_key: None }, dest)
         .await?;
 
     // 6. Nettoyage + progression finale.
@@ -212,8 +183,7 @@ async fn download_track<F: ByteFetcher>(
     key_cache: &mut HashMap<String, [u8; 16]>,
 ) -> Result<Outcome, CoreError> {
     for (idx, seg) in pl.segments.iter().enumerate() {
-        let seg_path = work.join(format!("{prefix}{idx:05}.seg"));
-        if seg_path.exists() {
+        if seg_path(work, prefix, idx).exists() {
             *done += 1; // reprise : segment déjà fait
             continue;
         }
@@ -250,49 +220,11 @@ async fn download_track<F: ByteFetcher>(
         } else {
             raw
         };
-        let part = work.join(format!("{prefix}{idx:05}.part"));
-        std::fs::write(&part, &bytes)?;
-        std::fs::rename(&part, &seg_path)?; // rename atomique
+        write_segment(work, prefix, idx, &bytes)?;
         *done += 1;
         emit_segments(progress, id, handle, *done, total, DownloadStatus::Downloading);
     }
     Ok(Outcome::Completed)
-}
-
-/// Concatène `<prefix>_init.seg` (si fMP4) + tous les `<prefix>NNNNN.seg` triés en un fichier.
-fn concat_track(work: &Path, prefix: &str, has_init: bool) -> Result<std::path::PathBuf, CoreError> {
-    use std::io::Write;
-    let out_path = work.join(format!("{prefix}.cat"));
-    let mut out = std::fs::File::create(&out_path)?;
-    if has_init {
-        let init = work.join(format!("{prefix}_init.seg"));
-        if init.exists() {
-            out.write_all(&std::fs::read(init)?)?;
-        }
-    }
-    let mut segs: Vec<std::path::PathBuf> = std::fs::read_dir(work)?
-        .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| {
-            p.file_name()
-                .and_then(|n| n.to_str())
-                .map(|n| n.starts_with(prefix) && n.ends_with(".seg") && !n.contains("_init"))
-                .unwrap_or(false)
-        })
-        .collect();
-    // Tri lexical == ordre numérique car les indices sont zéro-paddés sur 5 chiffres
-    // ({idx:05}). Limite assumée : au-delà de 99999 segments le padding s'élargit
-    // et l'ordre lexical ne tient plus (≈ plusieurs jours de VOD — hors périmètre 4a).
-    segs.sort();
-    for s in segs {
-        out.write_all(&std::fs::read(s)?)?;
-    }
-    out.flush()?;
-    Ok(out_path)
-}
-
-fn finish_cancelled(work: &Path) -> Result<Outcome, CoreError> {
-    let _ = std::fs::remove_dir_all(work);
-    Ok(Outcome::Cancelled)
 }
 
 #[cfg(test)]
@@ -304,6 +236,7 @@ mod tests {
     use async_trait::async_trait;
     use bytes::Bytes;
     use futures_util::stream::{self, BoxStream};
+    use futures_util::StreamExt;
     use std::collections::HashMap as Map;
     use tempfile::tempdir;
 

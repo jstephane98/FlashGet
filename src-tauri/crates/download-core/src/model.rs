@@ -37,6 +37,7 @@ pub enum DownloadKind {
     #[default]
     Regular,
     Hls,
+    Dash,
 }
 
 /// Réglages persistants de l'application.
@@ -78,6 +79,8 @@ pub struct Download {
     pub kind: DownloadKind,
     #[serde(default)]
     pub audio_url: Option<String>,
+    #[serde(default)]
+    pub media_selection: Option<String>,
 }
 
 /// En-têtes HTTP optionnels transmis par le navigateur pour un téléchargement capturé.
