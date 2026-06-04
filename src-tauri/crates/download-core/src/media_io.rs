@@ -63,19 +63,23 @@ pub fn concat_track(work: &Path, prefix: &str, has_init: bool) -> Result<PathBuf
             out.write_all(&std::fs::read(init)?)?;
         }
     }
-    // Tri lexical == ordre numérique car les indices sont zéro-paddés sur 5 chiffres
-    // (limite : 99999 segments, ≈ plusieurs jours de VOD — hors périmètre).
-    let mut segs: Vec<PathBuf> = std::fs::read_dir(work)?
+    // Tri NUMÉRIQUE par numéro de séquence (suffixe entier) : robuste quelle que
+    // soit la largeur (VOD padde sur 5 ; live peut dépasser 99999 segments).
+    let mut segs: Vec<(u64, PathBuf)> = std::fs::read_dir(work)?
         .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| {
-            p.file_name()
-                .and_then(|n| n.to_str())
-                .map(|n| n.starts_with(prefix) && n.ends_with(".seg") && !n.contains("_init"))
-                .unwrap_or(false)
+        .filter_map(|p| {
+            let name = p.file_name()?.to_str()?.to_string();
+            if !(name.starts_with(prefix) && name.ends_with(".seg") && !name.contains("_init")) {
+                return None;
+            }
+            // <prefix><digits>.seg → digits
+            let digits = &name[prefix.len()..name.len() - 4];
+            let seq: u64 = digits.parse().ok()?;
+            Some((seq, p))
         })
         .collect();
-    segs.sort();
-    for s in segs {
+    segs.sort_by_key(|(seq, _)| *seq);
+    for (_, s) in segs {
         out.write_all(&std::fs::read(s)?)?;
     }
     out.flush()?;
@@ -105,4 +109,22 @@ pub fn emit_segments(
 /// Supprime le dossier de travail (annulation).
 pub fn finish_cancelled(work: &Path) {
     let _ = std::fs::remove_dir_all(work);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn concat_orders_segments_numerically_not_lexically() {
+        let dir = tempdir().unwrap();
+        let w = dir.path();
+        // 99999 puis 100000 : ordre numérique correct = 99999 avant 100000,
+        // alors que le tri lexical placerait "v100000" avant "v99999".
+        std::fs::write(w.join("v99999.seg"), b"A").unwrap();
+        std::fs::write(w.join("v100000.seg"), b"B").unwrap();
+        let out = concat_track(w, "v", false).unwrap();
+        assert_eq!(std::fs::read(out).unwrap(), b"AB");
+    }
 }
