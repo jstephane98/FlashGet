@@ -1,4 +1,5 @@
 import { buildCapture } from "./buildCapture.js";
+import { shouldCapture, parseCaptureTypes, DEFAULT_CAPTURE_TYPES } from "./capture-rules.js";
 
 const DEFAULT_PORT = 15151;
 const KEEPALIVE_ALARM = "flashget-keepalive";
@@ -7,7 +8,7 @@ let socket = null;
 let connected = false;
 let reconnectTimer = null;
 let connecting = false;
-let pending = []; // captures en attente d'une connexion authentifiée : [{ url, referrer, ts }]
+let pending = []; // captures en attente d'une connexion authentifiée : [{ url, referrer, filename, ts }]
 
 // Renvoie les captures mises en file une fois la connexion authentifiée (ignore les trop vieilles).
 async function flushPending() {
@@ -19,7 +20,7 @@ async function flushPending() {
     if (now - it.ts > PENDING_TTL_MS) continue;
     try {
       const headers = await gatherHeaders(it.url, it.referrer);
-      socket.send(JSON.stringify(buildCapture(it.url, headers)));
+      socket.send(JSON.stringify(buildCapture(it.url, { ...headers, filename: it.filename })));
     } catch (_e) {
       // URL invalide ou erreur de collecte : on ignore cette capture
     }
@@ -47,9 +48,24 @@ async function gatherHeaders(url, referrer) {
   };
 }
 
+// Dernier segment de chemin d'un nom de fichier suggéré par le navigateur.
+function basename(name) {
+  return String(name || "").split(/[/\\]/).pop() || "";
+}
+
 async function getConfig() {
-  const { token = "", port = DEFAULT_PORT } = await chrome.storage.local.get(["token", "port"]);
-  return { token, port: Number(port) || DEFAULT_PORT };
+  const {
+    token = "",
+    port = DEFAULT_PORT,
+    autoCapture = true,
+    captureTypes = DEFAULT_CAPTURE_TYPES,
+  } = await chrome.storage.local.get(["token", "port", "autoCapture", "captureTypes"]);
+  return {
+    token,
+    port: Number(port) || DEFAULT_PORT,
+    autoCapture: autoCapture !== false,
+    types: parseCaptureTypes(captureTypes),
+  };
 }
 
 function setConnected(value) {
@@ -123,17 +139,17 @@ function scheduleReconnect() {
 // Envoie une capture. Si la connexion n'est pas prête (service worker réveillé à froid,
 // reconnexion en cours), met l'URL en file et (re)connecte : elle partira après l'auth.
 // Renvoie true si la capture est partie OU a été acceptée en file.
-async function sendCapture(url, referrer) {
+async function sendCapture(url, referrer, filename) {
   if (socket && socket.readyState === WebSocket.OPEN && connected) {
     try {
       const headers = await gatherHeaders(url, referrer);
-      socket.send(JSON.stringify(buildCapture(url, headers)));
+      socket.send(JSON.stringify(buildCapture(url, { ...headers, filename })));
       return true;
     } catch (_e) {
       return false; // URL invalide
     }
   }
-  pending.push({ url, referrer, ts: Date.now() });
+  pending.push({ url, referrer, filename, ts: Date.now() });
   if (pending.length > 20) pending.shift(); // borne anti-accumulation
   connect();
   return true; // acceptée : sera envoyée dès la (re)connexion
@@ -168,6 +184,29 @@ chrome.runtime.onStartup.addListener(() => {
 chrome.contextMenus.onClicked.addListener((info) => {
   const url = info.linkUrl || info.srcUrl || info.pageUrl;
   if (url) sendCapture(url, info.pageUrl);
+});
+
+// Capture automatique : intercepte les téléchargements du navigateur (types listés) et
+// les redirige vers FlashGet. N'agit QUE si l'app est connectée (sinon on laisse le
+// navigateur télécharger pour ne rien perdre).
+chrome.downloads.onDeterminingFilename.addListener((item) => {
+  (async () => {
+    if (!connected) return; // app injoignable : ne pas intercepter
+    const cfg = await getConfig();
+    const url = item.finalUrl || item.url;
+    if (!shouldCapture({ url, filename: item.filename }, { autoCapture: cfg.autoCapture, types: cfg.types })) {
+      return; // type non listé / schéma non récupérable : laisser le navigateur
+    }
+    try {
+      await chrome.downloads.cancel(item.id);
+      await chrome.downloads.erase({ id: item.id });
+    } catch (_e) {
+      return; // annulation impossible : ne pas double-télécharger
+    }
+    sendCapture(url, item.referrer, basename(item.filename));
+  })();
+  // Listener synchrone : on n'appelle pas suggest() (le navigateur garde son nom par défaut
+  // pour les downloads non capturés ; les capturés sont annulés ci-dessus).
 });
 
 // Messages depuis le popup.
