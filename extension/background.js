@@ -1,6 +1,6 @@
 import { buildCapture } from "./buildCapture.js";
 import { shouldCapture, parseCaptureTypes, DEFAULT_CAPTURE_TYPES } from "./capture-rules.js";
-import { isHlsUrl, isHlsContentType, dedupeStreams } from "./media-rules.js";
+import { isHlsUrl, isHlsContentType, isDashUrl, isDashContentType, dedupeStreams } from "./media-rules.js";
 
 const DEFAULT_PORT = 15151;
 const KEEPALIVE_ALARM = "flashget-keepalive";
@@ -23,7 +23,7 @@ function recordStream(tabId, url) {
 
 chrome.webRequest.onBeforeRequest.addListener(
   (details) => {
-    if (isHlsUrl(details.url)) recordStream(details.tabId, details.url);
+    if (isHlsUrl(details.url) || isDashUrl(details.url)) recordStream(details.tabId, details.url);
   },
   { urls: ["http://*/*", "https://*/*"] },
 );
@@ -33,7 +33,7 @@ chrome.webRequest.onHeadersReceived.addListener(
     const ct = (details.responseHeaders || []).find(
       (h) => h.name.toLowerCase() === "content-type",
     );
-    if (ct && isHlsContentType(ct.value)) recordStream(details.tabId, details.url);
+    if (ct && (isHlsContentType(ct.value) || isDashContentType(ct.value))) recordStream(details.tabId, details.url);
   },
   { urls: ["http://*/*", "https://*/*"] },
   ["responseHeaders"],
@@ -190,18 +190,19 @@ async function sendCapture(url, referrer, filename) {
   return true; // acceptée : sera envoyée dès la (re)connexion
 }
 
-// Envoie une capture HLS (kind:"hls"). Comme sendCapture mais marque le type média.
+// Envoie une capture HLS ou DASH. Comme sendCapture mais marque le type média.
 async function sendMedia(url, referrer) {
+  const kind = isDashUrl(url) ? "dash" : "hls";
   if (socket && socket.readyState === WebSocket.OPEN && connected) {
     try {
       const headers = await gatherHeaders(url, referrer);
-      socket.send(JSON.stringify(buildCapture(url, { ...headers, kind: "hls" })));
+      socket.send(JSON.stringify(buildCapture(url, { ...headers, kind })));
       return true;
     } catch (_e) {
       return false;
     }
   }
-  pending.push({ url, referrer, kind: "hls", ts: Date.now() });
+  pending.push({ url, referrer, kind, ts: Date.now() });
   if (pending.length > 20) pending.shift();
   connect();
   return true;
