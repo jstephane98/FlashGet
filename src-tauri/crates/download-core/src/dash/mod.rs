@@ -3,3 +3,4 @@
 pub mod mpd;
 pub mod segments;
 pub mod sidx;
+pub mod select;
