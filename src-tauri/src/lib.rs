@@ -24,7 +24,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::add_download,
-            commands::add_hls_download,
+            commands::add_media_download,
             commands::list_downloads,
             commands::start_download,
             commands::pause_download,

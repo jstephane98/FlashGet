@@ -1,5 +1,5 @@
+use download_core::dash::mpd::Mpd;
 use download_core::engine::DownloadHandle;
-use download_core::hls::playlist::MasterPlaylist;
 use download_core::http::ReqwestFetcher;
 use download_core::model::RequestHeaders;
 use download_core::rate_limiter::RateLimiter;
@@ -36,11 +36,19 @@ impl AppState {
     }
 }
 
-/// Probe HLS en attente d'un choix de variante par l'utilisateur.
+/// Probe média (HLS ou DASH) selon le type de flux sondé.
+pub enum MediaProbe {
+    Hls(download_core::hls::playlist::MasterPlaylist),
+    Dash(Mpd),
+}
+
+/// Probe média (HLS ou DASH) en attente d'un choix de variante par l'utilisateur.
 pub struct PendingMedia {
-    pub master: MasterPlaylist,
+    pub probe: MediaProbe,
     pub headers: RequestHeaders,
     pub file_name: String,
+    /// URL source (master HLS ou MPD DASH), nécessaire pour reconstruire un download DASH.
+    pub source_url: String,
     /// Horodatage d'insertion, pour l'éviction TTL des probes jamais confirmés.
     pub created: Instant,
 }

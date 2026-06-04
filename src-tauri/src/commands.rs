@@ -1,5 +1,5 @@
 use crate::state::AppState;
-use crate::state::PendingMedia;
+use crate::state::{MediaProbe, PendingMedia};
 use download_core::engine::{self, DownloadHandle};
 use download_core::hls::playlist::{is_master, parse_master, parse_media, MasterPlaylist, Variant};
 use download_core::hls::select::{best_variant, estimated_size, pick_audio};
@@ -82,7 +82,7 @@ pub async fn add_download(app: AppHandle, args: AddArgs) -> Result<Download, Str
 }
 
 #[derive(serde::Serialize, Clone)]
-pub struct HlsVariant {
+pub struct MediaVariant {
     pub index: u32,
     pub resolution: Option<String>,
     pub bandwidth: u64,
@@ -93,7 +93,7 @@ pub struct HlsVariant {
 pub struct MediaVariantsEvent {
     pub probe_id: String,
     pub file_name: String,
-    pub variants: Vec<HlsVariant>,
+    pub variants: Vec<MediaVariant>,
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -144,11 +144,11 @@ async fn probe_hls_inner(
         return Err("aucune variante HLS trouvée".into());
     }
 
-    let variants: Vec<HlsVariant> = master
+    let variants: Vec<MediaVariant> = master
         .variants
         .iter()
         .enumerate()
-        .map(|(i, v)| HlsVariant {
+        .map(|(i, v)| MediaVariant {
             index: i as u32,
             resolution: v.resolution.map(|(w, h)| format!("{w}x{h}")),
             bandwidth: v.bandwidth,
@@ -170,7 +170,7 @@ async fn probe_hls_inner(
         pending.retain(|_, pm| pm.created.elapsed() < ttl);
         pending.insert(
             probe_id.clone(),
-            PendingMedia { master, headers, file_name: file_name.clone(), created: std::time::Instant::now() },
+            PendingMedia { probe: MediaProbe::Hls(master), headers, file_name: file_name.clone(), source_url: url.to_string(), created: std::time::Instant::now() },
         );
     }
     let _ = app.emit("media://variants", MediaVariantsEvent { probe_id, file_name, variants });
@@ -201,6 +201,50 @@ pub(crate) async fn probe_hls(
     result
 }
 
+/// Corps interne : sonde un MPD DASH, mémorise le probe et émet `media://variants`.
+async fn probe_dash_inner(app: &AppHandle, url: &str, headers: RequestHeaders, suggested_name: Option<String>) -> Result<(), String> {
+    let fetcher = { app.state::<AppState>().fetcher.clone() };
+    let text = tokio::time::timeout(std::time::Duration::from_secs(30), fetch_text(&fetcher, url, &headers))
+        .await
+        .map_err(|_| "délai dépassé lors de la récupération du MPD".to_string())?
+        .map_err(|e| e.to_string())?;
+    let mpd = download_core::dash::mpd::parse_mpd(&text, url).map_err(|e| e.to_string())?;
+    if mpd.dynamic {
+        return Err("flux live DASH non supporté (à venir)".into());
+    }
+    let vlist = download_core::dash::select::video_variants(&mpd);
+    if vlist.is_empty() {
+        return Err("aucune variante vidéo DASH trouvée".into());
+    }
+    let variants: Vec<MediaVariant> = vlist.iter().map(|(_, v)| MediaVariant {
+        index: v.index, resolution: v.resolution.clone(), bandwidth: v.bandwidth, est_size: v.est_size,
+    }).collect();
+    let probe_id = uuid::Uuid::new_v4().to_string();
+    let file_name = suggested_name.unwrap_or_else(|| "video".to_string());
+    {
+        let state = app.state::<AppState>();
+        let mut pending = state.pending_media.lock().unwrap();
+        let ttl = std::time::Duration::from_secs(30 * 60);
+        pending.retain(|_, pm| pm.created.elapsed() < ttl);
+        pending.insert(probe_id.clone(), PendingMedia { probe: MediaProbe::Dash(mpd), headers, file_name: file_name.clone(), source_url: url.to_string(), created: std::time::Instant::now() });
+    }
+    let _ = app.emit("media://variants", MediaVariantsEvent { probe_id, file_name, variants });
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.unminimize(); let _ = win.show(); let _ = win.set_focus();
+    }
+    Ok(())
+}
+
+/// Sonde un MPD DASH ; en cas d'échec, émet `media://error` et fait surgir la fenêtre.
+pub(crate) async fn probe_dash(app: &AppHandle, url: &str, headers: RequestHeaders, suggested_name: Option<String>) -> Result<(), String> {
+    let result = probe_dash_inner(app, url, headers, suggested_name).await;
+    if let Err(e) = &result {
+        let _ = app.emit("media://error", MediaErrorEvent { message: e.clone() });
+        if let Some(win) = app.get_webview_window("main") { let _ = win.unminimize(); let _ = win.show(); let _ = win.set_focus(); }
+    }
+    result
+}
+
 /// Lit entièrement une ressource texte (playlist) via le fetcher.
 async fn fetch_text<F: ByteFetcher>(fetcher: &F, url: &str, headers: &RequestHeaders) -> Result<String, download_core::CoreError> {
     use futures_util::StreamExt;
@@ -212,24 +256,33 @@ async fn fetch_text<F: ByteFetcher>(fetcher: &F, url: &str, headers: &RequestHea
     Ok(String::from_utf8_lossy(&buf).to_string())
 }
 
-/// Crée un download HLS à partir d'un probe et de la variante choisie.
+/// Crée un download média (HLS ou DASH) à partir d'un probe et de la variante choisie.
 #[tauri::command]
-pub async fn add_hls_download(app: AppHandle, probe_id: String, variant_index: u32) -> Result<Download, String> {
-    let (media_url, audio_url, file_name, headers) = {
+pub async fn add_media_download(app: AppHandle, probe_id: String, variant_index: u32) -> Result<Download, String> {
+    enum Built { Hls { url: String, audio_url: Option<String> }, Dash { mpd_url: String, selection: String } }
+    let (built, file_name, headers) = {
         let state = app.state::<AppState>();
         let mut pending = state.pending_media.lock().unwrap();
         let pm = pending.get(&probe_id).ok_or_else(|| "probe expiré".to_string())?;
-        let variant = pm
-            .master
-            .variants
-            .get(variant_index as usize)
-            .ok_or_else(|| "variante invalide".to_string())?;
-        let audio_url = pick_audio(&pm.master, variant).and_then(|a| a.uri.clone());
-        let safe = download_core::naming::choose_file_name(Some(&pm.file_name), None);
-        let file_name = download_core::naming::with_extension(&safe, "mp4");
-        let tuple = (variant.uri.clone(), audio_url, file_name, pm.headers.clone());
+        let file_name = download_core::naming::with_extension(
+            &download_core::naming::choose_file_name(Some(&pm.file_name), None), "mp4");
+        let headers = pm.headers.clone();
+        let built = match &pm.probe {
+            MediaProbe::Hls(master) => {
+                let variant = master.variants.get(variant_index as usize).ok_or_else(|| "variante invalide".to_string())?;
+                let audio_url = pick_audio(master, variant).and_then(|a| a.uri.clone());
+                Built::Hls { url: variant.uri.clone(), audio_url }
+            }
+            MediaProbe::Dash(mpd) => {
+                let exists = download_core::dash::select::video_variants(mpd).iter().any(|(_, v)| v.index == variant_index);
+                if !exists { return Err("variante invalide".into()); }
+                let selection = serde_json::json!({ "video": variant_index, "audio": serde_json::Value::Null }).to_string();
+                Built::Dash { mpd_url: pm.source_url.clone(), selection }
+            }
+        };
+        let r = (built, file_name, headers);
         pending.remove(&probe_id);
-        tuple
+        r
     };
 
     let dest_dir = {
@@ -245,9 +298,13 @@ pub async fn add_hls_download(app: AppHandle, probe_id: String, variant_index: u
         return Err("nom de fichier invalide".into());
     }
 
+    let (kind, url, audio_url, media_selection) = match built {
+        Built::Hls { url, audio_url } => (DownloadKind::Hls, url, audio_url, None),
+        Built::Dash { mpd_url, selection } => (DownloadKind::Dash, mpd_url, None, Some(selection)),
+    };
     let download = Download {
         id: uuid::Uuid::new_v4().to_string(),
-        url: media_url,
+        url,
         file_name,
         dest_path: dest_path.to_string_lossy().to_string(),
         total_bytes: None,
@@ -260,9 +317,9 @@ pub async fn add_hls_download(app: AppHandle, probe_id: String, variant_index: u
         referrer: headers.referrer,
         cookie: headers.cookie,
         user_agent: headers.user_agent,
-        kind: download_core::model::DownloadKind::Hls,
+        kind,
         audio_url,
-        media_selection: None,
+        media_selection,
     };
     {
         let state = app.state::<AppState>();
@@ -503,6 +560,7 @@ fn launch(app: &AppHandle, download: Download, handle: DownloadHandle) {
     let handle_for_err = handle.clone();
     let kind = download.kind;
     let audio_url = download.audio_url.clone();
+    let media_selection = download.media_selection.clone();
     let (fetcher, limiter) = {
         let st = app.state::<AppState>();
         (st.fetcher.clone(), st.limiter.clone())
@@ -529,7 +587,15 @@ fn launch(app: &AppHandle, download: Download, handle: DownloadHandle) {
                 .await
             }
             download_core::model::DownloadKind::Dash => {
-                Err(download_core::CoreError::Media("DASH engine not yet implemented".into()))
+                let remux = crate::remux::SidecarRemuxer::new(app_for_dl.clone());
+                let selection = match media_selection.as_deref().and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok()) {
+                    Some(v) => download_core::dash::engine::DashSelection {
+                        video_index: v.get("video").and_then(|x| x.as_u64()).unwrap_or(0) as u32,
+                        audio_lang: v.get("audio").and_then(|x| x.as_str()).map(String::from),
+                    },
+                    None => download_core::dash::engine::DashSelection { video_index: 0, audio_lang: None },
+                };
+                download_core::dash::engine::download_dash(&fetcher, &remux, &id_for_dl, &url, &selection, &dest, handle, limiter, tx, &headers).await
             }
         };
         match result {
