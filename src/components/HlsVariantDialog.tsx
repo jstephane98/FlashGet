@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { HlsVariant, MediaVariantsEvent } from "../api";
 
 function fmtSize(bytes: number | null): string {
-  if (!bytes) return "—";
+  if (bytes == null) return "—";
   const mb = bytes / (1024 * 1024);
   if (mb >= 1024) return `≈ ${(mb / 1024).toFixed(1)} Go`;
   return `≈ ${Math.round(mb)} Mo`;
