@@ -95,9 +95,20 @@ pub async fn download_dash<F: ByteFetcher, R: Remuxer>(
         }
     }
 
-    // 7. Concat + remux (avec clé éventuelle).
-    let video_cat = concat_track(&work, "v", true)?;
-    let audio_cat = if has_audio { Some(concat_track(&work, "a", true)?) } else { None };
+    // 7. Concat (IO lourde ⇒ thread bloquant) + remux (avec clé éventuelle).
+    let work_v = work.clone();
+    let video_cat = tokio::task::spawn_blocking(move || concat_track(&work_v, "v", true))
+        .await
+        .map_err(|e| CoreError::Media(format!("tâche de concaténation interrompue: {e}")))??;
+    let audio_cat = if has_audio {
+        let work_a = work.clone();
+        let cat = tokio::task::spawn_blocking(move || concat_track(&work_a, "a", true))
+            .await
+            .map_err(|e| CoreError::Media(format!("tâche de concaténation interrompue: {e}")))??;
+        Some(cat)
+    } else {
+        None
+    };
     remux.remux(RemuxInputs { video: video_cat, audio: audio_cat, decryption_key: key }, dest).await?;
 
     // 8. Nettoyage + progression finale.
@@ -143,6 +154,10 @@ async fn download_track<F: ByteFetcher>(
         }
     }
 
+    if matches!(repr.addressing, Addressing::Base(_)) && plan.media.is_empty() {
+        return Err(CoreError::Media("SegmentBase sans indexRange : aucun segment média".into()));
+    }
+
     for (idx, seg) in plan.media.iter().enumerate() {
         if seg_path(work, prefix, idx).exists() {
             *done += 1;
@@ -161,6 +176,8 @@ async fn download_track<F: ByteFetcher>(
 }
 
 /// Récupère la clé ClearKey (hex) si l'AdaptationSet vidéo est chiffré, sinon None.
+// Hypothèse 4b-1 : un seul ContentProtection (clé ClearKey unique) couvre toutes
+// les pistes ; on n'inspecte que l'AdaptationSet vidéo (cas CENC courant).
 async fn resolve_key<F: ByteFetcher>(
     fetcher: &F,
     mpd: &Mpd,
