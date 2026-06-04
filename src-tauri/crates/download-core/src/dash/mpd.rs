@@ -219,7 +219,9 @@ fn parse_content_protection(asnode: &roxmltree::Node) -> Option<ContentProtectio
         }
         if s.eq_ignore_ascii_case("urn:uuid:e2719d58-a985-b3c9-781a-b030af78d30e") {
             scheme = ProtScheme::ClearKey;
-            if let Some(la) = cp.children().find(|n| n.has_tag_name_local("Laurl")) {
+            if let Some(la) = cp.children().find(|n| {
+                n.is_element() && n.tag_name().name().eq_ignore_ascii_case("laurl")
+            }) {
                 clearkey_laurl = la.text().map(|t| t.trim().to_string());
             }
         }
@@ -368,5 +370,20 @@ mod tests {
             }
             other => panic!("attendu Base, obtenu {other:?}"),
         }
+    }
+
+    #[test]
+    fn clearkey_laurl_lowercase_dashif() {
+        let xml = r#"<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static">
+  <Period><AdaptationSet contentType="video">
+    <ContentProtection schemeIdUri="urn:uuid:e2719d58-a985-b3c9-781a-b030af78d30e">
+      <dashif:laurl xmlns:dashif="https://dashif.org/CPS">https://lic/ck</dashif:laurl>
+    </ContentProtection>
+    <Representation id="v0" bandwidth="1"><BaseURL>v.mp4</BaseURL><SegmentBase indexRange="0-99"/></Representation>
+  </AdaptationSet></Period>
+</MPD>"#;
+        let m = parse_mpd(xml, "https://h/p/m.mpd").unwrap();
+        let cp = m.periods[0].adaptation_sets[0].content_protection.as_ref().unwrap();
+        assert_eq!(cp.clearkey_laurl.as_deref(), Some("https://lic/ck"));
     }
 }
