@@ -37,6 +37,8 @@ mod tests {
         assert_eq!(choose_file_name(Some(""), Some("fromprobe.iso")), "fromprobe.iso");
         assert_eq!(choose_file_name(Some("   "), Some("x.bin")), "x.bin");
         assert_eq!(choose_file_name(None, Some("p.zip")), "p.zip");
+        // Nom suggéré réduit à des séparateurs ⇒ basename vide ⇒ on retombe sur le probe.
+        assert_eq!(choose_file_name(Some("/"), Some("probe.zip")), "probe.zip");
     }
 
     #[test]
