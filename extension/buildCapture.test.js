@@ -42,4 +42,12 @@ describe("buildCapture", () => {
       url: "http://x/f.zip",
     });
   });
+
+  it("includes filename when provided", () => {
+    expect(buildCapture("http://x/dl?id=1", { filename: "movie.mp4" })).toEqual({
+      type: "capture",
+      url: "http://x/dl?id=1",
+      filename: "movie.mp4",
+    });
+  });
 });

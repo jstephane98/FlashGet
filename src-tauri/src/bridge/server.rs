@@ -78,10 +78,11 @@ async fn handle_conn(app: AppHandle, stream: TcpStream) {
             ServerReply::Error { msg } => {
                 serde_json::json!({ "type": "error", "error": msg }).to_string()
             }
-            ServerReply::CaptureRequested { url, referrer, cookie, user_agent, .. } => {
-                // Capture via le pipeline d'ajout existant, en transmettant les en-têtes du navigateur.
+            ServerReply::CaptureRequested { url, filename, referrer, cookie, user_agent } => {
+                // Capture via le pipeline d'ajout existant, en transmettant les en-têtes du navigateur
+                // et le nom de fichier suggéré par le navigateur.
                 let headers = RequestHeaders { referrer, cookie, user_agent };
-                match commands::add_url(&app, &url, "", headers).await {
+                match commands::add_url(&app, &url, "", headers, filename).await {
                     Ok(d) => {
                         // Notifier le frontend pour qu'il rafraîchisse sa liste : sans cet
                         // événement la capture n'apparaît qu'à la complétion (l'UI n'insère
