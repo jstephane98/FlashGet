@@ -12,6 +12,15 @@ pub fn choose_file_name(suggested: Option<&str>, probe: Option<&str>) -> String 
     "download.bin".to_string()
 }
 
+/// Force l'extension d'un nom de fichier (remplace l'existante, ou l'ajoute).
+pub fn with_extension(name: &str, ext: &str) -> String {
+    let base = match name.rfind('.') {
+        Some(p) if p > 0 => &name[..p],
+        _ => name,
+    };
+    format!("{base}.{ext}")
+}
+
 /// Dernier segment de chemin (séparateurs `/` ou `\`), espaces retirés.
 fn basename(s: &str) -> String {
     s.rsplit(['/', '\\']).next().unwrap_or(s).trim().to_string()
@@ -20,6 +29,13 @@ fn basename(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn with_extension_forces_mp4() {
+        assert_eq!(with_extension("video", "mp4"), "video.mp4");
+        assert_eq!(with_extension("clip.ts", "mp4"), "clip.mp4");
+        assert_eq!(with_extension("a.b.m3u8", "mp4"), "a.b.mp4");
+    }
 
     #[test]
     fn prefers_suggested_when_present() {

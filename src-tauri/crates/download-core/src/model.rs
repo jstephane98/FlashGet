@@ -31,6 +31,14 @@ pub enum Category {
     Other,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum DownloadKind {
+    #[default]
+    Regular,
+    Hls,
+}
+
 /// Réglages persistants de l'application.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Settings {
@@ -66,6 +74,10 @@ pub struct Download {
     pub cookie: Option<String>,
     #[serde(default)]
     pub user_agent: Option<String>,
+    #[serde(default)]
+    pub kind: DownloadKind,
+    #[serde(default)]
+    pub audio_url: Option<String>,
 }
 
 /// En-têtes HTTP optionnels transmis par le navigateur pour un téléchargement capturé.

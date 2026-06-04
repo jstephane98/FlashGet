@@ -1,7 +1,7 @@
 use crate::state::AppState;
 use download_core::engine::{self, DownloadHandle};
 use download_core::http::ByteFetcher;
-use download_core::model::{Download, DownloadStatus, Priority, Progress, RequestHeaders, Settings, Category, CategoryDirs};
+use download_core::model::{Download, DownloadKind, DownloadStatus, Priority, Progress, RequestHeaders, Settings, Category, CategoryDirs};
 use download_core::scheduler::pick_to_start;
 use std::path::PathBuf;
 use std::time::Instant;
@@ -59,6 +59,8 @@ pub(crate) async fn add_url(app: &AppHandle, url: &str, dest_dir: &str, headers:
         referrer: headers.referrer,
         cookie: headers.cookie,
         user_agent: headers.user_agent,
+        kind: DownloadKind::Regular,
+        audio_url: None,
     };
 
     {

@@ -7,6 +7,8 @@ export type DownloadStatus =
 
 export type Priority = "high" | "normal" | "low";
 
+export type DownloadKind = "regular" | "hls";
+
 export type Category = "video" | "document" | "program" | "archive" | "music" | "other";
 
 export interface CategoryDirs {
@@ -33,6 +35,8 @@ export interface Download {
   referrer?: string | null;
   cookie?: string | null;
   user_agent?: string | null;
+  kind?: DownloadKind;
+  audio_url?: string | null;
 }
 
 export interface Settings {
@@ -46,6 +50,8 @@ export interface Progress {
   total_bytes: number | null;
   speed_bps: number;
   status: DownloadStatus;
+  segments_done?: number | null;
+  segments_total?: number | null;
 }
 
 export interface BridgeInfo {

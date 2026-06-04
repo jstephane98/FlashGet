@@ -33,7 +33,7 @@ fn priority_rank(p: Priority) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::Category;
+    use crate::model::{Category, DownloadKind};
 
     fn dl(id: &str, status: DownloadStatus, priority: Priority) -> Download {
         Download {
@@ -51,6 +51,8 @@ mod tests {
             referrer: None,
             cookie: None,
             user_agent: None,
+            kind: DownloadKind::Regular,
+            audio_url: None,
         }
     }
 
