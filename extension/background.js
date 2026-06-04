@@ -1,5 +1,6 @@
 import { buildCapture } from "./buildCapture.js";
 import { shouldCapture, parseCaptureTypes, DEFAULT_CAPTURE_TYPES } from "./capture-rules.js";
+import { isHlsUrl, isHlsContentType, dedupeStreams } from "./media-rules.js";
 
 const DEFAULT_PORT = 15151;
 const KEEPALIVE_ALARM = "flashget-keepalive";
@@ -9,6 +10,40 @@ let connected = false;
 let reconnectTimer = null;
 let connecting = false;
 let pending = []; // captures en attente d'une connexion authentifiée : [{ url, referrer, filename, ts }]
+
+// Flux HLS détectés par onglet : Map<tabId, [{ url, ts }]>
+const detectedByTab = new Map();
+
+function recordStream(tabId, url) {
+  if (tabId < 0) return;
+  const list = detectedByTab.get(tabId) || [];
+  const next = dedupeStreams([...list, { url, ts: Date.now() }]);
+  detectedByTab.set(tabId, next.slice(-20)); // borne anti-accumulation
+}
+
+chrome.webRequest.onBeforeRequest.addListener(
+  (details) => {
+    if (isHlsUrl(details.url)) recordStream(details.tabId, details.url);
+  },
+  { urls: ["http://*/*", "https://*/*"] },
+);
+
+chrome.webRequest.onHeadersReceived.addListener(
+  (details) => {
+    const ct = (details.responseHeaders || []).find(
+      (h) => h.name.toLowerCase() === "content-type",
+    );
+    if (ct && isHlsContentType(ct.value)) recordStream(details.tabId, details.url);
+  },
+  { urls: ["http://*/*", "https://*/*"] },
+  ["responseHeaders"],
+);
+
+// Purge l'entrée d'un onglet à la navigation (nouvelle URL) et à sa fermeture.
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.url) detectedByTab.delete(tabId);
+});
+chrome.tabs.onRemoved.addListener((tabId) => detectedByTab.delete(tabId));
 
 // Renvoie les captures mises en file une fois la connexion authentifiée (ignore les trop vieilles).
 async function flushPending() {
@@ -20,7 +55,7 @@ async function flushPending() {
     if (now - it.ts > PENDING_TTL_MS) continue;
     try {
       const headers = await gatherHeaders(it.url, it.referrer);
-      socket.send(JSON.stringify(buildCapture(it.url, { ...headers, filename: it.filename })));
+      socket.send(JSON.stringify(buildCapture(it.url, { ...headers, filename: it.filename, kind: it.kind })));
     } catch (_e) {
       // URL invalide ou erreur de collecte : on ignore cette capture
     }
@@ -155,6 +190,23 @@ async function sendCapture(url, referrer, filename) {
   return true; // acceptée : sera envoyée dès la (re)connexion
 }
 
+// Envoie une capture HLS (kind:"hls"). Comme sendCapture mais marque le type média.
+async function sendMedia(url, referrer) {
+  if (socket && socket.readyState === WebSocket.OPEN && connected) {
+    try {
+      const headers = await gatherHeaders(url, referrer);
+      socket.send(JSON.stringify(buildCapture(url, { ...headers, kind: "hls" })));
+      return true;
+    } catch (_e) {
+      return false;
+    }
+  }
+  pending.push({ url, referrer, kind: "hls", ts: Date.now() });
+  if (pending.length > 20) pending.shift();
+  connect();
+  return true;
+}
+
 // Keepalive : réveille le service worker périodiquement (le min MV3 est 30 s) pour
 // maintenir/relancer la connexion, sinon le SW est tué après ~30 s d'inactivité.
 function ensureKeepalive() {
@@ -239,6 +291,25 @@ chrome.runtime.onMessage.addListener((req, _sender, sendResponse) => {
     connect();
     sendResponse({ ok: true });
     return false;
+  }
+  if (req.cmd === "listMedia") {
+    const list = detectedByTab.get(req.tabId) || [];
+    sendResponse({ streams: list });
+    return false;
+  }
+  if (req.cmd === "sendMedia" && req.url) {
+    (async () => {
+      let referrer;
+      try {
+        const tab = await chrome.tabs.get(req.tabId);
+        referrer = tab && tab.url;
+      } catch (_e) {
+        // pas de referer
+      }
+      const ok = await sendMedia(req.url, referrer);
+      sendResponse({ ok });
+    })();
+    return true; // réponse asynchrone
   }
   return false;
 });

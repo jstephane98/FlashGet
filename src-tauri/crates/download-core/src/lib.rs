@@ -8,6 +8,7 @@ pub mod engine;
 pub mod storage;
 pub mod rate_limiter;
 pub mod scheduler;
+pub mod hls;
 
 use thiserror::Error;
 
@@ -23,6 +24,8 @@ pub enum CoreError {
     Unsupported,
     #[error("download not found: {0}")]
     NotFound(String),
+    #[error("media error: {0}")]
+    Media(String),
     #[error("serialization error: {0}")]
     Serde(#[from] serde_json::Error),
 }

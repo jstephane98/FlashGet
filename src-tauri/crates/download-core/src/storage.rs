@@ -1,4 +1,4 @@
-use crate::model::{Download, DownloadStatus, Priority, Settings, Category, CategoryDirs};
+use crate::model::{Download, DownloadKind, DownloadStatus, Priority, Settings, Category, CategoryDirs};
 use crate::CoreError;
 use rusqlite::Connection;
 use std::path::Path;
@@ -51,6 +51,12 @@ impl Storage {
         let _ = conn.execute("ALTER TABLE downloads ADD COLUMN referrer TEXT", []);
         let _ = conn.execute("ALTER TABLE downloads ADD COLUMN cookie TEXT", []);
         let _ = conn.execute("ALTER TABLE downloads ADD COLUMN user_agent TEXT", []);
+        // Migration additive Phase 4a : type de download + URL audio HLS.
+        let _ = conn.execute(
+            "ALTER TABLE downloads ADD COLUMN kind TEXT NOT NULL DEFAULT 'regular'",
+            [],
+        );
+        let _ = conn.execute("ALTER TABLE downloads ADD COLUMN audio_url TEXT", []);
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
         )
@@ -61,12 +67,12 @@ impl Storage {
     pub fn upsert(&self, d: &Download) -> Result<(), CoreError> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO downloads (id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority, category, referrer, cookie, user_agent)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+            "INSERT INTO downloads (id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority, category, referrer, cookie, user_agent, kind, audio_url)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
              ON CONFLICT(id) DO UPDATE SET
                 url=?2, file_name=?3, dest_path=?4, total_bytes=?5,
                 downloaded_bytes=?6, status=?7, supports_ranges=?8, error=?9, priority=?10, category=?11,
-                referrer=?12, cookie=?13, user_agent=?14",
+                referrer=?12, cookie=?13, user_agent=?14, kind=?15, audio_url=?16",
             rusqlite::params![
                 d.id, d.url, d.file_name, d.dest_path,
                 d.total_bytes.map(|v| v as i64),
@@ -79,6 +85,8 @@ impl Storage {
                 d.referrer,
                 d.cookie,
                 d.user_agent,
+                kind_to_str(d.kind),
+                d.audio_url,
             ],
         )
         .map_err(|e| CoreError::Storage(e.to_string()))?;
@@ -88,7 +96,7 @@ impl Storage {
     pub fn list(&self) -> Result<Vec<Download>, CoreError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn
-            .prepare("SELECT id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority, category, referrer, cookie, user_agent FROM downloads ORDER BY rowid")
+            .prepare("SELECT id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority, category, referrer, cookie, user_agent, kind, audio_url FROM downloads ORDER BY rowid")
             .map_err(|e| CoreError::Storage(e.to_string()))?;
         let rows = stmt
             .query_map([], |row| {
@@ -107,6 +115,8 @@ impl Storage {
                     referrer: row.get(11)?,
                     cookie: row.get(12)?,
                     user_agent: row.get(13)?,
+                    kind: kind_from_str(&row.get::<_, String>(14)?),
+                    audio_url: row.get(15)?,
                 })
             })
             .map_err(|e| CoreError::Storage(e.to_string()))?;
@@ -159,7 +169,7 @@ impl Storage {
     pub fn get_by_id(&self, id: &str) -> Result<Option<Download>, CoreError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn
-            .prepare("SELECT id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority, category, referrer, cookie, user_agent FROM downloads WHERE id=?1")
+            .prepare("SELECT id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority, category, referrer, cookie, user_agent, kind, audio_url FROM downloads WHERE id=?1")
             .map_err(|e| CoreError::Storage(e.to_string()))?;
         let mut rows = stmt
             .query_map([id], |row| {
@@ -178,6 +188,8 @@ impl Storage {
                     referrer: row.get(11)?,
                     cookie: row.get(12)?,
                     user_agent: row.get(13)?,
+                    kind: kind_from_str(&row.get::<_, String>(14)?),
+                    audio_url: row.get(15)?,
                 })
             })
             .map_err(|e| CoreError::Storage(e.to_string()))?;
@@ -353,6 +365,20 @@ fn category_from_str(s: &str) -> Category {
     }
 }
 
+fn kind_to_str(k: DownloadKind) -> &'static str {
+    match k {
+        DownloadKind::Regular => "regular",
+        DownloadKind::Hls => "hls",
+    }
+}
+
+fn kind_from_str(s: &str) -> DownloadKind {
+    match s {
+        "hls" => DownloadKind::Hls,
+        _ => DownloadKind::Regular,
+    }
+}
+
 /// Jeton aléatoire fort : deux UUID v4 concaténés en hexadécimal (64 caractères).
 fn new_bridge_token() -> String {
     format!(
@@ -392,6 +418,8 @@ mod tests {
             referrer: None,
             cookie: None,
             user_agent: None,
+            kind: DownloadKind::Regular,
+            audio_url: None,
         }
     }
 
@@ -589,6 +617,24 @@ mod tests {
         assert!(!b.is_empty());
         // Le nouveau jeton est désormais celui qui persiste.
         assert_eq!(b, s.get_or_create_bridge_token().unwrap());
+    }
+
+    #[test]
+    fn round_trips_kind_and_audio_url() {
+        let s = Storage::open_in_memory().unwrap();
+        let mut d = sample("k1");
+        d.kind = DownloadKind::Hls;
+        d.audio_url = Some("https://h/a.m3u8".into());
+        s.upsert(&d).unwrap();
+        let got = s.get_by_id("k1").unwrap().unwrap();
+        assert_eq!(got.kind, DownloadKind::Hls);
+        assert_eq!(got.audio_url.as_deref(), Some("https://h/a.m3u8"));
+        // Défaut : Regular + None.
+        let plain = sample("k2");
+        s.upsert(&plain).unwrap();
+        let got2 = s.get_by_id("k2").unwrap().unwrap();
+        assert_eq!(got2.kind, DownloadKind::Regular);
+        assert_eq!(got2.audio_url, None);
     }
 
     #[test]

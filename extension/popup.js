@@ -47,3 +47,27 @@ document.getElementById("retry").addEventListener("click", () => {
 });
 
 refresh();
+
+async function refreshMedia() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab) return;
+  chrome.runtime.sendMessage({ cmd: "listMedia", tabId: tab.id }, (res) => {
+    const streams = (res && res.streams) || [];
+    const section = document.getElementById("mediaSection");
+    const list = document.getElementById("mediaList");
+    list.innerHTML = "";
+    section.classList.toggle("hidden", streams.length === 0);
+    streams.forEach((s, i) => {
+      const btn = document.createElement("button");
+      btn.textContent = `Télécharger la vidéo ${streams.length > 1 ? i + 1 : ""}`.trim();
+      btn.addEventListener("click", () => {
+        chrome.runtime.sendMessage({ cmd: "sendMedia", url: s.url, tabId: tab.id }, (r) => {
+          flash(r && r.ok ? "Envoyé ✓" : "Échec — non connecté");
+        });
+      });
+      list.appendChild(btn);
+    });
+  });
+}
+
+refreshMedia();

@@ -50,4 +50,9 @@ describe("buildCapture", () => {
       filename: "movie.mp4",
     });
   });
+
+  it("includes kind when provided", () => {
+    const msg = buildCapture("http://x/m.m3u8", { kind: "hls" });
+    expect(msg.kind).toBe("hls");
+  });
 });

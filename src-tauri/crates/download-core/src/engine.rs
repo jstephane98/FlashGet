@@ -33,6 +33,15 @@ impl DownloadHandle {
     pub fn downloaded(&self) -> u64 {
         self.downloaded.load(Ordering::SeqCst)
     }
+    pub fn is_paused(&self) -> bool {
+        self.pause.load(Ordering::SeqCst)
+    }
+    pub fn is_cancelled(&self) -> bool {
+        self.cancel.load(Ordering::SeqCst)
+    }
+    pub fn add_downloaded(&self, n: u64) {
+        self.downloaded.fetch_add(n, Ordering::SeqCst);
+    }
 }
 
 /// Issue d'un run du moteur.
@@ -258,6 +267,8 @@ fn emit(
         total_bytes: if total > 0 { Some(total) } else { None },
         speed_bps: 0, // la vitesse est calculée côté appelant (Task 8)
         status,
+        segments_done: None,
+        segments_total: None,
     });
 }
 

@@ -2,6 +2,35 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { Download, Progress, Priority, Settings, Category, CategoryDirs, BridgeInfo } from "./types";
 
+export interface HlsVariant {
+  index: number;
+  resolution: string | null;
+  bandwidth: number;
+  est_size: number | null;
+}
+
+export interface MediaVariantsEvent {
+  probe_id: string;
+  file_name: string;
+  variants: HlsVariant[];
+}
+
+export function onMediaVariants(cb: (e: MediaVariantsEvent) => void): Promise<UnlistenFn> {
+  return listen<MediaVariantsEvent>("media://variants", (e) => cb(e.payload));
+}
+
+export interface MediaErrorEvent {
+  message: string;
+}
+
+export function onMediaError(cb: (e: MediaErrorEvent) => void): Promise<UnlistenFn> {
+  return listen<MediaErrorEvent>("media://error", (e) => cb(e.payload));
+}
+
+export function addHlsDownload(probeId: string, variantIndex: number): Promise<Download> {
+  return invoke<Download>("add_hls_download", { probeId, variantIndex });
+}
+
 export function addDownload(url: string, destDir: string): Promise<Download> {
   return invoke<Download>("add_download", { args: { url, dest_dir: destDir } });
 }

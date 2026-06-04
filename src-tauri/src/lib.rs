@@ -1,5 +1,6 @@
 mod bridge;
 mod commands;
+mod remux;
 mod state;
 
 use download_core::storage::Storage;
@@ -11,6 +12,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_shell::init())
         .setup(|app| {
             let dir = app.path().app_data_dir().map_err(|e| Box::<dyn std::error::Error>::from(e.to_string()))?;
             std::fs::create_dir_all(&dir).ok();
@@ -22,6 +24,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::add_download,
+            commands::add_hls_download,
             commands::list_downloads,
             commands::start_download,
             commands::pause_download,

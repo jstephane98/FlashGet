@@ -3,7 +3,7 @@
   "name": "FlashGet — Capture",
   "version": "0.1.0",
   "description": "Envoie les téléchargements à l'application FlashGet (capture automatique et manuelle).",
-  "permissions": ["contextMenus", "storage", "activeTab", "alarms", "cookies", "downloads"],
+  "permissions": ["contextMenus", "storage", "activeTab", "alarms", "cookies", "downloads", "webRequest"],
   "host_permissions": ["ws://127.0.0.1/*", "<all_urls>"],
   "background": { "service_worker": "background.js", "type": "module" },
   "action": { "default_popup": "popup.html", "default_title": "FlashGet" },
