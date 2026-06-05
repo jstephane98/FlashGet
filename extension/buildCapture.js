@@ -6,7 +6,7 @@ export function buildCapture(url, extras = {}) {
     throw new Error("URL vide");
   }
   const msg = { type: "capture", url: trimmed };
-  for (const key of ["referrer", "cookie", "user_agent", "filename", "kind"]) {
+  for (const key of ["referrer", "cookie", "user_agent", "filename", "kind", "fallback_url", "fallback_kind"]) {
     const value = extras[key];
     if (value) {
       msg[key] = value;

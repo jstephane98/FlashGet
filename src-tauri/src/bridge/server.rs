@@ -78,9 +78,14 @@ async fn handle_conn(app: AppHandle, stream: TcpStream) {
             ServerReply::Error { msg } => {
                 serde_json::json!({ "type": "error", "error": msg }).to_string()
             }
-            ServerReply::CaptureRequested { url, filename, referrer, cookie, user_agent, kind } => {
+            ServerReply::CaptureRequested { url, filename, referrer, cookie, user_agent, kind, fallback_url, fallback_kind } => {
                 let headers = RequestHeaders { referrer, cookie, user_agent };
-                if kind.as_deref() == Some("hls") {
+                if kind.as_deref() == Some("smart") {
+                    match commands::probe_smart(&app, &url, fallback_url, fallback_kind, headers).await {
+                        Ok(()) => serde_json::json!({ "type": "ack", "kind": "smart" }).to_string(),
+                        Err(e) => serde_json::json!({ "type": "error", "error": e }).to_string(),
+                    }
+                } else if kind.as_deref() == Some("hls") {
                     match commands::probe_hls(&app, &url, headers, filename).await {
                         Ok(()) => serde_json::json!({ "type": "ack", "kind": "hls" }).to_string(),
                         Err(e) => serde_json::json!({ "type": "error", "error": e }).to_string(),

@@ -14,6 +14,8 @@ pub enum ClientMessage {
         cookie: Option<String>,
         user_agent: Option<String>,
         kind: Option<String>,
+        fallback_url: Option<String>,
+        fallback_kind: Option<String>,
     },
     Unknown,
 }
@@ -31,6 +33,8 @@ pub enum ServerReply {
         cookie: Option<String>,
         user_agent: Option<String>,
         kind: Option<String>,
+        fallback_url: Option<String>,
+        fallback_kind: Option<String>,
     },
     Error { msg: String },
 }
@@ -51,6 +55,10 @@ enum RawMessage {
         user_agent: Option<String>,
         #[serde(default)]
         kind: Option<String>,
+        #[serde(default)]
+        fallback_url: Option<String>,
+        #[serde(default)]
+        fallback_kind: Option<String>,
     },
 }
 
@@ -58,8 +66,8 @@ enum RawMessage {
 pub fn parse_client_message(text: &str) -> ClientMessage {
     match serde_json::from_str::<RawMessage>(text) {
         Ok(RawMessage::Auth { token }) => ClientMessage::Auth { token },
-        Ok(RawMessage::Capture { url, filename, referrer, cookie, user_agent, kind }) => {
-            ClientMessage::Capture { url, filename, referrer, cookie, user_agent, kind }
+        Ok(RawMessage::Capture { url, filename, referrer, cookie, user_agent, kind, fallback_url, fallback_kind }) => {
+            ClientMessage::Capture { url, filename, referrer, cookie, user_agent, kind, fallback_url, fallback_kind }
         }
         Err(_) => ClientMessage::Unknown,
     }
@@ -80,9 +88,9 @@ pub fn handle_message(
                 (false, ServerReply::AuthFailed)
             }
         }
-        ClientMessage::Capture { url, filename, referrer, cookie, user_agent, kind } => {
+        ClientMessage::Capture { url, filename, referrer, cookie, user_agent, kind, fallback_url, fallback_kind } => {
             if authed {
-                (authed, ServerReply::CaptureRequested { url, filename, referrer, cookie, user_agent, kind })
+                (authed, ServerReply::CaptureRequested { url, filename, referrer, cookie, user_agent, kind, fallback_url, fallback_kind })
             } else {
                 (authed, ServerReply::NeedAuth)
             }
@@ -194,6 +202,22 @@ mod tests {
         let (_authed, reply) = handle_message(true, "secret", msg);
         match reply {
             ServerReply::CaptureRequested { kind, .. } => assert_eq!(kind.as_deref(), Some("page")),
+            other => panic!("attendu CaptureRequested, obtenu {other:?}"),
+        }
+    }
+
+    #[test]
+    fn capture_carries_smart_fallback() {
+        let msg = parse_client_message(
+            r#"{"type":"capture","url":"https://site/watch","kind":"smart","fallback_url":"https://cdn/x.m3u8","fallback_kind":"hls"}"#,
+        );
+        let (_authed, reply) = handle_message(true, "secret", msg);
+        match reply {
+            ServerReply::CaptureRequested { kind, fallback_url, fallback_kind, .. } => {
+                assert_eq!(kind.as_deref(), Some("smart"));
+                assert_eq!(fallback_url.as_deref(), Some("https://cdn/x.m3u8"));
+                assert_eq!(fallback_kind.as_deref(), Some("hls"));
+            }
             other => panic!("attendu CaptureRequested, obtenu {other:?}"),
         }
     }
