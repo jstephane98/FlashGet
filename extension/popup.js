@@ -38,6 +38,14 @@ document.getElementById("sendTab").addEventListener("click", async () => {
   });
 });
 
+document.getElementById("sendPage").addEventListener("click", async () => {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab || !tab.url) return;
+  chrome.runtime.sendMessage({ cmd: "sendPage", url: tab.url, tabId: tab.id }, (res) => {
+    flash(res && res.ok ? "Envoyé ✓" : "Échec — non connecté");
+  });
+});
+
 document.getElementById("openOptions").addEventListener("click", () => {
   chrome.runtime.openOptionsPage();
 });
