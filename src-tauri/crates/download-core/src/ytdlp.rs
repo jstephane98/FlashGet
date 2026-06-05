@@ -105,6 +105,7 @@ pub fn select_variants(formats: &[YtdlpFormat]) -> Vec<(String, YtdlpVariant)> {
     video.sort_by(|a, b| b.height.unwrap_or(0).cmp(&a.height.unwrap_or(0)));
 
     for f in video {
+        // Les formats sans hauteur connue ne sont pas dédupliqués (on les garde tous).
         if let Some(h) = f.height {
             if seen_heights.contains(&h) {
                 continue;
@@ -116,7 +117,8 @@ pub fn select_variants(formats: &[YtdlpFormat]) -> Vec<(String, YtdlpVariant)> {
             (None, Some(h)) => Some(format!("{h}p")),
             _ => None,
         };
-        let bandwidth = f.tbr.map(|t| (t * 1000.0) as u64).unwrap_or(0);
+        // tbr est en kbps ; un tbr négatif/NaN (métadonnée corrompue) devient 0.
+        let bandwidth = f.tbr.map(|t| (t.max(0.0) * 1000.0) as u64).unwrap_or(0);
         out.push((
             f.format_id.clone(),
             YtdlpVariant { resolution, bandwidth, est_size: f.filesize },
@@ -206,5 +208,25 @@ mod tests {
     fn parse_progress_ignores_other_lines() {
         assert_eq!(parse_progress("[download] Destination: x.mp4"), None);
         assert_eq!(parse_progress("FGPROG:bad"), None);
+    }
+
+    #[test]
+    fn parse_formats_tolerates_absent_formats_key() {
+        let (title, formats) = parse_formats(r#"{"title":"x"}"#).unwrap();
+        assert_eq!(title, "x");
+        assert_eq!(formats.len(), 0);
+    }
+
+    #[test]
+    fn select_variants_keeps_heightless_video_with_no_resolution() {
+        let formats = vec![YtdlpFormat {
+            format_id: "0".into(), height: None, width: None,
+            ext: Some("mp4".into()), vcodec: Some("avc1".into()), acodec: Some("none".into()),
+            filesize: None, tbr: None,
+        }];
+        let v = select_variants(&formats);
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].1.resolution, None);
+        assert_eq!(v[0].1.bandwidth, 0);
     }
 }
