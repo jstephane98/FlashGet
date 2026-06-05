@@ -83,6 +83,44 @@ fn build_list(l: &SegmentList, base: &str) -> SegmentPlan {
     SegmentPlan { init, media }
 }
 
+/// Fenêtre de segments disponible d'un live `$Number$`+`@duration` à l'instant
+/// `now` (epoch s). `ast` = availabilityStartTime, `tsb` = timeShiftBufferDepth (s),
+/// `margin` = marge de sécurité (s, typiquement une durée de segment). `base` =
+/// BaseURL effective de la Representation. `init` est toujours résolu.
+pub fn live_number_window(
+    repr: &Representation,
+    t: &SegmentTemplate,
+    ast: f64,
+    tsb: Option<f64>,
+    now: f64,
+    margin: f64,
+    base: &str,
+) -> SegmentPlan {
+    let init = t.init.as_ref().map(|tpl| SegmentRef {
+        url: resolve_uri(base, &expand(tpl, &repr.id, repr.bandwidth, 0, 0)),
+        byte_range: None,
+    });
+    let d = t.duration.unwrap_or(0) as f64 / t.timescale.max(1) as f64;
+    let elapsed = now - margin - ast;
+    if d <= 0.0 || elapsed < d {
+        return SegmentPlan { init, media: Vec::new() };
+    }
+    let count = (elapsed / d).floor() as u64; // segments pleinement publiés
+    let edge_n = t.start_number + count - 1;
+    let span = tsb.map(|x| (x / d).floor() as u64).unwrap_or(0);
+    let start_n = t.start_number.max(edge_n.saturating_sub(span));
+    let media = (start_n..=edge_n)
+        .map(|n| {
+            let time = (n - t.start_number) * t.duration.unwrap_or(0);
+            SegmentRef {
+                url: resolve_uri(base, &expand(&t.media, &repr.id, repr.bandwidth, n, time)),
+                byte_range: None,
+            }
+        })
+        .collect();
+    SegmentPlan { init, media }
+}
+
 /// Substitution des identifiants de template DASH.
 fn expand(template: &str, rep_id: &str, bandwidth: u64, number: u64, time: u64) -> String {
     let mut out = String::new();
@@ -179,5 +217,54 @@ mod tests {
         let refs = base_media(&b, &[(200, 299), (300, 399)]);
         assert_eq!(refs.len(), 2);
         assert_eq!(refs[0], SegmentRef { url: "https://h/p/v.mp4".into(), byte_range: Some((200, 299)) });
+    }
+
+    fn tmpl(duration: u64, start_number: u64) -> SegmentTemplate {
+        SegmentTemplate {
+            init: Some("init.mp4".into()),
+            media: "seg-$Number$.m4s".into(),
+            timescale: 1, duration: Some(duration), start_number, timeline: None,
+        }
+    }
+
+    #[test]
+    fn number_window_single_edge_segment_no_buffer() {
+        let r = repr(Addressing::Template(tmpl(2, 1)));
+        let t = tmpl(2, 1);
+        // ast=0, d=2, now=20, margin=2 → elapsed=18, count=9, edge_N=9, span=0.
+        let plan = live_number_window(&r, &t, 0.0, None, 20.0, 2.0, "https://h/p/");
+        assert_eq!(plan.init.unwrap().url, "https://h/p/init.mp4");
+        assert_eq!(plan.media.iter().map(|s| s.url.clone()).collect::<Vec<_>>(),
+            vec!["https://h/p/seg-9.m4s"]);
+    }
+
+    #[test]
+    fn number_window_dvr_span() {
+        let r = repr(Addressing::Template(tmpl(2, 1)));
+        let t = tmpl(2, 1);
+        // tsb=10, d=2 → span=5 ; edge_N=9 → start_N=4 → 4..=9.
+        let plan = live_number_window(&r, &t, 0.0, Some(10.0), 20.0, 2.0, "https://h/p/");
+        assert_eq!(plan.media.iter().map(|s| s.url.clone()).collect::<Vec<_>>(),
+            vec!["https://h/p/seg-4.m4s","https://h/p/seg-5.m4s","https://h/p/seg-6.m4s",
+                 "https://h/p/seg-7.m4s","https://h/p/seg-8.m4s","https://h/p/seg-9.m4s"]);
+    }
+
+    #[test]
+    fn number_window_edge_advances_with_now() {
+        let r = repr(Addressing::Template(tmpl(2, 1)));
+        let t = tmpl(2, 1);
+        let last = |now: f64| live_number_window(&r, &t, 0.0, None, now, 2.0, "https://h/p/")
+            .media.last().unwrap().url.clone();
+        assert_eq!(last(20.0), "https://h/p/seg-9.m4s");
+        assert_eq!(last(22.0), "https://h/p/seg-10.m4s"); // edge avance d'un
+    }
+
+    #[test]
+    fn number_window_empty_before_first_segment() {
+        let r = repr(Addressing::Template(tmpl(2, 1)));
+        let t = tmpl(2, 1);
+        // now=2.5, margin=2, ast=0 → elapsed=0.5 < d=2 → vide.
+        let plan = live_number_window(&r, &t, 0.0, None, 2.5, 2.0, "https://h/p/");
+        assert!(plan.media.is_empty());
     }
 }
