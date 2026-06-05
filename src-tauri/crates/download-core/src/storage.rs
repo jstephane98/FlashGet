@@ -691,6 +691,26 @@ mod tests {
     }
 
     #[test]
+    fn update_paths_leaves_status_and_bytes_untouched() {
+        let s = Storage::open_in_memory().unwrap();
+        s.upsert(&sample("p")).unwrap();
+        s.update_state("p", 1234, DownloadStatus::Completed).unwrap();
+        s.update_paths("p", "Réel.mkv", "C:/dl/Réel.mkv").unwrap();
+        let d = s.get_by_id("p").unwrap().unwrap();
+        assert_eq!(d.file_name, "Réel.mkv");
+        assert_eq!(d.dest_path, "C:/dl/Réel.mkv");
+        assert_eq!(d.status, DownloadStatus::Completed);
+        assert_eq!(d.downloaded_bytes, 1234);
+    }
+
+    #[test]
+    fn update_paths_noop_when_absent() {
+        let s = Storage::open_in_memory().unwrap();
+        s.update_paths("ghost", "x", "y").unwrap();
+        assert!(s.get_by_id("ghost").unwrap().is_none());
+    }
+
+    #[test]
     fn ytdlp_kind_roundtrips() {
         let s = Storage::open_in_memory().unwrap();
         let mut d = sample("y1");
