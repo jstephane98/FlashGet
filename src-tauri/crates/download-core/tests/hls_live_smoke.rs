@@ -21,7 +21,8 @@
 //! ```
 
 use download_core::engine::{DownloadHandle, Outcome};
-use download_core::hls::live::{download_hls_live, RefreshInterval};
+use download_core::hls::live::download_hls_live;
+use download_core::live::RefreshInterval;
 use download_core::hls::remux::{RemuxInputs, Remuxer};
 use download_core::http::ReqwestFetcher;
 use download_core::model::{Progress, RequestHeaders};
