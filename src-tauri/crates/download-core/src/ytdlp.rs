@@ -23,6 +23,10 @@ struct RawInfo {
     #[serde(default)]
     title: Option<String>,
     #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
+    uploader: Option<String>,
+    #[serde(default)]
     formats: Vec<RawFormat>,
 }
 
@@ -47,11 +51,30 @@ struct RawFormat {
     tbr: Option<f64>,
 }
 
+/// Choisit un nom d'affichage à partir des champs yt-dlp.
+/// Ordre : `title` (non vide, trimé) → `"uploader - id"` → `"uploader"` → `id` → `""`.
+/// `uploader`/`id` ne comptent que s'ils sont non vides après `trim`.
+pub fn pick_name(title: &str, uploader: Option<&str>, id: Option<&str>) -> String {
+    let t = title.trim();
+    if !t.is_empty() {
+        return t.to_string();
+    }
+    let up = uploader.map(str::trim).filter(|s| !s.is_empty());
+    let id = id.map(str::trim).filter(|s| !s.is_empty());
+    match (up, id) {
+        (Some(up), Some(id)) => format!("{up} - {id}"),
+        (Some(up), None) => up.to_string(),
+        (None, Some(id)) => id.to_string(),
+        (None, None) => String::new(),
+    }
+}
+
 /// Parse la sortie JSON de `yt-dlp -J` : titre + liste des formats.
 pub fn parse_formats(json: &str) -> Result<(String, Vec<YtdlpFormat>), CoreError> {
     let info: RawInfo = serde_json::from_str(json)
         .map_err(|e| CoreError::Media(format!("sortie yt-dlp illisible: {e}")))?;
     let title = info.title.unwrap_or_default();
+    let name = pick_name(&title, info.uploader.as_deref(), info.id.as_deref());
     let formats = info
         .formats
         .into_iter()
@@ -66,7 +89,7 @@ pub fn parse_formats(json: &str) -> Result<(String, Vec<YtdlpFormat>), CoreError
             tbr: f.tbr,
         })
         .collect();
-    Ok((title, formats))
+    Ok((name, formats))
 }
 
 /// Préfixe de progression émis via `--progress-template` (voir couche Tauri).
@@ -228,5 +251,44 @@ mod tests {
         assert_eq!(v.len(), 1);
         assert_eq!(v[0].1.resolution, None);
         assert_eq!(v[0].1.bandwidth, 0);
+    }
+
+    #[test]
+    fn pick_name_prefers_title() {
+        assert_eq!(pick_name("Ma vidéo", Some("Chaîne"), Some("id1")), "Ma vidéo");
+        assert_eq!(pick_name("  Ma vidéo  ", None, None), "Ma vidéo");
+    }
+
+    #[test]
+    fn pick_name_falls_back_to_uploader_and_id() {
+        assert_eq!(pick_name("", Some("Ma Page"), Some("123")), "Ma Page - 123");
+        assert_eq!(pick_name("   ", Some("Ma Page"), Some("123")), "Ma Page - 123");
+    }
+
+    #[test]
+    fn pick_name_uploader_only_has_no_orphan_dash() {
+        assert_eq!(pick_name("", Some("Ma Page"), None), "Ma Page");
+        assert_eq!(pick_name("", Some("  "), Some("123")), "123");
+    }
+
+    #[test]
+    fn pick_name_id_only_then_empty() {
+        assert_eq!(pick_name("", None, Some("123")), "123");
+        assert_eq!(pick_name("", None, None), "");
+        assert_eq!(pick_name("", Some(""), None), "");
+    }
+
+    #[test]
+    fn parse_formats_uses_uploader_id_when_no_title() {
+        let json = r#"{
+            "id": "987",
+            "uploader": "Ma Page FB",
+            "formats": [
+                {"format_id":"hd","height":720,"width":1280,"ext":"mp4","vcodec":"avc1","acodec":"mp4a","filesize":1000,"tbr":900.0}
+            ]
+        }"#;
+        let (name, formats) = parse_formats(json).unwrap();
+        assert_eq!(name, "Ma Page FB - 987");
+        assert_eq!(formats.len(), 1);
     }
 }
