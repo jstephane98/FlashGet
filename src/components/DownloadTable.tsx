@@ -11,6 +11,7 @@ export function DownloadTable({
   onPause,
   onResume,
   onCancel,
+  onStop,
   onPriority,
   onOpenFile,
   onOpenFolder,
@@ -23,6 +24,7 @@ export function DownloadTable({
   onPause: (id: string) => void;
   onResume: (id: string) => void;
   onCancel: (id: string) => void;
+  onStop: (id: string) => void;
   onPriority: (id: string, p: Priority) => void;
   onOpenFile: (id: string) => void;
   onOpenFolder: (id: string) => void;
@@ -58,6 +60,7 @@ export function DownloadTable({
             onPause={() => onPause(d.id)}
             onResume={() => onResume(d.id)}
             onCancel={() => onCancel(d.id)}
+            onStop={() => onStop(d.id)}
             onPriority={(p) => onPriority(d.id, p)}
             onOpenFile={() => onOpenFile(d.id)}
             onOpenFolder={() => onOpenFolder(d.id)}

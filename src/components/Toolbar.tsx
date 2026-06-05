@@ -39,6 +39,7 @@ export function Toolbar({
       >
         <option value="all">Tous les statuts</option>
         <option value="downloading">En cours</option>
+        <option value="recording">Enregistrement</option>
         <option value="queued">En file</option>
         <option value="paused">En pause</option>
         <option value="completed">Terminé</option>

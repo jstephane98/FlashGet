@@ -366,6 +366,17 @@ pub fn pause_download(app: AppHandle, id: String) -> Result<(), String> {
     Ok(())
 }
 
+/// Arrête (finalise) un enregistrement live : pose le drapeau `stop` ; le moteur
+/// remux le partiel et émet `Completed`. No-op si le handle n'est plus actif.
+#[tauri::command]
+pub fn stop_recording(app: AppHandle, id: String) -> Result<(), String> {
+    let state = app.state::<AppState>();
+    if let Some(h) = state.handles.lock().unwrap().get(&id) {
+        h.stop();
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn cancel_download(app: AppHandle, id: String) -> Result<(), String> {
     let state = app.state::<AppState>();
@@ -519,6 +530,114 @@ fn reevaluate(app: &AppHandle) {
     }
 }
 
+/// Au démarrage : finalise les enregistrements live interrompus (statut
+/// `Recording` persisté mais aucune tâche moteur active). work dir non vide →
+/// concat + remux → `Completed` ; vide → la ligne est retirée.
+pub fn recover_interrupted_recordings(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    let downloads = match state.storage.list() {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("recovery: list failed: {e}");
+            return;
+        }
+    };
+    for d in downloads.into_iter().filter(|d| d.status == DownloadStatus::Recording) {
+        let dest = PathBuf::from(&d.dest_path);
+        let work = PathBuf::from(format!("{}.fghls", d.dest_path));
+        let has_segments = std::fs::read_dir(&work)
+            .map(|rd| {
+                rd.filter_map(|e| e.ok()).any(|e| {
+                    e.file_name()
+                        .to_str()
+                        .map(|n| n.ends_with(".seg") && !n.contains("_init"))
+                        .unwrap_or(false)
+                })
+            })
+            .unwrap_or(false);
+        if !has_segments {
+            let _ = std::fs::remove_dir_all(&work);
+            let _ = state.storage.delete(&d.id);
+            continue;
+        }
+        // Finalise de façon asynchrone (au démarrage, hors UI critique).
+        let app2 = app.clone();
+        let id = d.id.clone();
+        tauri::async_runtime::spawn(async move {
+            let st = app2.state::<AppState>();
+            let remux = crate::remux::SidecarRemuxer::new(app2.clone());
+            let v_has_init = work.join("v_init.seg").exists();
+            let a_has_init = work.join("a_init.seg").exists();
+            let has_audio = std::fs::read_dir(&work)
+                .map(|rd| {
+                    rd.filter_map(|e| e.ok()).any(|e| {
+                        e.file_name()
+                            .to_str()
+                            .map(|n| n.starts_with('a') && n.ends_with(".seg") && !n.contains("_init"))
+                            .unwrap_or(false)
+                    })
+                })
+                .unwrap_or(false);
+            let work_v = work.clone();
+            let video = match tokio::task::spawn_blocking(move || {
+                download_core::media_io::concat_track(&work_v, "v", v_has_init)
+            })
+            .await
+            {
+                Ok(Ok(p)) => p,
+                _ => {
+                    eprintln!("recovery: concat video failed for {id}");
+                    return;
+                }
+            };
+            let audio = if has_audio {
+                let work_a = work.clone();
+                match tokio::task::spawn_blocking(move || {
+                    download_core::media_io::concat_track(&work_a, "a", a_has_init)
+                })
+                .await
+                {
+                    Ok(Ok(p)) => Some(p),
+                    _ => None,
+                }
+            } else {
+                None
+            };
+            let inputs = download_core::hls::remux::RemuxInputs {
+                video,
+                audio,
+                decryption_key: None,
+            };
+            use download_core::hls::remux::Remuxer;
+            match remux.remux(inputs, &dest).await {
+                Ok(()) => {
+                    let _ = std::fs::remove_dir_all(&work);
+                    let bytes = std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
+                    let _ = st.storage.update_state(&id, bytes, DownloadStatus::Completed);
+                    let _ = app2.emit(
+                        "download://progress",
+                        &Progress {
+                            id: id.clone(),
+                            downloaded_bytes: bytes,
+                            total_bytes: None,
+                            speed_bps: 0,
+                            status: DownloadStatus::Completed,
+                            segments_done: None,
+                            segments_total: None,
+                        },
+                    );
+                }
+                Err(e) => {
+                    eprintln!("recovery: remux failed for {id}: {e}");
+                    let _ = st
+                        .storage
+                        .mark_error(&id, 0, "finalisation de l'enregistrement échouée");
+                }
+            }
+        });
+    }
+}
+
 /// Lance les deux tâches (relais de progression + moteur) pour un téléchargement.
 fn launch(app: &AppHandle, download: Download, handle: DownloadHandle) {
     let id = download.id.clone();
@@ -531,6 +650,7 @@ fn launch(app: &AppHandle, download: Download, handle: DownloadHandle) {
         let mut last_t = Instant::now();
         let mut last_bytes = 0u64;
         let mut current_speed: u64 = 0;
+        let mut last_persisted: Option<DownloadStatus> = None;
         while let Some(mut p) = rx.recv().await {
             let now = Instant::now();
             let dt = now.duration_since(last_t).as_secs_f64();
@@ -542,11 +662,14 @@ fn launch(app: &AppHandle, download: Download, handle: DownloadHandle) {
             }
             p.speed_bps = current_speed;
             let _ = app_for_rx.emit("download://progress", &p);
-            if matches!(p.status, DownloadStatus::Completed | DownloadStatus::Paused | DownloadStatus::Error) {
+            let persist = matches!(p.status, DownloadStatus::Completed | DownloadStatus::Paused | DownloadStatus::Error)
+                || (p.status == DownloadStatus::Recording && last_persisted != Some(DownloadStatus::Recording));
+            if persist {
                 let st = app_for_rx.state::<AppState>();
                 if let Err(e) = st.storage.update_state(&id_for_rx, p.downloaded_bytes, p.status) {
                     eprintln!("failed to persist download {id_for_rx}: {e}");
                 }
+                last_persisted = Some(p.status);
             }
         }
     });

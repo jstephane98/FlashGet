@@ -3,11 +3,11 @@ use crate::model::{Download, DownloadStatus, Priority};
 /// Étant donné l'ensemble des téléchargements et la limite de simultanés,
 /// renvoie les ids des téléchargements `Queued` à démarrer, choisis par
 /// priorité décroissante puis par ordre d'arrivée (l'ordre du slice).
-/// Idempotent : ne renvoie jamais un id déjà `Downloading` / `Paused` / terminé.
+/// Idempotent : ne renvoie jamais un id déjà `Downloading` / `Recording` / `Paused` / terminé.
 pub fn pick_to_start(downloads: &[Download], max_concurrent: u32) -> Vec<String> {
     let active = downloads
         .iter()
-        .filter(|d| d.status == DownloadStatus::Downloading)
+        .filter(|d| matches!(d.status, DownloadStatus::Downloading | DownloadStatus::Recording))
         .count() as u32;
     let slots = max_concurrent.saturating_sub(active);
     if slots == 0 {
@@ -99,6 +99,16 @@ mod tests {
             dl("a", DownloadStatus::Queued, Priority::Normal),
         ];
         assert_eq!(pick_to_start(&items, 5), vec!["a"]);
+    }
+
+    #[test]
+    fn recording_counts_as_active_slot() {
+        // 1 enregistrement actif + 1 en file, max=1 => rien à démarrer.
+        let downloads = vec![
+            dl("rec", DownloadStatus::Recording, Priority::Normal),
+            dl("q", DownloadStatus::Queued, Priority::Normal),
+        ];
+        assert!(pick_to_start(&downloads, 1).is_empty());
     }
 
     #[test]

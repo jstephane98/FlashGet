@@ -17,6 +17,7 @@ pub const DEFAULT_SEGMENTS: u32 = 8;
 pub struct DownloadHandle {
     pause: Arc<AtomicBool>,
     cancel: Arc<AtomicBool>,
+    stop: Arc<AtomicBool>,
     downloaded: Arc<AtomicU64>,
 }
 
@@ -29,6 +30,12 @@ impl DownloadHandle {
     }
     pub fn cancel(&self) {
         self.cancel.store(true, Ordering::SeqCst);
+    }
+    pub fn stop(&self) {
+        self.stop.store(true, Ordering::SeqCst);
+    }
+    pub fn is_stopped(&self) -> bool {
+        self.stop.load(Ordering::SeqCst)
     }
     pub fn downloaded(&self) -> u64 {
         self.downloaded.load(Ordering::SeqCst)
@@ -424,6 +431,20 @@ mod tests {
 
         let slept = *clock.slept.lock().unwrap();
         assert!(slept >= 1.9, "le moteur aurait dû dormir ~2 s (simulées), got {slept}");
+    }
+
+    #[test]
+    fn stop_flag_independent_from_cancel_and_pause() {
+        let h = DownloadHandle::new();
+        assert!(!h.is_stopped());
+        h.stop();
+        assert!(h.is_stopped());
+        // stop n'affecte ni cancel ni pause
+        assert!(!h.is_cancelled());
+        assert!(!h.is_paused());
+        // un clone partage le drapeau
+        let h2 = h.clone();
+        assert!(h2.is_stopped());
     }
 
     /// Guard for FIX I1: a valid sidecar (total>0) must be trusted on resume even
