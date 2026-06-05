@@ -274,6 +274,40 @@ pub(crate) async fn probe_ytdlp(app: &AppHandle, url: &str, headers: RequestHead
     result
 }
 
+/// Bouton vidéo intelligent : yt-dlp d'abord (ré-extrait des URL fraîches, gère les sites
+/// à URL signée), puis repli sur le flux HLS/DASH sniffé si yt-dlp ne trouve rien.
+/// Émet `media://error` une seule fois si tout échoue.
+pub(crate) async fn probe_smart(
+    app: &AppHandle,
+    page_url: &str,
+    fallback_url: Option<String>,
+    fallback_kind: Option<String>,
+    headers: RequestHeaders,
+) -> Result<(), String> {
+    let yt = probe_ytdlp_inner(app, page_url, headers.clone()).await;
+    if yt.is_ok() {
+        return Ok(());
+    }
+    if let Some(fb) = fallback_url {
+        let fr = if fallback_kind.as_deref() == Some("dash") {
+            probe_dash_inner(app, &fb, headers, None).await
+        } else {
+            probe_hls_inner(app, &fb, headers, None).await
+        };
+        if fr.is_ok() {
+            return Ok(());
+        }
+    }
+    let e = yt.err().unwrap_or_else(|| "aucune vidéo trouvée sur cette page".to_string());
+    let _ = app.emit("media://error", MediaErrorEvent { message: e.clone() });
+    if let Some(win) = app.get_webview_window("main") {
+        let _ = win.unminimize();
+        let _ = win.show();
+        let _ = win.set_focus();
+    }
+    Err(e)
+}
+
 async fn probe_ytdlp_inner(app: &AppHandle, url: &str, headers: RequestHeaders) -> Result<(), String> {
     // Certains sites (ex. YouTube) refusent l'extraction quand on transmet les en-têtes du
     // navigateur (les cookies déclenchent un downgrade de client → « Requested format is not
