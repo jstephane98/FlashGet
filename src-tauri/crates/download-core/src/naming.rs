@@ -1,5 +1,8 @@
 //! Choix du nom de fichier final pour un téléchargement.
 
+/// Nom de fichier de repli quand le titre est absent ou inutilisable.
+const DEFAULT_TITLE: &str = "video";
+
 /// Noms de périphériques réservés Windows (comparaison insensible à la casse).
 const RESERVED_NAMES: &[&str] = &[
     "CON", "PRN", "AUX", "NUL",
@@ -15,7 +18,7 @@ const RESERVED_NAMES: &[&str] = &[
 pub fn sanitize_title(raw: Option<&str>) -> String {
     let raw = match raw {
         Some(s) => s,
-        None => return "video".to_string(),
+        None => return DEFAULT_TITLE.to_string(),
     };
     // 1. Nettoyage caractère par caractère.
     let cleaned: String = raw
@@ -23,7 +26,7 @@ pub fn sanitize_title(raw: Option<&str>) -> String {
         .filter_map(|c| match c {
             '/' | '\\' => Some(' '),                                  // texte, pas séparateur
             '<' | '>' | ':' | '"' | '|' | '?' | '*' => None,         // interdits Windows
-            c if (c as u32) < 0x20 => None,                          // caractères de contrôle
+            c if (c as u32) < 0x20 || c == '\u{7f}' => None,        // caractères de contrôle (C0 + DEL)
             c => Some(c),
         })
         .collect();
@@ -34,7 +37,7 @@ pub fn sanitize_title(raw: Option<&str>) -> String {
     // 4. Couper points et espaces de fin (interdits/problématiques sous Windows).
     let trimmed = capped.trim_end_matches(['.', ' ']).to_string();
     if trimmed.is_empty() {
-        return "video".to_string();
+        return DEFAULT_TITLE.to_string();
     }
     // 5. Neutraliser les noms réservés.
     if RESERVED_NAMES.iter().any(|r| r.eq_ignore_ascii_case(&trimmed)) {
@@ -149,5 +152,14 @@ mod tests {
     #[test]
     fn sanitize_title_keeps_unicode() {
         assert_eq!(sanitize_title(Some("Café 日本")), "Café 日本");
+    }
+
+    #[test]
+    fn sanitize_title_cap_trailing_dot_is_trimmed() {
+        // 119 'a' + '.' = 120 chars entrant dans take(120) ; après trim, pas de point final.
+        let s = format!("{}.", "a".repeat(119));
+        let out = sanitize_title(Some(&s));
+        assert_eq!(out.chars().count(), 119);
+        assert!(!out.ends_with('.'));
     }
 }
