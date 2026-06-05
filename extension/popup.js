@@ -30,19 +30,19 @@ document.getElementById("sendUrl").addEventListener("click", () => {
   });
 });
 
-document.getElementById("sendTab").addEventListener("click", async () => {
+document.getElementById("downloadVideo").addEventListener("click", async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab || !tab.url) return;
-  chrome.runtime.sendMessage({ cmd: "send", url: tab.url }, (res) => {
-    flash(res && res.ok ? "Envoyé ✓" : "Échec — non connecté");
-  });
-});
-
-document.getElementById("sendPage").addEventListener("click", async () => {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab || !tab.url) return;
-  chrome.runtime.sendMessage({ cmd: "sendPage", url: tab.url, tabId: tab.id }, (res) => {
-    flash(res && res.ok ? "Envoyé ✓" : "Échec — non connecté");
+  // Flux HLS/DASH détecté sur l'onglet → capture directe (gère aussi le live) ;
+  // sinon → yt-dlp sur l'URL de la page (YouTube, Facebook, etc.).
+  chrome.runtime.sendMessage({ cmd: "listMedia", tabId: tab.id }, (res) => {
+    const streams = (res && res.streams) || [];
+    const msg = streams.length > 0
+      ? { cmd: "sendMedia", url: streams[0].url, tabId: tab.id }
+      : { cmd: "sendPage", url: tab.url, tabId: tab.id };
+    chrome.runtime.sendMessage(msg, (r) => {
+      flash(r && r.ok ? "Envoyé ✓" : "Échec — non connecté");
+    });
   });
 });
 
@@ -56,26 +56,3 @@ document.getElementById("retry").addEventListener("click", () => {
 
 refresh();
 
-async function refreshMedia() {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab) return;
-  chrome.runtime.sendMessage({ cmd: "listMedia", tabId: tab.id }, (res) => {
-    const streams = (res && res.streams) || [];
-    const section = document.getElementById("mediaSection");
-    const list = document.getElementById("mediaList");
-    list.innerHTML = "";
-    section.classList.toggle("hidden", streams.length === 0);
-    streams.forEach((s, i) => {
-      const btn = document.createElement("button");
-      btn.textContent = `Télécharger la vidéo ${streams.length > 1 ? i + 1 : ""}`.trim();
-      btn.addEventListener("click", () => {
-        chrome.runtime.sendMessage({ cmd: "sendMedia", url: s.url, tabId: tab.id }, (r) => {
-          flash(r && r.ok ? "Envoyé ✓" : "Échec — non connecté");
-        });
-      });
-      list.appendChild(btn);
-    });
-  });
-}
-
-refreshMedia();
