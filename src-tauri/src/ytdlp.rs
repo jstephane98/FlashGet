@@ -2,12 +2,13 @@
 //! progression et pause/reprise/annulation. La logique parseable vit dans
 //! `download_core::ytdlp`.
 
+use crate::state::AppState;
 use download_core::engine::DownloadHandle;
 use download_core::model::{DownloadStatus, Progress, RequestHeaders};
 use download_core::CoreError;
 use std::path::Path;
 use std::time::Duration;
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 use tauri_plugin_shell::process::CommandEvent;
 use tauri_plugin_shell::ShellExt;
 use tokio::sync::mpsc::UnboundedSender;
@@ -105,6 +106,10 @@ pub async fn run_download(
         "--no-playlist".into(),
         "--newline".into(),
         "--continue".into(),
+        "--merge-output-format".into(),
+        "mp4".into(),
+        "--print".into(),
+        format!("after_move:{}%(filepath)s", download_core::ytdlp::FILE_PREFIX),
         "--progress-template".into(),
         format!("{}%(progress.downloaded_bytes)s/%(progress.total_bytes)s", download_core::ytdlp::PROGRESS_PREFIX),
         "-o".into(),
@@ -123,6 +128,7 @@ pub async fn run_download(
 
     let mut last: u64 = 0;
     let mut total: Option<u64> = None;
+    let mut final_path: Option<String> = None;
     let mut stderr_tail: Vec<String> = Vec::new();
     let mut ticker = tokio::time::interval(Duration::from_millis(300));
 
@@ -147,6 +153,8 @@ pub async fn run_download(
                             last = dl;
                             if t.is_some() { total = t; }
                             let _ = tx.send(mk(dl, total, DownloadStatus::Downloading));
+                        } else if let Some(fp) = download_core::ytdlp::parse_final_path(&line) {
+                            final_path = Some(fp);
                         }
                     }
                     Some(CommandEvent::Stderr(bytes)) => {
@@ -157,6 +165,16 @@ pub async fn run_download(
                     Some(CommandEvent::Terminated(payload)) => {
                         let code = payload.code.unwrap_or(-1);
                         if code == 0 {
+                            // Réconcilie le chemin enregistré avec le fichier réellement
+                            // produit (le conteneur final peut différer de .mp4).
+                            if let Some(fp) = &final_path {
+                                let real = std::path::Path::new(fp);
+                                if real != dest {
+                                    if let Some(name) = real.file_name().and_then(|n| n.to_str()) {
+                                        let _ = app.state::<AppState>().storage.update_paths(id, name, fp);
+                                    }
+                                }
+                            }
                             let _ = tx.send(mk(last, total, DownloadStatus::Completed));
                             return Ok(());
                         }
