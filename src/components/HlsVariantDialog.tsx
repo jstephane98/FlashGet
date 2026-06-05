@@ -21,13 +21,17 @@ export function HlsVariantDialog({
 }: {
   event: MediaVariantsEvent | null;
   onClose: () => void;
-  onConfirm: (probeId: string, variantIndex: number) => void;
+  onConfirm: (probeId: string, variantIndex: number, fileName: string) => void;
 }) {
   const [selected, setSelected] = useState(0);
+  const [name, setName] = useState("");
   useEffect(() => {
-    if (event && event.variants.length) {
-      const best = event.variants.reduce((a, b) => (b.bandwidth > a.bandwidth ? b : a));
-      setSelected(best.index);
+    if (event) {
+      if (event.variants.length) {
+        const best = event.variants.reduce((a, b) => (b.bandwidth > a.bandwidth ? b : a));
+        setSelected(best.index);
+      }
+      setName(event.file_name);
     }
   }, [event]);
   if (!event) return null;
@@ -35,7 +39,15 @@ export function HlsVariantDialog({
     <div className="fixed inset-0 bg-black/30 flex items-center justify-center" onClick={onClose}>
       <div className="bg-white rounded-lg p-5 w-[480px]" onClick={(e) => e.stopPropagation()}>
         <h3 className="font-semibold mb-1">Télécharger la vidéo</h3>
-        <p className="text-sm text-gray-500 mb-3 truncate">{event.file_name}</p>
+        <div className="flex items-center gap-1 mb-3">
+          <input
+            className="flex-1 text-sm border border-gray-300 rounded px-2 py-1"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            aria-label="Nom du fichier"
+          />
+          <span className="text-sm text-gray-400 shrink-0">.mp4</span>
+        </div>
         <div className="space-y-1 max-h-64 overflow-auto">
           {event.variants.map((v) => (
             <label key={v.index} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer">
@@ -55,7 +67,7 @@ export function HlsVariantDialog({
           </button>
           <button
             className="px-3 py-1.5 text-sm rounded-md bg-indigo-600 text-white font-semibold"
-            onClick={() => onConfirm(event.probe_id, selected)}
+            onClick={() => onConfirm(event.probe_id, selected, name.trim())}
           >
             Télécharger
           </button>
