@@ -103,6 +103,105 @@ pub async fn add_download(app: AppHandle, args: AddArgs) -> Result<Download, Str
     add_url_with_probe(&app, &args.url, &args.dest_dir, headers, None, Some(probe)).await
 }
 
+#[derive(serde::Deserialize)]
+pub struct AddBatchArgs {
+    pub text: String,
+    pub dest_dir: String,
+}
+
+#[derive(serde::Serialize)]
+pub struct BatchSummary {
+    pub added: usize,
+    pub skipped_invalid: usize,
+    pub skipped_duplicate: usize,
+    pub failed: usize,
+}
+
+/// Crée un `Download` en file SANS sonder l'URL (le moteur sondera au démarrage).
+/// Le nom vient de l'URL ; taille/segments inconnus. Ne ré-évalue PAS la file
+/// (l'appelant le fait une seule fois après le lot).
+pub(crate) async fn add_url_no_probe(
+    app: &AppHandle,
+    url: &str,
+    dest_dir: &str,
+    headers: RequestHeaders,
+) -> Result<Download, String> {
+    let file_name = download_core::naming::choose_file_name(
+        download_core::http::file_name_from_url(url).as_deref(),
+        None,
+    );
+    let category = download_core::categorizer::categorize(&file_name);
+
+    // Dossier : argument explicite > dossier configuré pour la catégorie > dossier Téléchargements.
+    let dest_dir = if !dest_dir.trim().is_empty() {
+        PathBuf::from(dest_dir)
+    } else {
+        let configured = { app.state::<AppState>().storage.category_dir(category).map_err(|e| e.to_string())? };
+        match configured {
+            Some(p) => PathBuf::from(p),
+            None => app.path().download_dir().map_err(|e| e.to_string())?,
+        }
+    };
+    std::fs::create_dir_all(&dest_dir).map_err(|e| format!("dossier de destination inaccessible: {e}"))?;
+
+    let dest_path = dest_dir.join(&file_name);
+    if dest_path.parent() != Some(dest_dir.as_path()) {
+        return Err("invalid file name derived from URL".to_string());
+    }
+
+    let download = Download {
+        id: uuid::Uuid::new_v4().to_string(),
+        url: url.to_string(),
+        file_name,
+        dest_path: dest_path.to_string_lossy().to_string(),
+        total_bytes: None,
+        downloaded_bytes: 0,
+        status: DownloadStatus::Queued,
+        supports_ranges: false,
+        error: None,
+        priority: Priority::Normal,
+        category,
+        referrer: headers.referrer,
+        cookie: headers.cookie,
+        user_agent: headers.user_agent,
+        kind: DownloadKind::Regular,
+        audio_url: None,
+        media_selection: None,
+    };
+
+    {
+        let state = app.state::<AppState>();
+        state.storage.upsert(&download).map_err(|e| e.to_string())?;
+    }
+    Ok(download)
+}
+
+/// Ajoute en lot : parse le texte (une URL par ligne), crée chaque téléchargement
+/// en `Queued` sans sonder, puis ré-évalue la file une seule fois. Une ligne en échec
+/// (ex. dossier inaccessible) n'interrompt pas les suivantes.
+#[tauri::command]
+pub async fn add_batch_downloads(app: AppHandle, args: AddBatchArgs) -> Result<BatchSummary, String> {
+    let parsed = download_core::batch::parse_batch(&args.text);
+    let mut added = 0usize;
+    let mut failed = 0usize;
+    for url in &parsed.urls {
+        match add_url_no_probe(&app, url, &args.dest_dir, RequestHeaders::default()).await {
+            Ok(_) => added += 1,
+            Err(e) => {
+                eprintln!("batch: échec ajout {url}: {e}");
+                failed += 1;
+            }
+        }
+    }
+    reevaluate(&app);
+    Ok(BatchSummary {
+        added,
+        skipped_invalid: parsed.skipped_invalid,
+        skipped_duplicate: parsed.skipped_duplicate,
+        failed,
+    })
+}
+
 #[derive(serde::Serialize, Clone)]
 pub struct MediaVariant {
     pub index: u32,
