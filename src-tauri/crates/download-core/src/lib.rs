@@ -12,6 +12,7 @@ pub mod hls;
 pub mod dash;
 pub mod media_io;
 pub mod live;
+pub mod ytdlp;
 
 use thiserror::Error;
 
