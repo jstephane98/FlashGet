@@ -32,7 +32,7 @@ document.getElementById("sendUrl").addEventListener("click", () => {
 
 document.getElementById("downloadVideo").addEventListener("click", async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab || !tab.id) return;
+  if (!tab || !tab.id || !tab.url) return;
   chrome.runtime.sendMessage({ cmd: "smartDownload", tabId: tab.id }, (res) => {
     flash(res && res.ok ? "Envoyé ✓" : "Échec — non connecté");
   });
