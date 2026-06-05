@@ -28,6 +28,25 @@ fn ffmpeg_location() -> Option<String> {
     None
 }
 
+/// Supprime le fichier final, son `.part`, et les fragments intermédiaires de yt-dlp
+/// (formats vidéo/audio séparés avant merge : `<stem>.fNNN.<ext>[.part]`).
+fn cleanup_partials(dest: &std::path::Path) {
+    let _ = std::fs::remove_file(dest);
+    let _ = std::fs::remove_file(format!("{}.part", dest.to_string_lossy()));
+    if let (Some(dir), Some(stem)) = (dest.parent(), dest.file_stem().and_then(|s| s.to_str())) {
+        let prefix = format!("{stem}.f");
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                if let Some(name) = entry.file_name().to_str() {
+                    if name.starts_with(&prefix) {
+                        let _ = std::fs::remove_file(entry.path());
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn header_args(headers: &RequestHeaders) -> Vec<String> {
     let mut a = Vec::new();
     if let Some(ua) = &headers.user_agent {
@@ -155,8 +174,7 @@ pub async fn run_download(
             _ = ticker.tick() => {
                 if handle.is_cancelled() {
                     if let Some(c) = child.take() { let _ = c.kill(); }
-                    let _ = std::fs::remove_file(dest);
-                    let _ = std::fs::remove_file(format!("{}.part", dest.to_string_lossy()));
+                    cleanup_partials(dest);
                     return Ok(());
                 }
                 if handle.is_paused() {
