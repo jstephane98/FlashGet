@@ -75,7 +75,12 @@ pub async fn probe_formats(
     args.extend(header_args(headers));
     args.push(url.to_string());
 
-    let cmd = app.shell().sidecar("yt-dlp").map_err(|e| format!("yt-dlp introuvable: {e}"))?;
+    let cmd = app
+        .shell()
+        .sidecar("yt-dlp")
+        .map_err(|e| format!("yt-dlp introuvable: {e}"))?
+        .env("PYTHONUTF8", "1")
+        .env("PYTHONIOENCODING", "utf-8");
     let output = cmd.args(args).output().await.map_err(|e| format!("échec exécution yt-dlp: {e}"))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -122,7 +127,12 @@ pub async fn run_download(
     args.extend(header_args(headers));
     args.push(url.to_string());
 
-    let cmd = app.shell().sidecar("yt-dlp").map_err(|e| CoreError::Media(format!("yt-dlp introuvable: {e}")))?;
+    let cmd = app
+        .shell()
+        .sidecar("yt-dlp")
+        .map_err(|e| CoreError::Media(format!("yt-dlp introuvable: {e}")))?
+        .env("PYTHONUTF8", "1")
+        .env("PYTHONIOENCODING", "utf-8");
     let (mut rx, child) = cmd.args(args).spawn().map_err(|e| CoreError::Media(format!("échec lancement yt-dlp: {e}")))?;
     let mut child = Some(child);
 
