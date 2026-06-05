@@ -9,6 +9,7 @@ use download_core::scheduler::pick_to_start;
 use std::path::PathBuf;
 use std::time::Instant;
 use tauri::{AppHandle, Emitter, Manager, State};
+use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_opener::OpenerExt;
 use tokio::sync::mpsc;
 
@@ -980,4 +981,22 @@ pub fn get_bridge_info(state: State<AppState>) -> Result<BridgeInfo, String> {
 #[tauri::command]
 pub fn regenerate_bridge_token(state: State<AppState>) -> Result<String, String> {
     state.storage.regenerate_bridge_token().map_err(|e| e.to_string())
+}
+
+/// Indique si l'app est inscrite au démarrage de Windows (lecture du registre via le plugin).
+#[tauri::command]
+pub fn get_autostart(app: AppHandle) -> Result<bool, String> {
+    app.autolaunch().is_enabled().map_err(|e| e.to_string())
+}
+
+/// Active/désactive le démarrage avec Windows. Le plugin enregistre la clé `Run`
+/// avec l'argument `--hidden` (configuré à l'init), pour un démarrage caché dans le tray.
+#[tauri::command]
+pub fn set_autostart(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let manager = app.autolaunch();
+    if enabled {
+        manager.enable().map_err(|e| e.to_string())
+    } else {
+        manager.disable().map_err(|e| e.to_string())
+    }
 }

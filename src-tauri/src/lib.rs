@@ -115,6 +115,8 @@ pub fn run() {
             commands::open_folder,
             commands::get_bridge_info,
             commands::regenerate_bridge_token,
+            commands::get_autostart,
+            commands::set_autostart,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
