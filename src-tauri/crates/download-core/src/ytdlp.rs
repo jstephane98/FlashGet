@@ -69,6 +69,20 @@ pub fn parse_formats(json: &str) -> Result<(String, Vec<YtdlpFormat>), CoreError
     Ok((title, formats))
 }
 
+/// Préfixe de progression émis via `--progress-template` (voir couche Tauri).
+pub const PROGRESS_PREFIX: &str = "FGPROG:";
+
+/// Parse une ligne de progression `FGPROG:<downloaded>/<total>`.
+/// `<total>` peut être `NA` ou vide (total inconnu → `None`).
+/// Renvoie `None` pour toute autre ligne.
+pub fn parse_progress(line: &str) -> Option<(u64, Option<u64>)> {
+    let rest = line.trim().strip_prefix(PROGRESS_PREFIX)?;
+    let (dl, total) = rest.split_once('/')?;
+    let downloaded: u64 = dl.trim().parse().ok()?;
+    let total = total.trim().parse::<u64>().ok();
+    Some((downloaded, total))
+}
+
 /// Variante neutre côté cœur (mappée vers `MediaVariant` par la couche Tauri).
 #[derive(Debug, Clone, PartialEq)]
 pub struct YtdlpVariant {
@@ -175,5 +189,22 @@ mod tests {
     #[test]
     fn build_format_arg_merges_audio() {
         assert_eq!(build_format_arg("137"), "137+bestaudio/137/best");
+    }
+
+    #[test]
+    fn parse_progress_reads_sentinel_line() {
+        assert_eq!(parse_progress("FGPROG:1048576/5242880"), Some((1048576, Some(5242880))));
+    }
+
+    #[test]
+    fn parse_progress_total_unknown() {
+        assert_eq!(parse_progress("FGPROG:1048576/NA"), Some((1048576, None)));
+        assert_eq!(parse_progress("FGPROG:2048/"), Some((2048, None)));
+    }
+
+    #[test]
+    fn parse_progress_ignores_other_lines() {
+        assert_eq!(parse_progress("[download] Destination: x.mp4"), None);
+        assert_eq!(parse_progress("FGPROG:bad"), None);
     }
 }
