@@ -19,6 +19,7 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
   const [dirs, setDirs] = useState<CategoryDirs | null>(null);
   const [bridge, setBridge] = useState<BridgeInfo | null>(null);
   const [copied, setCopied] = useState(false);
+  const [autostart, setAutostart] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -29,6 +30,7 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
     });
     api.getCategoryDirs().then(setDirs);
     api.getBridgeInfo().then(setBridge);
+    api.getAutostart().then(setAutostart);
   }, [open]);
 
   if (!open) return null;
@@ -61,6 +63,7 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
   async function save() {
     const bps = unlimited ? 0 : Math.round(speedValue * 1024 * 1024);
     await api.updateSettings(Math.max(1, Math.round(maxConcurrent)), bps);
+    await api.setAutostart(autostart);
     onClose();
   }
 
@@ -83,6 +86,16 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
               <input type="checkbox" checked={unlimited} onChange={(e) => setUnlimited(e.target.checked)} /> Illimitée
             </label>
           </div>
+        </div>
+        <div className="px-4 py-3 border-b border-gray-100">
+          <label className="text-sm flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={autostart}
+              onChange={(e) => setAutostart(e.target.checked)}
+            />
+            Démarrer avec Windows (lancement caché dans la zone de notification)
+          </label>
         </div>
         <div className="px-4 py-3">
           <div className="text-sm font-medium text-gray-700 mb-2">Dossiers par catégorie</div>
