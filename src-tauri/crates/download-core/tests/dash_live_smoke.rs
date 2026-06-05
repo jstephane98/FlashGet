@@ -8,7 +8,7 @@ use download_core::dash::engine::DashSelection;
 use download_core::dash::live::download_dash_live;
 use download_core::hls::remux::{RemuxInputs, Remuxer};
 use download_core::http::ReqwestFetcher;
-use download_core::live::RefreshInterval;
+use download_core::live::{Clock, RefreshInterval};
 use download_core::model::{Progress, RequestHeaders};
 use download_core::rate_limiter::RateLimiter;
 use download_core::engine::{DownloadHandle, Outcome};
@@ -168,7 +168,7 @@ async fn dash_live_records_until_static() {
     let outcome = download_dash_live(
         &fetcher, &remux, "smk", &url, &sel, &dest,
         DownloadHandle::new(), Arc::new(RateLimiter::unlimited()), tx, &RequestHeaders::default(),
-        None, RefreshInterval::Fixed(Duration::from_millis(10)),
+        None, RefreshInterval::Fixed(Duration::from_millis(10)), Clock::System,
     ).await.expect("dash live doit réussir");
 
     assert_eq!(outcome, Outcome::Completed);

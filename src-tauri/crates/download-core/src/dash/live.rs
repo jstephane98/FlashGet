@@ -2,13 +2,13 @@
 //! incrémentale dédupliquée par URL, finalisation concat + remux (ClearKey via
 //! ffmpeg). Voir spec 2026-06-04-phase-4b2b-dash-live-design.md.
 use crate::dash::engine::{resolve_key, DashSelection};
-use crate::dash::mpd::{parse_mpd, Addressing, Mpd};
-use crate::dash::segments::{build_segments, SegmentPlan};
+use crate::dash::mpd::{parse_mpd, Addressing, Mpd, Representation};
+use crate::dash::segments::{build_segments, live_number_window, SegmentPlan};
 use crate::dash::select::{pick_audio, video_variants, ReprCoord};
 use crate::engine::{DownloadHandle, Outcome};
 use crate::hls::remux::Remuxer;
 use crate::http::ByteFetcher;
-use crate::live::{responsive_sleep, RefreshInterval};
+use crate::live::{responsive_sleep, Clock, RefreshInterval};
 use crate::media_io::{fetch_to_vec, finalize_and_remux, finish_cancelled, work_dir, write_segment};
 use crate::model::{DownloadStatus, Progress, RequestHeaders};
 use crate::rate_limiter::RateLimiter;
@@ -59,8 +59,15 @@ impl DashLiveTrack {
             if self.seen.contains(&seg.url) { continue; }
             if handle.is_cancelled() { return Ok(Step::Cancelled); }
             if handle.is_stopped() { return Ok(Step::Stopped); }
-            let bytes = match fetch_to_vec(fetcher, &seg.url, seg.byte_range, headers, limiter, handle).await? {
-                Some(b) => b, None => return Ok(Step::Cancelled),
+            let bytes = match fetch_to_vec(fetcher, &seg.url, seg.byte_range, headers, limiter, handle).await {
+                Ok(Some(b)) => b,
+                Ok(None) => return Ok(Step::Cancelled),
+                // Segment pas encore publié (404) ou sorti de la fenêtre / expiré
+                // (410 Gone) : on saute sans marquer vu. Un 404 sera retenté et
+                // capturé quand il apparaît ; un segment expiré sort de la fenêtre
+                // $Number$ aux rafraîchissements suivants (retries bornés).
+                Err(CoreError::NotFound(_)) => continue,
+                Err(e) => return Err(e),
             };
             write_segment(work, self.prefix, self.counter, &bytes)?;
             self.counter += 1;
@@ -84,6 +91,25 @@ struct Resolved {
     key: Option<String>,
 }
 
+/// Construit le `SegmentPlan` courant d'une piste selon son mode d'adressage live :
+/// SegmentTimeline → liste explicite ; SegmentTemplate $Number$+@duration →
+/// fenêtre calculée à l'horloge murale (`live_number_window`).
+fn track_plan(repr: &Representation, mpd: &Mpd, clock: &Clock) -> Result<SegmentPlan, CoreError> {
+    match &repr.addressing {
+        Addressing::Template(t) if t.timeline.is_some() => {
+            Ok(build_segments(repr, &repr.base, mpd.duration_secs))
+        }
+        Addressing::Template(t) if t.duration.is_some() => {
+            let ast = mpd
+                .availability_start_time
+                .ok_or_else(|| CoreError::Media("availabilityStartTime requis pour DASH live $Number$".into()))?;
+            let d = t.duration.unwrap_or(0) as f64 / t.timescale.max(1) as f64;
+            Ok(live_number_window(repr, t, ast, mpd.time_shift_buffer_depth, clock.now_epoch(), d, &repr.base))
+        }
+        _ => Err(CoreError::Media("adressage DASH live non supporté (timeline ou $Number$ requis)".into())),
+    }
+}
+
 /// Enregistre un flux DASH dynamic live (SegmentTimeline) vers `dest` (.mp4).
 #[allow(clippy::too_many_arguments)]
 pub async fn download_dash_live<F: ByteFetcher, R: Remuxer>(
@@ -91,7 +117,7 @@ pub async fn download_dash_live<F: ByteFetcher, R: Remuxer>(
     mpd_url: &str, selection: &DashSelection, dest: &Path,
     handle: DownloadHandle, limiter: Arc<RateLimiter>,
     progress: mpsc::UnboundedSender<Progress>, headers: &RequestHeaders,
-    initial: Option<Mpd>, refresh: RefreshInterval,
+    initial: Option<Mpd>, refresh: RefreshInterval, clock: Clock,
 ) -> Result<Outcome, CoreError> {
     let work = work_dir(dest);
     std::fs::create_dir_all(&work)?;
@@ -119,18 +145,16 @@ pub async fn download_dash_live<F: ByteFetcher, R: Remuxer>(
                 .or_else(|| vlist.first())
                 .ok_or_else(|| CoreError::Media("aucune variante vidéo".into()))?;
             let vrepr = &mpd.periods[vcoord.period].adaptation_sets[vcoord.adaptation].representations[vcoord.representation];
-            match &vrepr.addressing {
-                Addressing::Template(t) if t.timeline.is_some() => {}
-                _ => return Err(CoreError::Media("DASH live $Number$/SegmentList non supporté (à venir)".into())),
-            }
+            // Valide le mode d'adressage vidéo (et la présence d'availabilityStartTime
+            // pour le $Number$) via track_plan — source unique de vérité, fail-fast
+            // avant la requête de licence ClearKey.
+            track_plan(vrepr, &mpd, &clock)?;
             let acoord = pick_audio(&mpd, selection.audio_lang.as_deref());
             // L'audio (s'il existe) doit aussi être SegmentTimeline (cohérent avec
             // la vidéo) — sinon on rejette plutôt que de produire un fichier sans son.
             if let Some(ac) = &acoord {
                 let arepr = &mpd.periods[ac.period].adaptation_sets[ac.adaptation].representations[ac.representation];
-                if !matches!(&arepr.addressing, Addressing::Template(t) if t.timeline.is_some()) {
-                    return Err(CoreError::Media("DASH live audio $Number$/SegmentList non supporté (à venir)".into()));
-                }
+                track_plan(arepr, &mpd, &clock)?;
             }
             let key = resolve_key(fetcher, &mpd, vcoord.adaptation, headers).await?;
             if let Some(k) = &key {
@@ -141,7 +165,7 @@ pub async fn download_dash_live<F: ByteFetcher, R: Remuxer>(
         let r = resolved.as_ref().unwrap();
 
         let vrepr = &mpd.periods[r.vcoord.period].adaptation_sets[r.vcoord.adaptation].representations[r.vcoord.representation];
-        let vplan = build_segments(vrepr, &vrepr.base, mpd.duration_secs);
+        let vplan = track_plan(vrepr, &mpd, &clock)?;
         match v.capture(&vplan, fetcher, &work, headers, &limiter, &handle, &progress, id, &mut total_done).await? {
             Step::Cancelled => { finish_cancelled(&work); return Ok(Outcome::Cancelled); }
             Step::Stopped => break,
@@ -150,7 +174,7 @@ pub async fn download_dash_live<F: ByteFetcher, R: Remuxer>(
 
         if let Some(ac) = &r.acoord {
             let arepr = &mpd.periods[ac.period].adaptation_sets[ac.adaptation].representations[ac.representation];
-            let aplan = build_segments(arepr, &arepr.base, mpd.duration_secs);
+            let aplan = track_plan(arepr, &mpd, &clock)?;
             match a.capture(&aplan, fetcher, &work, headers, &limiter, &handle, &progress, id, &mut total_done).await? {
                 Step::Cancelled => { finish_cancelled(&work); return Ok(Outcome::Cancelled); }
                 Step::Stopped => break,
@@ -184,7 +208,7 @@ mod tests {
     use super::*;
     use crate::dash::engine::DashSelection;
     use crate::hls::remux::fake::FakeRemuxer;
-    use crate::live::RefreshInterval;
+    use crate::live::{Clock, RefreshInterval};
     use crate::model::ProbeResult;
     use async_trait::async_trait;
     use bytes::Bytes;
@@ -243,7 +267,10 @@ mod tests {
                     if self.stop_after != 0 && *c == self.stop_after { h.stop(); }
                     if self.cancel_after != 0 && *c == self.cancel_after { h.cancel(); }
                 }
-                self.segs.get(url).cloned().unwrap_or_default()
+                match self.segs.get(url).cloned() {
+                    Some(d) => d,
+                    None => return Err(CoreError::NotFound(format!("missing {url}"))),
+                }
             };
             Ok(stream::iter(vec![Ok(Bytes::from(data))]).boxed())
         }
@@ -274,7 +301,7 @@ mod tests {
         let outcome = download_dash_live(
             &fetcher, &remux, "D1", &format!("{base}m.mpd"), &sel(), &dest,
             DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default(),
-            None, RefreshInterval::Fixed(Duration::from_millis(0)),
+            None, RefreshInterval::Fixed(Duration::from_millis(0)), Clock::Fixed(0.0),
         ).await.unwrap();
         assert_eq!(outcome, Outcome::Completed);
         assert_eq!(std::fs::read(&dest).unwrap(), b"AABBCCDD");
@@ -299,7 +326,7 @@ mod tests {
         let (tx, _rx) = mpsc::unbounded_channel();
         let outcome = download_dash_live(
             &fetcher, &remux, "D2", &format!("{base}m.mpd"), &sel(), &dest,
-            h, unlimited(), tx, &RequestHeaders::default(), None, RefreshInterval::Fixed(Duration::from_millis(0)),
+            h, unlimited(), tx, &RequestHeaders::default(), None, RefreshInterval::Fixed(Duration::from_millis(0)), Clock::Fixed(0.0),
         ).await.unwrap();
         assert_eq!(outcome, Outcome::Completed);
         assert_eq!(std::fs::read(&dest).unwrap(), b"AABB");
@@ -322,7 +349,7 @@ mod tests {
         let (tx, _rx) = mpsc::unbounded_channel();
         let outcome = download_dash_live(
             &fetcher, &remux, "D3", &format!("{base}m.mpd"), &sel(), &dest,
-            h, unlimited(), tx, &RequestHeaders::default(), None, RefreshInterval::Fixed(Duration::from_millis(0)),
+            h, unlimited(), tx, &RequestHeaders::default(), None, RefreshInterval::Fixed(Duration::from_millis(0)), Clock::Fixed(0.0),
         ).await.unwrap();
         assert_eq!(outcome, Outcome::Cancelled);
         assert!(!dest.exists());
@@ -360,15 +387,54 @@ mod tests {
         let (tx, _rx) = mpsc::unbounded_channel();
         let outcome = download_dash_live(
             &fetcher, &remux, "D4", &format!("{base}m.mpd"), &sel(), &dest,
-            DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default(), None, RefreshInterval::Fixed(Duration::from_millis(0)),
+            DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default(), None, RefreshInterval::Fixed(Duration::from_millis(0)), Clock::Fixed(0.0),
         ).await.unwrap();
         assert_eq!(outcome, Outcome::Completed);
         let calls = remux.calls.lock().unwrap();
         assert_eq!(calls[0].decryption_key.as_deref(), Some("000102030405060708090a0b0c0d0e0f"));
     }
 
+    /// MPD dynamic $Number$ (sans timeline). `ast`/`tsb`/segments choisis pour que
+    /// quelques numéros soient disponibles à l'instant `now` fixe du test.
+    fn mpd_number(start_number: u64, dynamic: bool, ast: &str, tsb: &str) -> String {
+        let typ = if dynamic { "dynamic" } else { "static" };
+        let mup = if dynamic { " minimumUpdatePeriod=\"PT1S\"" } else { "" };
+        format!(r#"<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="{typ}"{mup} availabilityStartTime="{ast}" timeShiftBufferDepth="{tsb}">
+  <Period><AdaptationSet contentType="video" mimeType="video/mp4">
+    <SegmentTemplate media="seg-$Number$.m4s" timescale="1" duration="1" startNumber="{start_number}"/>
+    <Representation id="v0" bandwidth="1"/>
+  </AdaptationSet></Period>
+</MPD>"#)
+    }
+
     #[tokio::test]
-    async fn rejects_number_mode_without_timeline() {
+    async fn number_mode_captures_window_and_ends_on_static() {
+        let base = "https://h/p/";
+        // ast=0, d=1, margin=1. À now=5 : elapsed=4, count=4, edge_N=4 (start=1),
+        // tsb=10 → span=10 → start_N=1 → segments 1..=4. 1er MPD dynamic puis static.
+        let mpds = vec![mpd_number(1, true, "1970-01-01T00:00:00Z", "PT10S"),
+                        mpd_number(1, false, "1970-01-01T00:00:00Z", "PT10S")];
+        let mut segs = Map::new();
+        for n in 1..=4 { segs.insert(format!("{base}seg-{n}.m4s"), format!("S{n}").into_bytes()); }
+        let fetcher = EvolvingMpd {
+            mpd_url: format!("{base}m.mpd"), mpds, calls: Mutex::new(0), segs,
+            handle: None, stop_after: 0, cancel_after: 0, seg_fetches: Arc::new(Mutex::new(0)), post_resp: None,
+        };
+        let remux = FakeRemuxer::default();
+        let dir = tempdir().unwrap();
+        let dest = dir.path().join("out.mp4");
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let outcome = download_dash_live(
+            &fetcher, &remux, "N1", &format!("{base}m.mpd"), &sel(), &dest,
+            DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default(),
+            None, RefreshInterval::Fixed(Duration::from_millis(0)), Clock::Fixed(5.0),
+        ).await.unwrap();
+        assert_eq!(outcome, Outcome::Completed);
+        assert_eq!(std::fs::read(&dest).unwrap(), b"S1S2S3S4");
+    }
+
+    #[tokio::test]
+    async fn number_mode_requires_availability_start_time() {
         let base = "https://h/p/";
         let xml = r#"<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="dynamic" minimumUpdatePeriod="PT1S">
   <Period><AdaptationSet contentType="video" mimeType="video/mp4">
@@ -385,10 +451,36 @@ mod tests {
         let dest = dir.path().join("out.mp4");
         let (tx, _rx) = mpsc::unbounded_channel();
         let err = download_dash_live(
-            &fetcher, &remux, "D5", &format!("{base}m.mpd"), &sel(), &dest,
-            DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default(), None, RefreshInterval::Fixed(Duration::from_millis(0)),
+            &fetcher, &remux, "N2", &format!("{base}m.mpd"), &sel(), &dest,
+            DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default(),
+            None, RefreshInterval::Fixed(Duration::from_millis(0)), Clock::Fixed(5.0),
         ).await.unwrap_err();
         assert!(matches!(err, CoreError::Media(_)));
+    }
+
+    #[tokio::test]
+    async fn number_mode_tolerates_404() {
+        let base = "https://h/p/";
+        // segments 1..=4 attendus ; seg-3 absent → 404 → sauté, les autres capturés.
+        let mpds = vec![mpd_number(1, true, "1970-01-01T00:00:00Z", "PT10S"),
+                        mpd_number(1, false, "1970-01-01T00:00:00Z", "PT10S")];
+        let mut segs = Map::new();
+        for n in [1u64, 2, 4] { segs.insert(format!("{base}seg-{n}.m4s"), format!("S{n}").into_bytes()); }
+        let fetcher = EvolvingMpd {
+            mpd_url: format!("{base}m.mpd"), mpds, calls: Mutex::new(0), segs,
+            handle: None, stop_after: 0, cancel_after: 0, seg_fetches: Arc::new(Mutex::new(0)), post_resp: None,
+        };
+        let remux = FakeRemuxer::default();
+        let dir = tempdir().unwrap();
+        let dest = dir.path().join("out.mp4");
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let outcome = download_dash_live(
+            &fetcher, &remux, "N3", &format!("{base}m.mpd"), &sel(), &dest,
+            DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default(),
+            None, RefreshInterval::Fixed(Duration::from_millis(0)), Clock::Fixed(5.0),
+        ).await.unwrap();
+        assert_eq!(outcome, Outcome::Completed);
+        assert_eq!(std::fs::read(&dest).unwrap(), b"S1S2S4"); // seg-3 sauté
     }
 
     #[tokio::test]
@@ -420,7 +512,7 @@ mod tests {
         let (tx, _rx) = mpsc::unbounded_channel();
         let outcome = download_dash_live(
             &fetcher, &remux, "DA", &format!("{base}m.mpd"), &sel(), &dest,
-            DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default(), None, RefreshInterval::Fixed(Duration::from_millis(0)),
+            DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default(), None, RefreshInterval::Fixed(Duration::from_millis(0)), Clock::Fixed(0.0),
         ).await.unwrap();
         assert_eq!(outcome, Outcome::Completed);
         // FakeRemuxer concatène vidéo puis audio.
@@ -450,7 +542,7 @@ mod tests {
         let (tx, _rx) = mpsc::unbounded_channel();
         let outcome = download_dash_live(
             &fetcher, &remux, "DI", &format!("{base}m.mpd"), &sel(), &dest,
-            DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default(), None, RefreshInterval::Fixed(Duration::from_millis(0)),
+            DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default(), None, RefreshInterval::Fixed(Duration::from_millis(0)), Clock::Fixed(0.0),
         ).await.unwrap();
         assert_eq!(outcome, Outcome::Completed);
         // init (initialization) préfixé puis les 2 segments.

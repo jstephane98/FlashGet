@@ -137,8 +137,11 @@ fn seg_bytes(i: usize) -> Vec<u8> {
     format!("SEG{i}").into_bytes()
 }
 
+// Le DASH live est désormais ENREGISTRÉ (4b-2a/b/c), plus rejeté en bloc. Mais un
+// dynamic $Number$+@duration SANS availabilityStartTime reste injouable (le mode
+// horloge-murale a besoin de l'ancre) → rejet propre, sans fichier de sortie.
 #[tokio::test(flavor = "multi_thread")]
-async fn live_dash_is_rejected() {
+async fn dynamic_number_without_ast_is_rejected() {
     let port = serve(DYNAMIC_MPD.as_bytes().to_vec());
     let fetcher = ReqwestFetcher::new();
     let dir = tempdir().unwrap();
@@ -152,16 +155,16 @@ async fn live_dash_is_rejected() {
         DownloadHandle::new(), Arc::new(RateLimiter::unlimited()), tx, &RequestHeaders::default(),
     )
     .await
-    .expect_err("un MPD dynamic (live) doit être rejeté");
+    .expect_err("un MPD dynamic $Number$ sans availabilityStartTime doit être rejeté");
 
     match err {
         CoreError::Media(m) => assert!(
-            m.contains("live") && m.contains("non supporté"),
-            "message d'erreur live inattendu: {m}"
+            m.contains("availabilityStartTime"),
+            "message d'erreur inattendu: {m}"
         ),
         other => panic!("attendu CoreError::Media, obtenu {other:?}"),
     }
-    assert!(!dest.exists(), "aucun fichier de sortie ne doit être produit pour du live");
+    assert!(!dest.exists(), "aucun fichier de sortie ne doit être produit");
 }
 
 #[tokio::test(flavor = "multi_thread")]

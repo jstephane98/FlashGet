@@ -116,6 +116,10 @@ impl ByteFetcher for ReqwestFetcher {
             .send()
             .await
             .map_err(|e| CoreError::Network(describe_reqwest_error(&e)))?;
+        let status = resp.status();
+        if status == reqwest::StatusCode::NOT_FOUND || status == reqwest::StatusCode::GONE {
+            return Err(CoreError::NotFound(format!("HTTP {} pour {url}", status.as_u16())));
+        }
         let resp = resp.error_for_status().map_err(|e| CoreError::Network(describe_reqwest_error(&e)))?;
 
         let stream = resp

@@ -50,7 +50,7 @@ pub async fn download_dash<F: ByteFetcher, R: Remuxer>(
         return crate::dash::live::download_dash_live(
             fetcher, remux, id, mpd_url, selection, dest,
             handle, limiter, progress, headers,
-            Some(mpd), crate::live::RefreshInterval::Derived,
+            Some(mpd), crate::live::RefreshInterval::Derived, crate::live::Clock::System,
         ).await;
     }
 

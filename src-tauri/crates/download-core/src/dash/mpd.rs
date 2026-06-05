@@ -79,6 +79,10 @@ pub struct Mpd {
     pub duration_secs: f64,
     /// MPD@minimumUpdatePeriod en secondes (cadence de refresh du live), si présent.
     pub minimum_update_period: Option<f64>,
+    /// MPD@availabilityStartTime en epoch unix (s) — ancre du live $Number$.
+    pub availability_start_time: Option<f64>,
+    /// MPD@timeShiftBufferDepth en secondes (profondeur DVR).
+    pub time_shift_buffer_depth: Option<f64>,
     pub periods: Vec<Period>,
 }
 
@@ -91,6 +95,8 @@ pub fn parse_mpd(xml: &str, base_url: &str) -> Result<Mpd, CoreError> {
         .and_then(|s| parse_iso8601_duration(&s))
         .unwrap_or(0.0);
     let minimum_update_period = attr(&root, "minimumUpdatePeriod").and_then(|s| parse_iso8601_duration(&s));
+    let availability_start_time = attr(&root, "availabilityStartTime").and_then(|s| parse_iso8601_datetime(&s));
+    let time_shift_buffer_depth = attr(&root, "timeShiftBufferDepth").and_then(|s| parse_iso8601_duration(&s));
 
     let mpd_base = child_base_url(&root, base_url);
 
@@ -123,7 +129,7 @@ pub fn parse_mpd(xml: &str, base_url: &str) -> Result<Mpd, CoreError> {
         }
         periods.push(Period { adaptation_sets });
     }
-    Ok(Mpd { dynamic, duration_secs, minimum_update_period, periods })
+    Ok(Mpd { dynamic, duration_secs, minimum_update_period, availability_start_time, time_shift_buffer_depth, periods })
 }
 
 /// Adressage d'une Representation : SegmentBase/SegmentList/SegmentTemplate au niveau
@@ -271,6 +277,42 @@ fn parse_iso8601_duration(s: &str) -> Option<f64> {
     Some(secs)
 }
 
+/// Parse un datetime ISO-8601 UTC (`YYYY-MM-DDTHH:MM:SS(.fff)?(Z)?`) en epoch unix (s).
+/// Seul UTC (`Z` ou pas de suffixe) est géré ; un offset signé (`+/-HH:MM`) → None.
+fn parse_iso8601_datetime(s: &str) -> Option<f64> {
+    let s = s.trim().trim_end_matches('Z');
+    let (date, time) = s.split_once('T')?;
+    if time.contains('+') || time.contains('-') {
+        return None; // offset explicite non géré
+    }
+    let mut dp = date.split('-');
+    let y: i64 = dp.next()?.parse().ok()?;
+    let mo: i64 = dp.next()?.parse().ok()?;
+    let da: i64 = dp.next()?.parse().ok()?;
+    if dp.next().is_some() { return None; }
+    let mut tp = time.split(':');
+    let h: f64 = tp.next()?.parse().ok()?;
+    let mi: f64 = tp.next()?.parse().ok()?;
+    let se: f64 = tp.next().unwrap_or("0").parse().ok()?;
+    if tp.next().is_some() { return None; }
+    let days = days_from_civil(y, mo, da)?;
+    Some(days as f64 * 86400.0 + h * 3600.0 + mi * 60.0 + se)
+}
+
+/// Jours depuis 1970-01-01 (algorithme de Howard Hinnant). `m` ∈ [1, 12].
+fn days_from_civil(y: i64, m: i64, d: i64) -> Option<i64> {
+    if !(1..=12).contains(&m) || d < 1 {
+        return None;
+    }
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400; // [0, 399]
+    let mp = if m > 2 { m - 3 } else { m + 9 };
+    let doy = (153 * mp + 2) / 5 + d - 1; // [0, 365]
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy; // [0, 146096]
+    Some(era * 146097 + doe - 719468)
+}
+
 /// Extension d'aide : test du nom local d'une balise (ignore le namespace).
 trait LocalName {
     fn has_tag_name_local(&self, name: &str) -> bool;
@@ -388,6 +430,30 @@ mod tests {
         let xml = r#"<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static" mediaPresentationDuration="PT4S"><Period/></MPD>"#;
         let m = parse_mpd(xml, "https://h/p/m.mpd").unwrap();
         assert_eq!(m.minimum_update_period, None);
+    }
+
+    #[test]
+    fn parses_datetime_to_epoch() {
+        assert_eq!(super::parse_iso8601_datetime("1970-01-01T00:00:00Z"), Some(0.0));
+        assert_eq!(super::parse_iso8601_datetime("2001-09-09T01:46:40Z"), Some(1_000_000_000.0));
+        assert_eq!(super::parse_iso8601_datetime("1970-01-01T00:00:01.5Z"), Some(1.5));
+        assert_eq!(super::parse_iso8601_datetime("2023-10-01T12:00:00+02:00"), None); // offset non géré
+    }
+
+    #[test]
+    fn parses_availability_and_buffer_for_dynamic() {
+        let xml = r#"<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="dynamic" minimumUpdatePeriod="PT2S" availabilityStartTime="1970-01-01T00:00:00Z" timeShiftBufferDepth="PT1M"><Period/></MPD>"#;
+        let m = parse_mpd(xml, "https://h/p/m.mpd").unwrap();
+        assert_eq!(m.availability_start_time, Some(0.0));
+        assert_eq!(m.time_shift_buffer_depth, Some(60.0));
+    }
+
+    #[test]
+    fn availability_absent_is_none() {
+        let xml = r#"<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static"><Period/></MPD>"#;
+        let m = parse_mpd(xml, "https://h/p/m.mpd").unwrap();
+        assert_eq!(m.availability_start_time, None);
+        assert_eq!(m.time_shift_buffer_depth, None);
     }
 
     #[test]

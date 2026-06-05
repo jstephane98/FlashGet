@@ -105,6 +105,24 @@ async fn real_http_multisegment_download_matches_payload() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn fetch_range_404_maps_to_not_found() {
+    use download_core::http::ByteFetcher;
+    use download_core::CoreError;
+    let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+    let port = server.server_addr().to_ip().unwrap().port();
+    std::thread::spawn(move || {
+        for request in server.incoming_requests() {
+            let _ = request.respond(Response::from_data(Vec::new()).with_status_code(404));
+        }
+    });
+    let fetcher = ReqwestFetcher::new();
+    let url = format!("http://127.0.0.1:{port}/missing.ts");
+    let result = fetcher.fetch_range(&url, None, &RequestHeaders::default()).await;
+    let err = result.map(|_| ()).unwrap_err();
+    assert!(matches!(err, CoreError::NotFound(_)), "attendu NotFound, obtenu {err:?}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn real_http_progress_reports_full_size() {
     let port = start_server();
     let fetcher = ReqwestFetcher::new();

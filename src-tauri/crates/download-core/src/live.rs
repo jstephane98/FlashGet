@@ -1,7 +1,7 @@
 //! Primitives communes aux moteurs d'enregistrement live (HLS et DASH) :
 //! cadence de rafraîchissement et sleep interruptible.
 use crate::engine::DownloadHandle;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// Intervalle entre deux rafraîchissements (playlist HLS / MPD DASH).
 #[derive(Debug, Clone, Copy)]
@@ -21,6 +21,27 @@ impl RefreshInterval {
                 Duration::from_secs_f64(secs.max(1.0))
             }
             RefreshInterval::Fixed(d) => *d,
+        }
+    }
+}
+
+/// Source d'horloge murale (epoch unix, secondes). Injectable pour les tests.
+#[derive(Debug, Clone, Copy)]
+pub enum Clock {
+    /// Production : `SystemTime::now()`.
+    System,
+    /// Tests : instant fixe.
+    Fixed(f64),
+}
+
+impl Clock {
+    pub fn now_epoch(&self) -> f64 {
+        match self {
+            Clock::System => SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_secs_f64())
+                .unwrap_or(0.0),
+            Clock::Fixed(t) => *t,
         }
     }
 }
@@ -64,5 +85,12 @@ mod tests {
     async fn responsive_sleep_completes_when_not_interrupted() {
         let h = DownloadHandle::new();
         assert!(!responsive_sleep(Duration::from_millis(10), &h).await);
+    }
+
+    #[test]
+    fn clock_fixed_and_system() {
+        assert_eq!(Clock::Fixed(123.5).now_epoch(), 123.5);
+        // l'horloge système est postérieure à 2023-01-01 (epoch 1.6726e9).
+        assert!(Clock::System.now_epoch() > 1_672_500_000.0);
     }
 }
