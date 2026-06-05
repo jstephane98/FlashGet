@@ -32,17 +32,9 @@ document.getElementById("sendUrl").addEventListener("click", () => {
 
 document.getElementById("downloadVideo").addEventListener("click", async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab || !tab.url) return;
-  // Flux HLS/DASH détecté sur l'onglet → capture directe (gère aussi le live) ;
-  // sinon → yt-dlp sur l'URL de la page (YouTube, Facebook, etc.).
-  chrome.runtime.sendMessage({ cmd: "listMedia", tabId: tab.id }, (res) => {
-    const streams = (res && res.streams) || [];
-    const msg = streams.length > 0
-      ? { cmd: "sendMedia", url: streams[0].url, tabId: tab.id }
-      : { cmd: "sendPage", url: tab.url, tabId: tab.id };
-    chrome.runtime.sendMessage(msg, (r) => {
-      flash(r && r.ok ? "Envoyé ✓" : "Échec — non connecté");
-    });
+  if (!tab || !tab.id) return;
+  chrome.runtime.sendMessage({ cmd: "smartDownload", tabId: tab.id }, (res) => {
+    flash(res && res.ok ? "Envoyé ✓" : "Échec — non connecté");
   });
 });
 

@@ -55,7 +55,7 @@ async function flushPending() {
     if (now - it.ts > PENDING_TTL_MS) continue;
     try {
       const headers = await gatherHeaders(it.url, it.referrer);
-      socket.send(JSON.stringify(buildCapture(it.url, { ...headers, filename: it.filename, kind: it.kind })));
+      socket.send(JSON.stringify(buildCapture(it.url, { ...headers, filename: it.filename, kind: it.kind, fallback_url: it.fallback_url, fallback_kind: it.fallback_kind })));
     } catch (_e) {
       // URL invalide ou erreur de collecte : on ignore cette capture
     }
@@ -225,6 +225,29 @@ async function sendPage(url, referrer) {
   return true;
 }
 
+// Bouton vidéo intelligent : envoie l'URL de page (yt-dlp d'abord côté app) + un flux
+// HLS/DASH sniffé en repli (kind "smart").
+async function sendSmart(url, referrer, fallbackUrl) {
+  const extras = { kind: "smart" };
+  if (fallbackUrl) {
+    extras.fallback_url = fallbackUrl;
+    extras.fallback_kind = isDashUrl(fallbackUrl) ? "dash" : "hls";
+  }
+  if (socket && socket.readyState === WebSocket.OPEN && connected) {
+    try {
+      const headers = await gatherHeaders(url, referrer);
+      socket.send(JSON.stringify(buildCapture(url, { ...headers, ...extras })));
+      return true;
+    } catch (_e) {
+      return false;
+    }
+  }
+  pending.push({ url, referrer, ...extras, ts: Date.now() });
+  if (pending.length > 20) pending.shift();
+  connect();
+  return true;
+}
+
 // Keepalive : réveille le service worker périodiquement (le min MV3 est 30 s) pour
 // maintenir/relancer la connexion, sinon le SW est tué après ~30 s d'inactivité.
 function ensureKeepalive() {
@@ -341,6 +364,24 @@ chrome.runtime.onMessage.addListener((req, _sender, sendResponse) => {
         // pas de referer
       }
       const ok = await sendPage(req.url, referrer);
+      sendResponse({ ok });
+    })();
+    return true; // réponse asynchrone
+  }
+  if (req.cmd === "smartDownload" && req.tabId != null) {
+    (async () => {
+      let url, referrer;
+      try {
+        const tab = await chrome.tabs.get(req.tabId);
+        url = tab && tab.url;
+        referrer = url;
+      } catch (_e) {
+        // pas d'onglet
+      }
+      if (!url) { sendResponse({ ok: false }); return; }
+      const streams = detectedByTab.get(req.tabId) || [];
+      const fallbackUrl = streams.length > 0 ? streams[0].url : undefined;
+      const ok = await sendSmart(url, referrer, fallbackUrl);
       sendResponse({ ok });
     })();
     return true; // réponse asynchrone
