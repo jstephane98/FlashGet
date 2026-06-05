@@ -35,6 +35,17 @@ export function addDownload(url: string, destDir: string): Promise<Download> {
   return invoke<Download>("add_download", { args: { url, dest_dir: destDir } });
 }
 
+export interface BatchSummary {
+  added: number;
+  skipped_invalid: number;
+  skipped_duplicate: number;
+  failed: number;
+}
+
+export function addBatchDownloads(text: string, destDir: string): Promise<BatchSummary> {
+  return invoke<BatchSummary>("add_batch_downloads", { args: { text, dest_dir: destDir } });
+}
+
 export function listDownloads(): Promise<Download[]> {
   return invoke<Download[]>("list_downloads");
 }
