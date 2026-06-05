@@ -21,11 +21,19 @@ pub struct AddArgs {
 /// Crée un téléchargement (statut Queued), le persiste, puis ré-évalue la file.
 /// Logique réutilisable par la commande Tauri ET par le bridge navigateur.
 pub(crate) async fn add_url(app: &AppHandle, url: &str, dest_dir: &str, headers: RequestHeaders, suggested_name: Option<String>) -> Result<Download, String> {
+    add_url_with_probe(app, url, dest_dir, headers, suggested_name, None).await
+}
+
+/// Variante acceptant un probe pré-calculé (évite un double sondage réseau).
+pub(crate) async fn add_url_with_probe(app: &AppHandle, url: &str, dest_dir: &str, headers: RequestHeaders, suggested_name: Option<String>, probe: Option<download_core::model::ProbeResult>) -> Result<Download, String> {
     let fetcher = { app.state::<AppState>().fetcher.clone() };
-    let probe = tokio::time::timeout(std::time::Duration::from_secs(30), fetcher.probe(url, &headers))
-        .await
-        .map_err(|_| "timeout while probing URL".to_string())?
-        .map_err(|e| e.to_string())?;
+    let probe = match probe {
+        Some(p) => p,
+        None => tokio::time::timeout(std::time::Duration::from_secs(30), fetcher.probe(url, &headers))
+            .await
+            .map_err(|_| "timeout while probing URL".to_string())?
+            .map_err(|e| e.to_string())?,
+    };
     let file_name = download_core::naming::choose_file_name(suggested_name.as_deref(), probe.file_name.as_deref());
 
     let category = download_core::categorizer::categorize(&file_name);
@@ -76,9 +84,23 @@ pub(crate) async fn add_url(app: &AppHandle, url: &str, dest_dir: &str, headers:
 }
 
 /// Crée un téléchargement (statut Queued), le persiste, puis ré-évalue la file.
+/// Si l'URL pointe vers une page HTML, on délègue à yt-dlp (émet media://variants)
+/// et on renvoie l'erreur sentinelle `__media_pending__` (le frontend l'ignore).
 #[tauri::command]
 pub async fn add_download(app: AppHandle, args: AddArgs) -> Result<Download, String> {
-    add_url(&app, &args.url, &args.dest_dir, RequestHeaders::default(), None).await
+    let headers = RequestHeaders::default();
+    let fetcher = { app.state::<AppState>().fetcher.clone() };
+    let probe = tokio::time::timeout(std::time::Duration::from_secs(30), fetcher.probe(&args.url, &headers))
+        .await
+        .map_err(|_| "timeout while probing URL".to_string())?
+        .map_err(|e| e.to_string())?;
+
+    if download_core::http::is_html(&probe.content_type) {
+        // Page web → tenter l'extraction yt-dlp (émet media://variants ; pas de Download ici).
+        probe_ytdlp(&app, &args.url, headers).await?;
+        return Err("__media_pending__".to_string());
+    }
+    add_url_with_probe(&app, &args.url, &args.dest_dir, headers, None, Some(probe)).await
 }
 
 #[derive(serde::Serialize, Clone)]
@@ -242,6 +264,54 @@ pub(crate) async fn probe_dash(app: &AppHandle, url: &str, headers: RequestHeade
     result
 }
 
+/// Sonde une page via yt-dlp ; émet media://variants ou media://error.
+pub(crate) async fn probe_ytdlp(app: &AppHandle, url: &str, headers: RequestHeaders) -> Result<(), String> {
+    let result = probe_ytdlp_inner(app, url, headers).await;
+    if let Err(e) = &result {
+        let _ = app.emit("media://error", MediaErrorEvent { message: e.clone() });
+        if let Some(win) = app.get_webview_window("main") { let _ = win.unminimize(); let _ = win.show(); let _ = win.set_focus(); }
+    }
+    result
+}
+
+async fn probe_ytdlp_inner(app: &AppHandle, url: &str, headers: RequestHeaders) -> Result<(), String> {
+    let (title, formats) = crate::ytdlp::probe_formats(app, url, &headers).await?;
+    let selected = download_core::ytdlp::select_variants(&formats);
+    if selected.is_empty() {
+        return Err("Aucune vidéo trouvée sur cette page".into());
+    }
+    let format_ids: Vec<String> = selected.iter().map(|(id, _)| id.clone()).collect();
+    let variants: Vec<MediaVariant> = selected
+        .iter()
+        .enumerate()
+        .map(|(i, (_, v))| MediaVariant {
+            index: i as u32,
+            resolution: v.resolution.clone(),
+            bandwidth: v.bandwidth,
+            est_size: v.est_size,
+        })
+        .collect();
+
+    let probe_id = uuid::Uuid::new_v4().to_string();
+    let file_name = download_core::naming::sanitize_title(Some(&title));
+    {
+        let state = app.state::<AppState>();
+        let mut pending = state.pending_media.lock().unwrap();
+        let ttl = std::time::Duration::from_secs(30 * 60);
+        pending.retain(|_, pm| pm.created.elapsed() < ttl);
+        pending.insert(probe_id.clone(), PendingMedia {
+            probe: MediaProbe::Ytdlp(format_ids),
+            headers,
+            file_name: file_name.clone(),
+            source_url: url.to_string(),
+            created: std::time::Instant::now(),
+        });
+    }
+    let _ = app.emit("media://variants", MediaVariantsEvent { probe_id, file_name, variants });
+    if let Some(win) = app.get_webview_window("main") { let _ = win.unminimize(); let _ = win.show(); let _ = win.set_focus(); }
+    Ok(())
+}
+
 /// Lit entièrement une ressource texte (playlist) via le fetcher.
 async fn fetch_text<F: ByteFetcher>(fetcher: &F, url: &str, headers: &RequestHeaders) -> Result<String, download_core::CoreError> {
     use futures_util::StreamExt;
@@ -256,7 +326,7 @@ async fn fetch_text<F: ByteFetcher>(fetcher: &F, url: &str, headers: &RequestHea
 /// Crée un download média (HLS ou DASH) à partir d'un probe et de la variante choisie.
 #[tauri::command]
 pub async fn add_media_download(app: AppHandle, probe_id: String, variant_index: u32, file_name: Option<String>) -> Result<Download, String> {
-    enum Built { Hls { url: String, audio_url: Option<String> }, Dash { mpd_url: String, selection: String } }
+    enum Built { Hls { url: String, audio_url: Option<String> }, Dash { mpd_url: String, selection: String }, Ytdlp { url: String, format_id: String } }
     let (built, file_name, headers) = {
         let state = app.state::<AppState>();
         let mut pending = state.pending_media.lock().unwrap();
@@ -281,6 +351,10 @@ pub async fn add_media_download(app: AppHandle, probe_id: String, variant_index:
                 let selection = serde_json::json!({ "video": variant_index, "audio": serde_json::Value::Null }).to_string();
                 Built::Dash { mpd_url: pm.source_url.clone(), selection }
             }
+            MediaProbe::Ytdlp(format_ids) => {
+                let format_id = format_ids.get(variant_index as usize).ok_or_else(|| "variante invalide".to_string())?.clone();
+                Built::Ytdlp { url: pm.source_url.clone(), format_id }
+            }
         };
         let r = (built, file_name, headers);
         pending.remove(&probe_id);
@@ -303,6 +377,7 @@ pub async fn add_media_download(app: AppHandle, probe_id: String, variant_index:
     let (kind, url, audio_url, media_selection) = match built {
         Built::Hls { url, audio_url } => (DownloadKind::Hls, url, audio_url, None),
         Built::Dash { mpd_url, selection } => (DownloadKind::Dash, mpd_url, None, Some(selection)),
+        Built::Ytdlp { url, format_id } => (DownloadKind::Ytdlp, url, None, Some(format_id)),
     };
     let download = Download {
         id: uuid::Uuid::new_v4().to_string(),

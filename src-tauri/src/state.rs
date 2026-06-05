@@ -36,10 +36,12 @@ impl AppState {
     }
 }
 
-/// Probe média (HLS ou DASH) selon le type de flux sondé.
+/// Probe média (HLS, DASH ou yt-dlp) selon le type de flux sondé.
 pub enum MediaProbe {
     Hls(download_core::hls::playlist::MasterPlaylist),
     Dash(Mpd),
+    /// Liste des format_id yt-dlp, parallèle aux index de variantes.
+    Ytdlp(Vec<String>),
 }
 
 /// Probe média (HLS ou DASH) en attente d'un choix de variante par l'utilisateur.
