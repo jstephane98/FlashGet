@@ -2,6 +2,7 @@
 //! segments, ClearKey, sélection de variante, moteur (segments → remux ffmpeg).
 pub mod clearkey;
 pub mod engine;
+pub mod live;
 pub mod mpd;
 pub mod segments;
 pub mod sidx;

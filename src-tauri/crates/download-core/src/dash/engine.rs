@@ -178,7 +178,7 @@ async fn download_track<F: ByteFetcher>(
 /// Récupère la clé ClearKey (hex) si l'AdaptationSet vidéo est chiffré, sinon None.
 // Hypothèse 4b-1 : un seul ContentProtection (clé ClearKey unique) couvre toutes
 // les pistes ; on n'inspecte que l'AdaptationSet vidéo (cas CENC courant).
-async fn resolve_key<F: ByteFetcher>(
+pub(crate) async fn resolve_key<F: ByteFetcher>(
     fetcher: &F,
     mpd: &Mpd,
     video_adaptation: usize,
