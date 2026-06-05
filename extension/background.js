@@ -208,6 +208,23 @@ async function sendMedia(url, referrer, title) {
   return true;
 }
 
+// Envoie la page courante vers l'extracteur yt-dlp (kind "page").
+async function sendPage(url, referrer) {
+  if (socket && socket.readyState === WebSocket.OPEN && connected) {
+    try {
+      const headers = await gatherHeaders(url, referrer);
+      socket.send(JSON.stringify(buildCapture(url, { ...headers, kind: "page" })));
+      return true;
+    } catch (_e) {
+      return false;
+    }
+  }
+  pending.push({ url, referrer, kind: "page", ts: Date.now() });
+  if (pending.length > 20) pending.shift();
+  connect();
+  return true;
+}
+
 // Keepalive : réveille le service worker périodiquement (le min MV3 est 30 s) pour
 // maintenir/relancer la connexion, sinon le SW est tué après ~30 s d'inactivité.
 function ensureKeepalive() {
@@ -310,6 +327,20 @@ chrome.runtime.onMessage.addListener((req, _sender, sendResponse) => {
         // pas de referer / titre : Rust retombera sur "video"
       }
       const ok = await sendMedia(req.url, referrer, title);
+      sendResponse({ ok });
+    })();
+    return true; // réponse asynchrone
+  }
+  if (req.cmd === "sendPage" && req.url) {
+    (async () => {
+      let referrer;
+      try {
+        const tab = await chrome.tabs.get(req.tabId);
+        referrer = tab && tab.url;
+      } catch (_e) {
+        // pas de referer
+      }
+      const ok = await sendPage(req.url, referrer);
       sendResponse({ ok });
     })();
     return true; // réponse asynchrone

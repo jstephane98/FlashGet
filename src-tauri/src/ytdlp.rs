@@ -81,12 +81,12 @@ fn reconcile_output(app: &AppHandle, id: &str, dest: &Path) {
     }
 }
 
+/// Arguments d'en-têtes pour yt-dlp. On NE transmet PAS le User-Agent du navigateur :
+/// yt-dlp gère son propre client/UA par site, et un UA de navigateur desktop casse
+/// l'extraction YouTube (« Requested format is not available »). Cookies + Referer sont
+/// conservés (vidéos authentifiées / protection hotlink).
 fn header_args(headers: &RequestHeaders) -> Vec<String> {
     let mut a = Vec::new();
-    if let Some(ua) = &headers.user_agent {
-        a.push("--user-agent".into());
-        a.push(ua.clone());
-    }
     if let Some(r) = &headers.referrer {
         a.push("--add-header".into());
         a.push(format!("Referer:{r}"));
@@ -231,5 +231,27 @@ pub async fn run_download(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use download_core::model::RequestHeaders;
+
+    #[test]
+    fn header_args_forwards_cookie_referer_not_user_agent() {
+        let h = RequestHeaders {
+            referrer: Some("https://www.youtube.com/watch?v=x".into()),
+            cookie: Some("VISITOR_INFO=abc".into()),
+            user_agent: Some("Mozilla/5.0 (Windows NT 10.0) Chrome/123".into()),
+        };
+        let args = header_args(&h);
+        // Le User-Agent du navigateur casse l'extraction YouTube de yt-dlp → non transmis.
+        assert!(!args.iter().any(|a| a == "--user-agent"), "ne doit pas passer --user-agent");
+        assert!(!args.iter().any(|a| a.contains("Mozilla")), "l'UA navigateur ne doit pas fuiter");
+        // Cookies + Referer conservés (auth / hotlink).
+        assert!(args.iter().any(|a| a == "Cookie:VISITOR_INFO=abc"), "Cookie conservé");
+        assert!(args.iter().any(|a| a == "Referer:https://www.youtube.com/watch?v=x"), "Referer conservé");
     }
 }

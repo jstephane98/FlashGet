@@ -90,6 +90,12 @@ async fn handle_conn(app: AppHandle, stream: TcpStream) {
                         Ok(()) => serde_json::json!({ "type": "ack", "kind": "dash" }).to_string(),
                         Err(e) => serde_json::json!({ "type": "error", "error": e }).to_string(),
                     }
+                } else if kind.as_deref() == Some("page") {
+                    // Page vidéo générique → extraction yt-dlp (cookies/UA transmis).
+                    match commands::probe_ytdlp(&app, &url, headers).await {
+                        Ok(()) => serde_json::json!({ "type": "ack", "kind": "page" }).to_string(),
+                        Err(e) => serde_json::json!({ "type": "error", "error": e }).to_string(),
+                    }
                 } else {
                     // Capture via le pipeline d'ajout existant, en transmettant les en-têtes du navigateur
                     // et le nom de fichier suggéré par le navigateur.

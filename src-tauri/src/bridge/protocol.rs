@@ -185,4 +185,16 @@ mod tests {
             other => panic!("attendu CaptureRequested, obtenu {other:?}"),
         }
     }
+
+    #[test]
+    fn capture_carries_kind_page() {
+        let msg = parse_client_message(
+            r#"{"type":"capture","url":"https://site/watch?v=1","kind":"page"}"#,
+        );
+        let (_authed, reply) = handle_message(true, "secret", msg);
+        match reply {
+            ServerReply::CaptureRequested { kind, .. } => assert_eq!(kind.as_deref(), Some("page")),
+            other => panic!("attendu CaptureRequested, obtenu {other:?}"),
+        }
+    }
 }
