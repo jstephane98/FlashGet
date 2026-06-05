@@ -148,6 +148,17 @@ impl Storage {
         Ok(())
     }
 
+    /// Met à jour le nom de fichier et le chemin de destination (réconciliation après
+    /// un téléchargement dont le conteneur réel diffère de l'extension demandée).
+    pub fn update_paths(&self, id: &str, file_name: &str, dest_path: &str) -> Result<(), CoreError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE downloads SET file_name=?2, dest_path=?3 WHERE id=?1",
+            rusqlite::params![id, file_name, dest_path],
+        ).map_err(|e| CoreError::Storage(e.to_string()))?;
+        Ok(())
+    }
+
     /// Passe un téléchargement en `downloading` SANS écraser un statut terminal
     /// (completed/error). No-op si l'id n'existe pas ou est déjà terminé.
     pub fn mark_active(&self, id: &str, downloaded_bytes: u64) -> Result<(), CoreError> {
@@ -667,6 +678,16 @@ mod tests {
         let got2 = s.get_by_id("k2").unwrap().unwrap();
         assert_eq!(got2.kind, DownloadKind::Regular);
         assert_eq!(got2.audio_url, None);
+    }
+
+    #[test]
+    fn update_paths_updates_name_and_dest() {
+        let s = Storage::open_in_memory().unwrap();
+        s.upsert(&sample("p1")).unwrap();
+        s.update_paths("p1", "Réel.mkv", "C:/dl/Réel.mkv").unwrap();
+        let d = s.get_by_id("p1").unwrap().unwrap();
+        assert_eq!(d.file_name, "Réel.mkv");
+        assert_eq!(d.dest_path, "C:/dl/Réel.mkv");
     }
 
     #[test]
