@@ -191,18 +191,18 @@ async function sendCapture(url, referrer, filename) {
 }
 
 // Envoie une capture HLS ou DASH. Comme sendCapture mais marque le type média.
-async function sendMedia(url, referrer) {
+async function sendMedia(url, referrer, title) {
   const kind = isDashUrl(url) ? "dash" : "hls";
   if (socket && socket.readyState === WebSocket.OPEN && connected) {
     try {
       const headers = await gatherHeaders(url, referrer);
-      socket.send(JSON.stringify(buildCapture(url, { ...headers, kind })));
+      socket.send(JSON.stringify(buildCapture(url, { ...headers, kind, filename: title })));
       return true;
     } catch (_e) {
       return false;
     }
   }
-  pending.push({ url, referrer, kind, ts: Date.now() });
+  pending.push({ url, referrer, kind, filename: title, ts: Date.now() });
   if (pending.length > 20) pending.shift();
   connect();
   return true;
@@ -301,13 +301,15 @@ chrome.runtime.onMessage.addListener((req, _sender, sendResponse) => {
   if (req.cmd === "sendMedia" && req.url) {
     (async () => {
       let referrer;
+      let title;
       try {
         const tab = await chrome.tabs.get(req.tabId);
         referrer = tab && tab.url;
+        title = tab && tab.title; // titre de la page = nom de fichier proposé
       } catch (_e) {
-        // pas de referer
+        // pas de referer / titre : Rust retombera sur "video"
       }
-      const ok = await sendMedia(req.url, referrer);
+      const ok = await sendMedia(req.url, referrer, title);
       sendResponse({ ok });
     })();
     return true; // réponse asynchrone
