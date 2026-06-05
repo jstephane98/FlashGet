@@ -24,7 +24,7 @@ fn is_http_url(s: &str) -> bool {
 /// dans le lot en conservant l'ordre (répétitions → `skipped_duplicate`).
 pub fn parse_batch(text: &str) -> BatchParse {
     let mut out = BatchParse::default();
-    let mut seen: HashSet<&str> = HashSet::new();
+    let mut seen = HashSet::new();
     for raw in text.lines() {
         let line = raw.trim();
         if line.is_empty() {
