@@ -267,4 +267,17 @@ mod tests {
         let plan = live_number_window(&r, &t, 0.0, None, 2.5, 2.0, "https://h/p/");
         assert!(plan.media.is_empty());
     }
+
+    #[test]
+    fn number_window_high_start_number_clamps_to_start() {
+        let r = repr(Addressing::Template(tmpl(2, 100)));
+        let t = tmpl(2, 100);
+        // start_number=100, ast=0, d=2, now=20, margin=2 → elapsed=18, count=9,
+        // edge_N=100+9-1=108. tsb=1000 → span=500 → start_N clampé à start_number=100.
+        let plan = live_number_window(&r, &t, 0.0, Some(1000.0), 20.0, 2.0, "https://h/p/");
+        let urls: Vec<String> = plan.media.iter().map(|s| s.url.clone()).collect();
+        assert_eq!(urls.first().unwrap(), "https://h/p/seg-100.m4s");
+        assert_eq!(urls.last().unwrap(), "https://h/p/seg-108.m4s");
+        assert_eq!(urls.len(), 9); // 100..=108
+    }
 }
