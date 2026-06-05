@@ -209,9 +209,6 @@ async fn probe_dash_inner(app: &AppHandle, url: &str, headers: RequestHeaders, s
         .map_err(|_| "délai dépassé lors de la récupération du MPD".to_string())?
         .map_err(|e| e.to_string())?;
     let mpd = download_core::dash::mpd::parse_mpd(&text, url).map_err(|e| e.to_string())?;
-    if mpd.dynamic {
-        return Err("flux live DASH non supporté (à venir)".into());
-    }
     let vlist = download_core::dash::select::video_variants(&mpd);
     if vlist.is_empty() {
         return Err("aucune variante vidéo DASH trouvée".into());
