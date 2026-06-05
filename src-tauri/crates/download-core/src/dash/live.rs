@@ -62,8 +62,10 @@ impl DashLiveTrack {
             let bytes = match fetch_to_vec(fetcher, &seg.url, seg.byte_range, headers, limiter, handle).await {
                 Ok(Some(b)) => b,
                 Ok(None) => return Ok(Step::Cancelled),
-                // Segment pas encore publié / expiré : on saute (sans marquer vu) ;
-                // il sera retenté au prochain rafraîchissement.
+                // Segment pas encore publié (404) ou sorti de la fenêtre / expiré
+                // (410 Gone) : on saute sans marquer vu. Un 404 sera retenté et
+                // capturé quand il apparaît ; un segment expiré sort de la fenêtre
+                // $Number$ aux rafraîchissements suivants (retries bornés).
                 Err(CoreError::NotFound(_)) => continue,
                 Err(e) => return Err(e),
             };
@@ -143,24 +145,16 @@ pub async fn download_dash_live<F: ByteFetcher, R: Remuxer>(
                 .or_else(|| vlist.first())
                 .ok_or_else(|| CoreError::Media("aucune variante vidéo".into()))?;
             let vrepr = &mpd.periods[vcoord.period].adaptation_sets[vcoord.adaptation].representations[vcoord.representation];
-            match &vrepr.addressing {
-                Addressing::Template(t) if t.timeline.is_some() => {}
-                Addressing::Template(t) if t.duration.is_some() => {
-                    if mpd.availability_start_time.is_none() {
-                        return Err(CoreError::Media("availabilityStartTime requis pour DASH live $Number$".into()));
-                    }
-                }
-                _ => return Err(CoreError::Media("adressage DASH live non supporté (timeline ou $Number$ requis)".into())),
-            }
+            // Valide le mode d'adressage vidéo (et la présence d'availabilityStartTime
+            // pour le $Number$) via track_plan — source unique de vérité, fail-fast
+            // avant la requête de licence ClearKey.
+            track_plan(vrepr, &mpd, &clock)?;
             let acoord = pick_audio(&mpd, selection.audio_lang.as_deref());
             // L'audio (s'il existe) doit aussi être SegmentTimeline (cohérent avec
             // la vidéo) — sinon on rejette plutôt que de produire un fichier sans son.
             if let Some(ac) = &acoord {
                 let arepr = &mpd.periods[ac.period].adaptation_sets[ac.adaptation].representations[ac.representation];
-                let ok = matches!(&arepr.addressing, Addressing::Template(t) if t.timeline.is_some() || t.duration.is_some());
-                if !ok {
-                    return Err(CoreError::Media("adressage DASH live audio non supporté".into()));
-                }
+                track_plan(arepr, &mpd, &clock)?;
             }
             let key = resolve_key(fetcher, &mpd, vcoord.adaptation, headers).await?;
             if let Some(k) = &key {
