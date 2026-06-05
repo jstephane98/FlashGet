@@ -11,6 +11,7 @@ pub mod scheduler;
 pub mod hls;
 pub mod dash;
 pub mod media_io;
+pub mod live;
 
 use thiserror::Error;
 

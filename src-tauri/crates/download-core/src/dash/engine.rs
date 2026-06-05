@@ -47,7 +47,11 @@ pub async fn download_dash<F: ByteFetcher, R: Remuxer>(
     };
     let mpd = parse_mpd(&String::from_utf8_lossy(&mpd_bytes), mpd_url)?;
     if mpd.dynamic {
-        return Err(CoreError::Media("flux live DASH non supporté (à venir)".into()));
+        return crate::dash::live::download_dash_live(
+            fetcher, remux, id, mpd_url, selection, dest,
+            handle, limiter, progress, headers,
+            Some(mpd), crate::live::RefreshInterval::Derived,
+        ).await;
     }
 
     // 2. Résout les Representations vidéo + audio.
@@ -178,7 +182,7 @@ async fn download_track<F: ByteFetcher>(
 /// Récupère la clé ClearKey (hex) si l'AdaptationSet vidéo est chiffré, sinon None.
 // Hypothèse 4b-1 : un seul ContentProtection (clé ClearKey unique) couvre toutes
 // les pistes ; on n'inspecte que l'AdaptationSet vidéo (cas CENC courant).
-async fn resolve_key<F: ByteFetcher>(
+pub(crate) async fn resolve_key<F: ByteFetcher>(
     fetcher: &F,
     mpd: &Mpd,
     video_adaptation: usize,
@@ -266,18 +270,28 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rejects_dynamic_mpd() {
+    async fn dynamic_mpd_is_recorded_not_rejected() {
+        // type=dynamic SANS minimumUpdatePeriod => le moteur live capture la
+        // fenêtre puis termine (pas de refresh attendu).
+        let mpd = r#"<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="dynamic" mediaPresentationDuration="PT2S">
+  <Period><AdaptationSet contentType="video" mimeType="video/mp4">
+    <SegmentTemplate media="seg-$Time$.m4s" timescale="1"><SegmentTimeline><S t="0" d="1"/><S d="1"/></SegmentTimeline></SegmentTemplate>
+    <Representation id="v0" bandwidth="1"/>
+  </AdaptationSet></Period>
+</MPD>"#;
         let mut routes = Map::new();
-        routes.insert("https://h/p/m.mpd".into(),
-            r#"<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="dynamic"><Period/></MPD>"#.as_bytes().to_vec());
+        routes.insert("https://h/p/m.mpd".to_string(), mpd.as_bytes().to_vec());
+        routes.insert("https://h/p/seg-0.m4s".to_string(), b"AA".to_vec());
+        routes.insert("https://h/p/seg-1.m4s".to_string(), b"BB".to_vec());
         let fetcher = MapFetcher { routes, post_resp: None };
         let remux = FakeRemuxer::default();
         let dir = tempdir().unwrap();
         let dest = dir.path().join("out.mp4");
         let (tx, _rx) = mpsc::unbounded_channel();
         let sel = DashSelection { video_index: 0, audio_lang: None };
-        let err = download_dash(&fetcher, &remux, "id2", "https://h/p/m.mpd", &sel, &dest,
-            DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default()).await.unwrap_err();
-        assert!(matches!(err, CoreError::Media(_)));
+        let outcome = download_dash(&fetcher, &remux, "dyn1", "https://h/p/m.mpd", &sel, &dest,
+            DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default()).await.unwrap();
+        assert_eq!(outcome, Outcome::Completed);
+        assert_eq!(std::fs::read(&dest).unwrap(), b"AABB");
     }
 }

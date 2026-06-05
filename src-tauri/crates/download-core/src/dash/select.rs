@@ -94,7 +94,7 @@ mod tests {
 
     fn mpd() -> Mpd {
         Mpd {
-            dynamic: false, duration_secs: 10.0,
+            dynamic: false, duration_secs: 10.0, minimum_update_period: None,
             periods: vec![Period { adaptation_sets: vec![
                 aset(ContentType::Video, None, vec![rep("v0", 800000, Some(640), Some(360)), rep("v1", 2400000, Some(1280), Some(720))]),
                 aset(ContentType::Audio, Some("en"), vec![rep("a0", 128000, None, None)]),

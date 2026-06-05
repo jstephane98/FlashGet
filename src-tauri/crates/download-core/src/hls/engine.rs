@@ -45,7 +45,7 @@ pub async fn download_hls<F: ByteFetcher, R: Remuxer>(
         return crate::hls::live::download_hls_live(
             fetcher, remux, id, media_url, audio_url, dest,
             handle, limiter, progress, headers,
-            Some(video_pl), crate::hls::live::RefreshInterval::FromTargetDuration,
+            Some(video_pl), crate::live::RefreshInterval::Derived,
         ).await;
     }
     if video_pl.segments.is_empty() {
