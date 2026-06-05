@@ -11,7 +11,7 @@ use crate::rate_limiter::RateLimiter;
 use crate::engine::{DownloadHandle, Outcome};
 use crate::CoreError;
 use crate::live::responsive_sleep;
-pub use crate::live::RefreshInterval;
+use crate::live::RefreshInterval;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -390,28 +390,6 @@ mod tests {
         ).await.unwrap();
         assert_eq!(outcome, Outcome::Completed);
         assert_eq!(std::fs::read(&dest).unwrap(), b"HELLO-VIDEO-0HELLO-VIDEO-1");
-    }
-
-    #[test]
-    fn refresh_interval_clamps_and_defaults() {
-        assert_eq!(RefreshInterval::Derived.compute(4.0), Duration::from_secs_f64(4.0));
-        assert_eq!(RefreshInterval::Derived.compute(0.0), Duration::from_secs(6));
-        assert_eq!(RefreshInterval::Derived.compute(0.3), Duration::from_secs(1));
-        assert_eq!(RefreshInterval::Fixed(Duration::from_millis(7)).compute(99.0), Duration::from_millis(7));
-    }
-
-    #[tokio::test]
-    async fn responsive_sleep_returns_early_on_stop() {
-        let h = DownloadHandle::new();
-        h.stop();
-        // Doit revenir quasi immédiatement et signaler l'interruption.
-        assert!(responsive_sleep(Duration::from_secs(60), &h).await);
-    }
-
-    #[tokio::test]
-    async fn responsive_sleep_completes_when_not_interrupted() {
-        let h = DownloadHandle::new();
-        assert!(!responsive_sleep(Duration::from_millis(10), &h).await);
     }
 
     #[tokio::test]
