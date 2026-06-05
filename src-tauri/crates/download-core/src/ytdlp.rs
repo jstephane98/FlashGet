@@ -69,6 +69,53 @@ pub fn parse_formats(json: &str) -> Result<(String, Vec<YtdlpFormat>), CoreError
     Ok((title, formats))
 }
 
+/// Variante neutre côté cœur (mappée vers `MediaVariant` par la couche Tauri).
+#[derive(Debug, Clone, PartialEq)]
+pub struct YtdlpVariant {
+    pub resolution: Option<String>,
+    pub bandwidth: u64,
+    pub est_size: Option<u64>,
+}
+
+/// Variantes sélectionnables : formats porteurs de vidéo (vcodec présent et != "none"),
+/// dédupliqués par hauteur, triés par hauteur décroissante. Renvoie le format_id
+/// associé à chaque variante (à mémoriser pour le téléchargement).
+pub fn select_variants(formats: &[YtdlpFormat]) -> Vec<(String, YtdlpVariant)> {
+    let mut seen_heights: Vec<u32> = Vec::new();
+    let mut out: Vec<(String, YtdlpVariant)> = Vec::new();
+
+    let mut video: Vec<&YtdlpFormat> = formats
+        .iter()
+        .filter(|f| f.vcodec.as_deref().map(|c| c != "none").unwrap_or(false))
+        .collect();
+    video.sort_by(|a, b| b.height.unwrap_or(0).cmp(&a.height.unwrap_or(0)));
+
+    for f in video {
+        if let Some(h) = f.height {
+            if seen_heights.contains(&h) {
+                continue;
+            }
+            seen_heights.push(h);
+        }
+        let resolution = match (f.width, f.height) {
+            (Some(w), Some(h)) => Some(format!("{w}x{h}")),
+            (None, Some(h)) => Some(format!("{h}p")),
+            _ => None,
+        };
+        let bandwidth = f.tbr.map(|t| (t * 1000.0) as u64).unwrap_or(0);
+        out.push((
+            f.format_id.clone(),
+            YtdlpVariant { resolution, bandwidth, est_size: f.filesize },
+        ));
+    }
+    out
+}
+
+/// Argument `-f` : fusionne l'audio si le format est vidéo-seul, avec repli.
+pub fn build_format_arg(format_id: &str) -> String {
+    format!("{format_id}+bestaudio/{format_id}/best")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -98,5 +145,35 @@ mod tests {
         let (title, _) = parse_formats(r#"{"formats":[]}"#).unwrap();
         assert_eq!(title, "");
         assert!(parse_formats("pas du json").is_err());
+    }
+
+    #[test]
+    fn select_variants_keeps_video_dedups_sorts() {
+        let (_t, formats) = parse_formats(SAMPLE).unwrap();
+        let v = select_variants(&formats);
+        assert_eq!(v.len(), 2);
+        assert_eq!(v[0].0, "137");
+        assert_eq!(v[0].1.resolution.as_deref(), Some("1920x1080"));
+        assert_eq!(v[0].1.bandwidth, 4_000_000);
+        assert_eq!(v[0].1.est_size, Some(5000));
+        assert_eq!(v[1].0, "18");
+    }
+
+    #[test]
+    fn select_variants_dedups_same_height() {
+        let (_t, mut formats) = parse_formats(SAMPLE).unwrap();
+        formats.push(YtdlpFormat {
+            format_id: "299".into(), height: Some(1080), width: Some(1920),
+            ext: Some("mp4".into()), vcodec: Some("avc1".into()), acodec: Some("none".into()),
+            filesize: Some(6000), tbr: Some(4500.0),
+        });
+        let v = select_variants(&formats);
+        let n_1080 = v.iter().filter(|(_, mv)| mv.resolution.as_deref() == Some("1920x1080")).count();
+        assert_eq!(n_1080, 1);
+    }
+
+    #[test]
+    fn build_format_arg_merges_audio() {
+        assert_eq!(build_format_arg("137"), "137+bestaudio/137/best");
     }
 }
