@@ -127,8 +127,8 @@ pub(crate) async fn add_url_no_probe(
     headers: RequestHeaders,
 ) -> Result<Download, String> {
     let file_name = download_core::naming::choose_file_name(
-        download_core::http::file_name_from_url(url).as_deref(),
         None,
+        download_core::http::file_name_from_url(url).as_deref(),
     );
     let category = download_core::categorizer::categorize(&file_name);
 
