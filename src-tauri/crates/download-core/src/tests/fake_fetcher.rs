@@ -33,6 +33,7 @@ impl ByteFetcher for FakeFetcher {
             },
             supports_ranges: self.supports_ranges,
             file_name: Some("test.bin".to_string()),
+            content_type: None,
         })
     }
 

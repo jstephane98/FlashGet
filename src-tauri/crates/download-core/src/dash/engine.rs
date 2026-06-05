@@ -222,7 +222,7 @@ mod tests {
     #[async_trait]
     impl ByteFetcher for MapFetcher {
         async fn probe(&self, _u: &str, _h: &RequestHeaders) -> Result<ProbeResult, CoreError> {
-            Ok(ProbeResult { total_bytes: None, supports_ranges: false, file_name: None })
+            Ok(ProbeResult { total_bytes: None, supports_ranges: false, file_name: None, content_type: None })
         }
         async fn fetch_range(&self, url: &str, range: Option<(u64, u64)>, _h: &RequestHeaders)
             -> Result<BoxStream<'static, Result<Bytes, CoreError>>, CoreError> {

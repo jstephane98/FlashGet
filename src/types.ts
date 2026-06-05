@@ -8,7 +8,7 @@ export type DownloadStatus =
 
 export type Priority = "high" | "normal" | "low";
 
-export type DownloadKind = "regular" | "hls" | "dash";
+export type DownloadKind = "regular" | "hls" | "dash" | "ytdlp";
 
 export type Category = "video" | "document" | "program" | "archive" | "music" | "other";
 

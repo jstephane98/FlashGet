@@ -60,7 +60,12 @@ export function DownloadRow({
 
   const isSegmented = d.kind === "hls" || d.kind === "dash";
   const segPct = seg && seg.total > 0 ? Math.round((seg.done / seg.total) * 100) : 0;
-  const pct = isSegmented && seg ? segPct : percent(d.downloaded_bytes, d.total_bytes);
+  // Un téléchargement terminé affiche toujours une barre pleine, même si la taille
+  // totale était inconnue (cas yt-dlp : total_bytes = NA sur les flux séparés).
+  const measurable = (isSegmented && seg && seg.total > 0) || (d.total_bytes != null && d.total_bytes > 0);
+  const pct = d.status === "completed" ? 100 : isSegmented && seg ? segPct : percent(d.downloaded_bytes, d.total_bytes);
+  // Pendant un téléchargement sans taille connue, barre indéterminée (animée) plutôt que blanche.
+  const indeterminate = !isRecording && d.status === "downloading" && !measurable;
   const stateLabel = isRecording
     ? recordingLabel(seg?.done ?? 0, d.downloaded_bytes, elapsed)
     : d.status === "queued" && queuePosition !== null
@@ -78,6 +83,9 @@ export function DownloadRow({
           {d.kind === "dash" && (
             <span className="mr-1 px-1 py-0.5 text-[10px] rounded bg-violet-100 text-violet-700 align-middle">DASH</span>
           )}
+          {d.kind === "ytdlp" && (
+            <span className="mr-1 px-1 py-0.5 text-[10px] rounded bg-amber-100 text-amber-700 align-middle">yt-dlp</span>
+          )}
           {isRecording && (
             <span className="mr-1 px-1 py-0.5 text-[10px] rounded bg-red-100 text-red-700 align-middle">LIVE</span>
           )}
@@ -86,6 +94,8 @@ export function DownloadRow({
         <div className="h-1.5 mt-1 rounded bg-gray-200 overflow-hidden">
           {isRecording ? (
             <div className="h-full w-1/3 rounded bg-red-500 animate-pulse" />
+          ) : indeterminate ? (
+            <div className="h-full w-1/3 rounded bg-indigo-600 animate-pulse" />
           ) : (
             <div className={`h-full rounded ${d.status === "completed" ? "bg-green-500" : "bg-indigo-600"}`} style={{ width: `${pct}%` }} />
           )}

@@ -39,6 +39,7 @@ pub enum DownloadKind {
     Regular,
     Hls,
     Dash,
+    Ytdlp,
 }
 
 /// Réglages persistants de l'application.
@@ -119,6 +120,7 @@ pub struct ProbeResult {
     pub total_bytes: Option<u64>,
     pub supports_ranges: bool,
     pub file_name: Option<String>,
+    pub content_type: Option<String>,
 }
 
 /// Payload de progression poussé vers l'UI.
