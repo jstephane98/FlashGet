@@ -1,5 +1,48 @@
 //! Choix du nom de fichier final pour un téléchargement.
 
+/// Noms de périphériques réservés Windows (comparaison insensible à la casse).
+const RESERVED_NAMES: &[&str] = &[
+    "CON", "PRN", "AUX", "NUL",
+    "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+    "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+];
+
+/// Transforme un titre de page libre en radical de nom de fichier sûr (sans extension).
+/// `None`, chaîne vide ou inutilisable → `"video"`.
+///
+/// Contrairement à [`choose_file_name`], cette fonction ne traite jamais `/` ni `\`
+/// comme des séparateurs de chemin : un titre comme `AC/DC` est conservé entier.
+pub fn sanitize_title(raw: Option<&str>) -> String {
+    let raw = match raw {
+        Some(s) => s,
+        None => return "video".to_string(),
+    };
+    // 1. Nettoyage caractère par caractère.
+    let cleaned: String = raw
+        .chars()
+        .filter_map(|c| match c {
+            '/' | '\\' => Some(' '),                                  // texte, pas séparateur
+            '<' | '>' | ':' | '"' | '|' | '?' | '*' => None,         // interdits Windows
+            c if (c as u32) < 0x20 => None,                          // caractères de contrôle
+            c => Some(c),
+        })
+        .collect();
+    // 2. Réduire les espaces multiples + trim.
+    let collapsed = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
+    // 3. Plafonner la longueur (frontières de caractères).
+    let capped: String = collapsed.chars().take(120).collect();
+    // 4. Couper points et espaces de fin (interdits/problématiques sous Windows).
+    let trimmed = capped.trim_end_matches(['.', ' ']).to_string();
+    if trimmed.is_empty() {
+        return "video".to_string();
+    }
+    // 5. Neutraliser les noms réservés.
+    if RESERVED_NAMES.iter().any(|r| r.eq_ignore_ascii_case(&trimmed)) {
+        return format!("_{trimmed}");
+    }
+    trimmed
+}
+
 /// Choisit le nom de fichier final : nom suggéré (basename, non vide) sinon nom du probe
 /// (non vide) sinon `download.bin`.
 pub fn choose_file_name(suggested: Option<&str>, probe: Option<&str>) -> String {
@@ -61,5 +104,50 @@ mod tests {
     fn falls_back_to_default_when_nothing_usable() {
         assert_eq!(choose_file_name(None, None), "download.bin");
         assert_eq!(choose_file_name(Some(""), Some("")), "download.bin");
+    }
+
+    #[test]
+    fn sanitize_title_empty_or_none_is_video() {
+        assert_eq!(sanitize_title(None), "video");
+        assert_eq!(sanitize_title(Some("")), "video");
+        assert_eq!(sanitize_title(Some("   ")), "video");
+    }
+
+    #[test]
+    fn sanitize_title_removes_illegal_chars() {
+        assert_eq!(sanitize_title(Some("a:b?c*")), "abc");
+        assert_eq!(sanitize_title(Some("a<b>c|d\"e")), "abcde");
+    }
+
+    #[test]
+    fn sanitize_title_slash_is_not_a_path_separator() {
+        // Anti-régression : '/' et '\' deviennent des espaces, jamais des séparateurs.
+        assert_eq!(sanitize_title(Some("AC/DC - Live")), "AC DC - Live");
+        assert_eq!(sanitize_title(Some("a\\b")), "a b");
+    }
+
+    #[test]
+    fn sanitize_title_reserved_names_are_prefixed() {
+        assert_eq!(sanitize_title(Some("CON")), "_CON");
+        assert_eq!(sanitize_title(Some("nul")), "_nul");
+        assert_eq!(sanitize_title(Some("COM1")), "_COM1");
+    }
+
+    #[test]
+    fn sanitize_title_trims_trailing_dots_and_spaces() {
+        assert_eq!(sanitize_title(Some("titre...  ")), "titre");
+        assert_eq!(sanitize_title(Some("  un titre  ")), "un titre");
+    }
+
+    #[test]
+    fn sanitize_title_caps_length() {
+        let long = "a".repeat(300);
+        let out = sanitize_title(Some(&long));
+        assert_eq!(out.chars().count(), 120);
+    }
+
+    #[test]
+    fn sanitize_title_keeps_unicode() {
+        assert_eq!(sanitize_title(Some("Café 日本")), "Café 日本");
     }
 }
