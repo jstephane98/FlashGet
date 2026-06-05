@@ -52,10 +52,10 @@ export default function App() {
     return () => { un.then((f) => f()); unAdded.then((f) => f()); unMedia.then((f) => f()); unMediaErr.then((f) => f()); };
   }, []);
 
-  async function handleHlsConfirm(probeId: string, variantIndex: number) {
+  async function handleHlsConfirm(probeId: string, variantIndex: number, fileName: string) {
     setMediaEvent(null);
     try {
-      await api.addMediaDownload(probeId, variantIndex);
+      await api.addMediaDownload(probeId, variantIndex, fileName);
       await refresh();
     } catch (e) {
       setError(`Impossible de démarrer la vidéo : ${String(e)}`);

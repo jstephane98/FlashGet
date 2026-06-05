@@ -161,7 +161,7 @@ async fn probe_hls_inner(
         .collect();
 
     let probe_id = uuid::Uuid::new_v4().to_string();
-    let file_name = suggested_name.unwrap_or_else(|| "video".to_string());
+    let file_name = download_core::naming::sanitize_title(suggested_name.as_deref());
     {
         let state = app.state::<AppState>();
         let mut pending = state.pending_media.lock().unwrap();
@@ -217,7 +217,7 @@ async fn probe_dash_inner(app: &AppHandle, url: &str, headers: RequestHeaders, s
         index: v.index, resolution: v.resolution.clone(), bandwidth: v.bandwidth, est_size: v.est_size,
     }).collect();
     let probe_id = uuid::Uuid::new_v4().to_string();
-    let file_name = suggested_name.unwrap_or_else(|| "video".to_string());
+    let file_name = download_core::naming::sanitize_title(suggested_name.as_deref());
     {
         let state = app.state::<AppState>();
         let mut pending = state.pending_media.lock().unwrap();
@@ -255,14 +255,19 @@ async fn fetch_text<F: ByteFetcher>(fetcher: &F, url: &str, headers: &RequestHea
 
 /// Crée un download média (HLS ou DASH) à partir d'un probe et de la variante choisie.
 #[tauri::command]
-pub async fn add_media_download(app: AppHandle, probe_id: String, variant_index: u32) -> Result<Download, String> {
+pub async fn add_media_download(app: AppHandle, probe_id: String, variant_index: u32, file_name: Option<String>) -> Result<Download, String> {
     enum Built { Hls { url: String, audio_url: Option<String> }, Dash { mpd_url: String, selection: String } }
     let (built, file_name, headers) = {
         let state = app.state::<AppState>();
         let mut pending = state.pending_media.lock().unwrap();
         let pm = pending.get(&probe_id).ok_or_else(|| "probe expiré".to_string())?;
-        let file_name = download_core::naming::with_extension(
-            &download_core::naming::choose_file_name(Some(&pm.file_name), None), "mp4");
+        // Nom édité par l'utilisateur (assaini de nouveau, défense en profondeur) ;
+        // sinon repli sur le titre déjà assaini au probe.
+        let stem = match file_name.as_deref() {
+            Some(n) => download_core::naming::sanitize_title(Some(n)),
+            None => pm.file_name.clone(),
+        };
+        let file_name = download_core::naming::ensure_extension(&stem, "mp4");
         let headers = pm.headers.clone();
         let built = match &pm.probe {
             MediaProbe::Hls(master) => {
