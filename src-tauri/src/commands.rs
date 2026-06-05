@@ -267,7 +267,7 @@ pub async fn add_media_download(app: AppHandle, probe_id: String, variant_index:
             Some(n) => download_core::naming::sanitize_title(Some(n)),
             None => pm.file_name.clone(),
         };
-        let file_name = download_core::naming::with_extension(&stem, "mp4");
+        let file_name = download_core::naming::ensure_extension(&stem, "mp4");
         let headers = pm.headers.clone();
         let built = match &pm.probe {
             MediaProbe::Hls(master) => {

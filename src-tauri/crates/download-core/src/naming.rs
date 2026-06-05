@@ -67,6 +67,19 @@ pub fn with_extension(name: &str, ext: &str) -> String {
     format!("{base}.{ext}")
 }
 
+/// Ajoute `.ext` au nom, sauf s'il se termine déjà par `.ext` (insensible à la casse).
+///
+/// Contrairement à [`with_extension`], ne tronque PAS un nom contenant des points :
+/// un titre comme `Partie 2.5` conserve son point (→ `Partie 2.5.mp4`).
+pub fn ensure_extension(name: &str, ext: &str) -> String {
+    let suffix = format!(".{}", ext.to_ascii_lowercase());
+    if name.to_ascii_lowercase().ends_with(&suffix) {
+        name.to_string()
+    } else {
+        format!("{name}.{ext}")
+    }
+}
+
 /// Dernier segment de chemin (séparateurs `/` ou `\`), espaces retirés.
 fn basename(s: &str) -> String {
     s.rsplit(['/', '\\']).next().unwrap_or(s).trim().to_string()
@@ -161,5 +174,18 @@ mod tests {
         let out = sanitize_title(Some(&s));
         assert_eq!(out.chars().count(), 119);
         assert!(!out.ends_with('.'));
+    }
+
+    #[test]
+    fn ensure_extension_appends_when_missing() {
+        assert_eq!(ensure_extension("video", "mp4"), "video.mp4");
+        assert_eq!(ensure_extension("Partie 2.5", "mp4"), "Partie 2.5.mp4");
+        assert_eq!(ensure_extension("a.b.m3u8", "mp4"), "a.b.m3u8.mp4");
+    }
+
+    #[test]
+    fn ensure_extension_keeps_existing_case_insensitive() {
+        assert_eq!(ensure_extension("clip.mp4", "mp4"), "clip.mp4");
+        assert_eq!(ensure_extension("clip.MP4", "mp4"), "clip.MP4");
     }
 }
