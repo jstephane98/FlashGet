@@ -3,9 +3,9 @@
 //! concat + remux. Voir spec 2026-06-04-phase-4b2a-hls-live-design.md.
 use crate::hls::crypto::{decrypt_aes128_cbc, iv_for_segment};
 use crate::hls::playlist::{parse_media, KeyMethod, MediaPlaylist};
-use crate::hls::remux::{RemuxInputs, Remuxer};
+use crate::hls::remux::Remuxer;
 use crate::http::ByteFetcher;
-use crate::media_io::{concat_track, fetch_to_vec, finish_cancelled, work_dir, write_segment};
+use crate::media_io::{fetch_to_vec, finish_cancelled, work_dir, write_segment};
 use crate::model::{DownloadStatus, Progress, RequestHeaders};
 use crate::rate_limiter::RateLimiter;
 use crate::engine::{DownloadHandle, Outcome};
@@ -173,20 +173,16 @@ pub async fn download_hls_live<F: ByteFetcher, R: Remuxer>(
         // bougé, puis cassera au `is_stopped()` ci-dessus — acceptable.
     }
 
-    // --- finalisation : concat + remux ---
-    let work_v = work.clone();
-    let v_has_init = v.has_init;
-    let video_cat = tokio::task::spawn_blocking(move || concat_track(&work_v, "v", v_has_init))
-        .await
-        .map_err(|e| CoreError::Media(format!("tâche de concaténation interrompue: {e}")))??;
-    let audio_cat = if a.has_any {
-        let work_a = work.clone();
-        let a_has_init = a.has_init;
-        Some(tokio::task::spawn_blocking(move || concat_track(&work_a, "a", a_has_init))
-            .await
-            .map_err(|e| CoreError::Media(format!("tâche de concaténation interrompue: {e}")))??)
-    } else { None };
-    remux.remux(RemuxInputs { video: video_cat, audio: audio_cat, decryption_key: None }, dest).await?;
+    // --- finalisation : concat + remux (helper partagé) ---
+    crate::media_io::finalize_and_remux(
+        &work,
+        v.has_init,
+        a.has_any.then_some(a.has_init),
+        None,
+        remux,
+        dest,
+    )
+    .await?;
 
     let _ = std::fs::remove_dir_all(&work);
     let _ = progress.send(Progress {

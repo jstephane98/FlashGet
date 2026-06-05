@@ -1,5 +1,6 @@
 //! Helpers de téléchargement/assemblage de segments partagés par HLS et DASH.
 use crate::engine::DownloadHandle;
+use crate::hls::remux::{RemuxInputs, Remuxer};
 use crate::http::ByteFetcher;
 use crate::model::{DownloadStatus, Progress, RequestHeaders};
 use crate::rate_limiter::RateLimiter;
@@ -86,6 +87,34 @@ pub fn concat_track(work: &Path, prefix: &str, has_init: bool) -> Result<PathBuf
     Ok(out_path)
 }
 
+/// Concatène la piste vidéo (et audio si présente) puis remux en `dest` via
+/// ffmpeg. `audio_has_init = None` ⇒ pas de piste audio. La concat (IO lourde)
+/// tourne sur un thread bloquant.
+pub async fn finalize_and_remux<R: Remuxer>(
+    work: &Path,
+    video_has_init: bool,
+    audio_has_init: Option<bool>,
+    decryption_key: Option<String>,
+    remux: &R,
+    dest: &Path,
+) -> Result<(), CoreError> {
+    let work_v = work.to_path_buf();
+    let video = tokio::task::spawn_blocking(move || concat_track(&work_v, "v", video_has_init))
+        .await
+        .map_err(|e| CoreError::Media(format!("tâche de concaténation interrompue: {e}")))??;
+    let audio = if let Some(a_has_init) = audio_has_init {
+        let work_a = work.to_path_buf();
+        Some(
+            tokio::task::spawn_blocking(move || concat_track(&work_a, "a", a_has_init))
+                .await
+                .map_err(|e| CoreError::Media(format!("tâche de concaténation interrompue: {e}")))??,
+        )
+    } else {
+        None
+    };
+    remux.remux(RemuxInputs { video, audio, decryption_key }, dest).await
+}
+
 /// Émet une progression par segments.
 pub fn emit_segments(
     tx: &tokio::sync::mpsc::UnboundedSender<Progress>,
@@ -126,5 +155,38 @@ mod tests {
         std::fs::write(w.join("v100000.seg"), b"B").unwrap();
         let out = concat_track(w, "v", false).unwrap();
         assert_eq!(std::fs::read(out).unwrap(), b"AB");
+    }
+
+    #[tokio::test]
+    async fn finalize_concats_and_passes_key() {
+        use crate::hls::remux::fake::FakeRemuxer;
+        let dir = tempdir().unwrap();
+        let w = dir.path();
+        std::fs::write(w.join("v0.seg"), b"V0").unwrap();
+        std::fs::write(w.join("v1.seg"), b"V1").unwrap();
+        std::fs::write(w.join("a0.seg"), b"A0").unwrap();
+        let out = w.join("out.mp4");
+        let remux = FakeRemuxer::default();
+        finalize_and_remux(w, false, Some(false), Some("deadbeef".into()), &remux, &out).await.unwrap();
+        assert_eq!(std::fs::read(&out).unwrap(), b"V0V1A0");
+        let calls = remux.calls.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].decryption_key.as_deref(), Some("deadbeef"));
+        assert!(calls[0].audio.is_some());
+    }
+
+    #[tokio::test]
+    async fn finalize_video_only_no_key() {
+        use crate::hls::remux::fake::FakeRemuxer;
+        let dir = tempdir().unwrap();
+        let w = dir.path();
+        std::fs::write(w.join("v0.seg"), b"XX").unwrap();
+        let out = w.join("out.mp4");
+        let remux = FakeRemuxer::default();
+        finalize_and_remux(w, false, None, None, &remux, &out).await.unwrap();
+        assert_eq!(std::fs::read(&out).unwrap(), b"XX");
+        let calls = remux.calls.lock().unwrap();
+        assert!(calls[0].audio.is_none());
+        assert!(calls[0].decryption_key.is_none());
     }
 }
