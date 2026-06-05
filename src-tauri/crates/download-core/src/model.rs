@@ -39,6 +39,7 @@ pub enum DownloadKind {
     Regular,
     Hls,
     Dash,
+    Ytdlp,
 }
 
 /// Réglages persistants de l'application.

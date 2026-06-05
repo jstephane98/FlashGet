@@ -376,6 +376,7 @@ fn kind_to_str(k: DownloadKind) -> &'static str {
         DownloadKind::Regular => "regular",
         DownloadKind::Hls => "hls",
         DownloadKind::Dash => "dash",
+        DownloadKind::Ytdlp => "ytdlp",
     }
 }
 
@@ -383,6 +384,7 @@ fn kind_from_str(s: &str) -> DownloadKind {
     match s {
         "hls" => DownloadKind::Hls,
         "dash" => DownloadKind::Dash,
+        "ytdlp" => DownloadKind::Ytdlp,
         _ => DownloadKind::Regular,
     }
 }
@@ -665,6 +667,20 @@ mod tests {
         let got2 = s.get_by_id("k2").unwrap().unwrap();
         assert_eq!(got2.kind, DownloadKind::Regular);
         assert_eq!(got2.audio_url, None);
+    }
+
+    #[test]
+    fn ytdlp_kind_roundtrips() {
+        let s = Storage::open_in_memory().unwrap();
+        let mut d = sample("y1");
+        d.kind = DownloadKind::Ytdlp;
+        s.upsert(&d).unwrap();
+        let got = s.get_by_id("y1").unwrap().unwrap();
+        assert_eq!(got.kind, DownloadKind::Ytdlp);
+        // Défaut : Regular.
+        let plain = sample("y2");
+        s.upsert(&plain).unwrap();
+        assert_eq!(s.get_by_id("y2").unwrap().unwrap().kind, DownloadKind::Regular);
     }
 
     #[test]
