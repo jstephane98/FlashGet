@@ -1,7 +1,6 @@
 //! Enregistrement HLS live : boucle de rafraîchissement de la media playlist,
 //! capture incrémentale par numéro de séquence absolue, finalisation par
 //! concat + remux. Voir spec 2026-06-04-phase-4b2a-hls-live-design.md.
-use std::time::Duration;
 use crate::hls::crypto::{decrypt_aes128_cbc, iv_for_segment};
 use crate::hls::playlist::{parse_media, KeyMethod, MediaPlaylist};
 use crate::hls::remux::{RemuxInputs, Remuxer};
@@ -11,47 +10,12 @@ use crate::model::{DownloadStatus, Progress, RequestHeaders};
 use crate::rate_limiter::RateLimiter;
 use crate::engine::{DownloadHandle, Outcome};
 use crate::CoreError;
+use crate::live::responsive_sleep;
+pub use crate::live::RefreshInterval;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::mpsc;
-
-/// Intervalle entre deux rafraîchissements de la playlist.
-#[derive(Debug, Clone, Copy)]
-pub enum RefreshInterval {
-    /// Production : dérive de `EXT-X-TARGETDURATION` (borne min 1 s, défaut 6 s).
-    FromTargetDuration,
-    /// Tests : intervalle fixe (ex. 0–10 ms pour ne pas dormir).
-    Fixed(Duration),
-}
-
-impl RefreshInterval {
-    pub fn compute(&self, target_duration: f64) -> Duration {
-        match self {
-            RefreshInterval::FromTargetDuration => {
-                let secs = if target_duration > 0.0 { target_duration } else { 6.0 };
-                Duration::from_secs_f64(secs.max(1.0))
-            }
-            RefreshInterval::Fixed(d) => *d,
-        }
-    }
-}
-
-/// Dort jusqu'à `dur` en vérifiant stop/cancel toutes les 50 ms.
-/// Renvoie `true` si interrompu (stop ou cancel demandé) avant l'échéance.
-pub(crate) async fn responsive_sleep(dur: Duration, handle: &DownloadHandle) -> bool {
-    let tick = Duration::from_millis(50);
-    let mut elapsed = Duration::ZERO;
-    while elapsed < dur {
-        if handle.is_stopped() || handle.is_cancelled() {
-            return true;
-        }
-        let step = tick.min(dur - elapsed);
-        tokio::time::sleep(step).await;
-        elapsed += step;
-    }
-    handle.is_stopped() || handle.is_cancelled()
-}
 
 /// Issue d'une passe de capture d'une piste sur un rafraîchissement.
 enum Step { Continue, Stopped, Cancelled }
@@ -236,6 +200,7 @@ pub async fn download_hls_live<F: ByteFetcher, R: Remuxer>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
     use crate::hls::remux::fake::FakeRemuxer;
     use crate::http::ByteFetcher;
     use crate::model::{ProbeResult, RequestHeaders};
@@ -429,9 +394,9 @@ mod tests {
 
     #[test]
     fn refresh_interval_clamps_and_defaults() {
-        assert_eq!(RefreshInterval::FromTargetDuration.compute(4.0), Duration::from_secs_f64(4.0));
-        assert_eq!(RefreshInterval::FromTargetDuration.compute(0.0), Duration::from_secs(6));
-        assert_eq!(RefreshInterval::FromTargetDuration.compute(0.3), Duration::from_secs(1));
+        assert_eq!(RefreshInterval::Derived.compute(4.0), Duration::from_secs_f64(4.0));
+        assert_eq!(RefreshInterval::Derived.compute(0.0), Duration::from_secs(6));
+        assert_eq!(RefreshInterval::Derived.compute(0.3), Duration::from_secs(1));
         assert_eq!(RefreshInterval::Fixed(Duration::from_millis(7)).compute(99.0), Duration::from_millis(7));
     }
 
