@@ -68,6 +68,7 @@ export default function App() {
   async function handleAdd(url: string) {
     setDialogOpen(false);
     setError(null);
+    setInfo(null);
     try {
       await api.addDownload(url, DEST_DIR);
       await refresh();
