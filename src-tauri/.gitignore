@@ -6,6 +6,7 @@
 # will have schema files for capabilities auto-completion
 /gen/schemas
 
-# ffmpeg sidecar binary (large, fetched manually — see bin/README.md)
+# sidecar binaries (large, fetched manually — see bin/README.md)
 /bin/ffmpeg-*
+/bin/yt-dlp*
 !/bin/README.md

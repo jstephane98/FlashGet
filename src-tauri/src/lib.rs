@@ -2,6 +2,7 @@ mod bridge;
 mod commands;
 mod remux;
 mod state;
+mod ytdlp;
 
 use download_core::storage::Storage;
 use state::AppState;

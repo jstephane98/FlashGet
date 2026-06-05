@@ -697,6 +697,11 @@ fn launch(app: &AppHandle, download: Download, handle: DownloadHandle) {
                 };
                 download_core::dash::engine::download_dash(&fetcher, &remux, &id_for_dl, &url, &selection, &dest, handle, limiter, tx, &headers).await
             }
+            download_core::model::DownloadKind::Ytdlp => {
+                let format_id = media_selection.clone().unwrap_or_default();
+                crate::ytdlp::run_download(app_for_dl.clone(), &id_for_dl, &url, &format_id, &dest, handle, &headers, tx).await
+                    .map(|()| download_core::engine::Outcome::Completed)
+            }
         };
         match result {
             Ok(_) => {}
