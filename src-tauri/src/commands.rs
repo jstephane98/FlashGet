@@ -161,7 +161,7 @@ async fn probe_hls_inner(
         .collect();
 
     let probe_id = uuid::Uuid::new_v4().to_string();
-    let file_name = suggested_name.unwrap_or_else(|| "video".to_string());
+    let file_name = download_core::naming::sanitize_title(suggested_name.as_deref());
     {
         let state = app.state::<AppState>();
         let mut pending = state.pending_media.lock().unwrap();
@@ -217,7 +217,7 @@ async fn probe_dash_inner(app: &AppHandle, url: &str, headers: RequestHeaders, s
         index: v.index, resolution: v.resolution.clone(), bandwidth: v.bandwidth, est_size: v.est_size,
     }).collect();
     let probe_id = uuid::Uuid::new_v4().to_string();
-    let file_name = suggested_name.unwrap_or_else(|| "video".to_string());
+    let file_name = download_core::naming::sanitize_title(suggested_name.as_deref());
     {
         let state = app.state::<AppState>();
         let mut pending = state.pending_media.lock().unwrap();
