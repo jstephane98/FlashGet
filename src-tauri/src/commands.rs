@@ -278,7 +278,7 @@ async fn probe_ytdlp_inner(app: &AppHandle, url: &str, headers: RequestHeaders) 
     let (title, formats) = crate::ytdlp::probe_formats(app, url, &headers).await?;
     let selected = download_core::ytdlp::select_variants(&formats);
     if selected.is_empty() {
-        return Err("Aucune vidéo trouvée sur cette page".into());
+        return Err("aucune vidéo trouvée sur cette page".into());
     }
     let format_ids: Vec<String> = selected.iter().map(|(id, _)| id.clone()).collect();
     let variants: Vec<MediaVariant> = selected
