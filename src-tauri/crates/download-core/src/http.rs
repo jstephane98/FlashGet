@@ -69,6 +69,10 @@ impl ByteFetcher for ReqwestFetcher {
 
         let status = resp.status();
         let headers = resp.headers().clone();
+        let content_type = headers
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
 
         // 206 Partial Content => le serveur supporte les Range.
         let supports_ranges = status == reqwest::StatusCode::PARTIAL_CONTENT
@@ -97,7 +101,7 @@ impl ByteFetcher for ReqwestFetcher {
 
         let file_name = file_name_from_url(url);
 
-        Ok(ProbeResult { total_bytes, supports_ranges, file_name })
+        Ok(ProbeResult { total_bytes, supports_ranges, file_name, content_type })
     }
 
     async fn fetch_range(
@@ -146,6 +150,14 @@ impl ByteFetcher for ReqwestFetcher {
         let bytes = resp.bytes().await.map_err(|e| CoreError::Network(describe_reqwest_error(&e)))?;
         Ok(bytes.to_vec())
     }
+}
+
+/// Vrai si le content-type désigne une page HTML (insensible casse/espaces).
+pub fn is_html(content_type: &Option<String>) -> bool {
+    content_type
+        .as_deref()
+        .map(|s| s.trim().to_ascii_lowercase().starts_with("text/html"))
+        .unwrap_or(false)
 }
 
 /// Construit un message d'erreur réseau détaillé. Le message de surface de
@@ -228,5 +240,15 @@ mod tests {
         assert_eq!(file_name_from_url("https://x.com/a/.."), None);
         // percent-encoded traversal stays a literal (not decoded) segment — fine
         assert_eq!(file_name_from_url("https://x.com/a/%2e%2e"), Some("%2e%2e".into()));
+    }
+
+    #[test]
+    fn is_html_detects_html_content_type() {
+        assert!(is_html(&Some("text/html".to_string())));
+        assert!(is_html(&Some("text/html; charset=utf-8".to_string())));
+        assert!(is_html(&Some("  TEXT/HTML ".to_string())));
+        assert!(!is_html(&Some("video/mp4".to_string())));
+        assert!(!is_html(&Some("application/x-mpegurl".to_string())));
+        assert!(!is_html(&None));
     }
 }
