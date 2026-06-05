@@ -24,6 +24,9 @@ enum Step { Continue, Stopped, Cancelled }
 /// État d'une piste (vidéo/audio) entre rafraîchissements.
 struct DashLiveTrack {
     prefix: &'static str,
+    /// URLs déjà capturées (dédup). Croît sur la durée de l'enregistrement —
+    /// acceptable (qq Mo pour un live de plusieurs heures) ; un élagage par
+    /// fenêtre de timeline serait l'optimisation naturelle (YAGNI aujourd'hui).
     seen: HashSet<String>,
     counter: usize,
     init_done: bool,
@@ -121,6 +124,14 @@ pub async fn download_dash_live<F: ByteFetcher, R: Remuxer>(
                 _ => return Err(CoreError::Media("DASH live $Number$/SegmentList non supporté (à venir)".into())),
             }
             let acoord = pick_audio(&mpd, selection.audio_lang.as_deref());
+            // L'audio (s'il existe) doit aussi être SegmentTimeline (cohérent avec
+            // la vidéo) — sinon on rejette plutôt que de produire un fichier sans son.
+            if let Some(ac) = &acoord {
+                let arepr = &mpd.periods[ac.period].adaptation_sets[ac.adaptation].representations[ac.representation];
+                if !matches!(&arepr.addressing, Addressing::Template(t) if t.timeline.is_some()) {
+                    return Err(CoreError::Media("DASH live audio $Number$/SegmentList non supporté (à venir)".into()));
+                }
+            }
             let key = resolve_key(fetcher, &mpd, vcoord.adaptation, headers).await?;
             if let Some(k) = &key {
                 std::fs::write(work.join("clearkey.hex"), k)?;
@@ -378,5 +389,71 @@ mod tests {
             DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default(), None, RefreshInterval::Fixed(Duration::from_millis(0)),
         ).await.unwrap_err();
         assert!(matches!(err, CoreError::Media(_)));
+    }
+
+    #[tokio::test]
+    async fn captures_separate_audio_track() {
+        let base = "https://h/p/";
+        let xml = r#"<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static">
+  <Period>
+    <AdaptationSet contentType="video" mimeType="video/mp4">
+      <SegmentTemplate media="v-$Time$.m4s" timescale="1"><SegmentTimeline><S t="0" d="1"/><S d="1"/></SegmentTimeline></SegmentTemplate>
+      <Representation id="v0" bandwidth="1"/>
+    </AdaptationSet>
+    <AdaptationSet contentType="audio" lang="en" mimeType="audio/mp4">
+      <SegmentTemplate media="a-$Time$.m4s" timescale="1"><SegmentTimeline><S t="0" d="1"/><S d="1"/></SegmentTimeline></SegmentTemplate>
+      <Representation id="a0" bandwidth="1"/>
+    </AdaptationSet>
+  </Period>
+</MPD>"#.to_string();
+        let mut segs = Map::new();
+        for (n, b) in [("v-0.m4s","V0"),("v-1.m4s","V1"),("a-0.m4s","A0"),("a-1.m4s","A1")] {
+            segs.insert(format!("{base}{n}"), b.as_bytes().to_vec());
+        }
+        let fetcher = EvolvingMpd {
+            mpd_url: format!("{base}m.mpd"), mpds: vec![xml], calls: Mutex::new(0), segs,
+            handle: None, stop_after: 0, cancel_after: 0, seg_fetches: Arc::new(Mutex::new(0)), post_resp: None,
+        };
+        let remux = FakeRemuxer::default();
+        let dir = tempdir().unwrap();
+        let dest = dir.path().join("out.mp4");
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let outcome = download_dash_live(
+            &fetcher, &remux, "DA", &format!("{base}m.mpd"), &sel(), &dest,
+            DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default(), None, RefreshInterval::Fixed(Duration::from_millis(0)),
+        ).await.unwrap();
+        assert_eq!(outcome, Outcome::Completed);
+        // FakeRemuxer concatène vidéo puis audio.
+        assert_eq!(std::fs::read(&dest).unwrap(), b"V0V1A0A1");
+    }
+
+    #[tokio::test]
+    async fn prepends_init_segment() {
+        let base = "https://h/p/";
+        let xml = r#"<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static">
+  <Period><AdaptationSet contentType="video" mimeType="video/mp4">
+    <SegmentTemplate initialization="init.mp4" media="seg-$Time$.m4s" timescale="1"><SegmentTimeline><S t="0" d="1"/><S d="1"/></SegmentTimeline></SegmentTemplate>
+    <Representation id="v0" bandwidth="1"/>
+  </AdaptationSet></Period>
+</MPD>"#.to_string();
+        let mut segs = Map::new();
+        for (n, b) in [("init.mp4","INIT"),("seg-0.m4s","AA"),("seg-1.m4s","BB")] {
+            segs.insert(format!("{base}{n}"), b.as_bytes().to_vec());
+        }
+        let fetcher = EvolvingMpd {
+            mpd_url: format!("{base}m.mpd"), mpds: vec![xml], calls: Mutex::new(0), segs,
+            handle: None, stop_after: 0, cancel_after: 0, seg_fetches: Arc::new(Mutex::new(0)), post_resp: None,
+        };
+        let remux = FakeRemuxer::default();
+        let dir = tempdir().unwrap();
+        let dest = dir.path().join("out.mp4");
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let outcome = download_dash_live(
+            &fetcher, &remux, "DI", &format!("{base}m.mpd"), &sel(), &dest,
+            DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default(), None, RefreshInterval::Fixed(Duration::from_millis(0)),
+        ).await.unwrap();
+        assert_eq!(outcome, Outcome::Completed);
+        // init (initialization) préfixé puis les 2 segments.
+        assert_eq!(std::fs::read(&dest).unwrap(), b"INITAABB");
     }
 }
