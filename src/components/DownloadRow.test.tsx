@@ -73,4 +73,10 @@ describe("DownloadRow recording mode", () => {
     renderRow({ kind: "ytdlp" });
     expect(screen.getByText("yt-dlp")).toBeTruthy();
   });
+
+  it("barre pleine (100%) pour un téléchargement terminé sans taille connue", () => {
+    renderRow({ kind: "ytdlp", status: "completed", total_bytes: null, downloaded_bytes: 5000 });
+    // Le libellé d'état reflète pct=100 même sans total_bytes.
+    expect(screen.getByText(/Terminé · 100%/)).toBeTruthy();
+  });
 });
