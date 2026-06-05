@@ -59,7 +59,7 @@ pub async fn probe_formats(
     let output = cmd.args(args).output().await.map_err(|e| format!("échec exécution yt-dlp: {e}"))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        let tail: String = stderr.lines().rev().take(3).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join(" ");
+        let tail: String = stderr.lines().rev().take(3).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
         return Err(format!("yt-dlp -J a échoué: {tail}"));
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -145,7 +145,11 @@ pub async fn run_download(
                         return Err(CoreError::Media(format!("yt-dlp a échoué (code {code}): {tail}")));
                     }
                     Some(_) => {}
-                    None => return Ok(()),
+                    None => {
+                        return Err(CoreError::Media(
+                            "yt-dlp s'est fermé sans signal de terminaison".to_string(),
+                        ));
+                    }
                 }
             }
             _ = ticker.tick() => {
