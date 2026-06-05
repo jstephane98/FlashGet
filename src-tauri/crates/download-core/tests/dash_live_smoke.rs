@@ -80,6 +80,12 @@ fn make_fmp4_segments(ffmpeg: &Path, dir: &Path, n: usize) -> (Vec<u8>, Vec<Vec<
         segs.push(data[s..e].to_vec());
     }
     eprintln!("make_fmp4_segments: init={} octets, {} fragments", init.len(), segs.len());
+    // Invariant : init + fragments reproduit le fMP4 d'origine (splitter sans perte).
+    let mut joined = init.clone();
+    for s in &segs {
+        joined.extend_from_slice(s);
+    }
+    assert_eq!(joined, data, "le découpage init+fragments doit reproduire le fMP4");
     (init, segs)
 }
 
@@ -137,9 +143,9 @@ async fn dash_live_records_until_static() {
                 eprintln!("[server] init.mp4 ({} octets)", init_srv.len());
                 Some(init_srv.clone())
             } else if let Some(t) = url.strip_prefix("seg-").and_then(|s| s.strip_suffix(".m4s")) {
-                let idx = t.parse::<usize>().unwrap_or(usize::MAX);
-                eprintln!("[server] seg-{t}.m4s → fragment[{idx}]");
-                t.parse::<usize>().ok().and_then(|i| segs_srv.get(i).cloned())
+                let idx = t.parse::<usize>().ok();
+                eprintln!("[server] seg-{t}.m4s → fragment[{idx:?}]");
+                idx.and_then(|i| segs_srv.get(i).cloned())
             } else {
                 eprintln!("[server] 404: {url}");
                 None
