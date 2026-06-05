@@ -58,18 +58,9 @@ pub fn choose_file_name(suggested: Option<&str>, probe: Option<&str>) -> String 
     "download.bin".to_string()
 }
 
-/// Force l'extension d'un nom de fichier (remplace l'existante, ou l'ajoute).
-pub fn with_extension(name: &str, ext: &str) -> String {
-    let base = match name.rfind('.') {
-        Some(p) if p > 0 => &name[..p],
-        _ => name,
-    };
-    format!("{base}.{ext}")
-}
-
 /// Ajoute `.ext` au nom, sauf s'il se termine déjà par `.ext` (insensible à la casse).
 ///
-/// Contrairement à [`with_extension`], ne tronque PAS un nom contenant des points :
+/// Ne tronque PAS un nom contenant des points :
 /// un titre comme `Partie 2.5` conserve son point (→ `Partie 2.5.mp4`).
 pub fn ensure_extension(name: &str, ext: &str) -> String {
     let suffix = format!(".{}", ext.to_ascii_lowercase());
@@ -88,13 +79,6 @@ fn basename(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn with_extension_forces_mp4() {
-        assert_eq!(with_extension("video", "mp4"), "video.mp4");
-        assert_eq!(with_extension("clip.ts", "mp4"), "clip.mp4");
-        assert_eq!(with_extension("a.b.m3u8", "mp4"), "a.b.mp4");
-    }
 
     #[test]
     fn prefers_suggested_when_present() {
@@ -187,5 +171,11 @@ mod tests {
     fn ensure_extension_keeps_existing_case_insensitive() {
         assert_eq!(ensure_extension("clip.mp4", "mp4"), "clip.mp4");
         assert_eq!(ensure_extension("clip.MP4", "mp4"), "clip.MP4");
+    }
+
+    #[test]
+    fn sanitize_title_all_illegal_is_video() {
+        assert_eq!(sanitize_title(Some(":?*")), "video");
+        assert_eq!(sanitize_title(Some("///")), "video");
     }
 }
