@@ -72,16 +72,6 @@ pub fn parse_formats(json: &str) -> Result<(String, Vec<YtdlpFormat>), CoreError
 /// Préfixe de progression émis via `--progress-template` (voir couche Tauri).
 pub const PROGRESS_PREFIX: &str = "FGPROG:";
 
-/// Préfixe émis via `--print after_move:` pour récupérer le chemin réel du fichier
-/// produit par yt-dlp (le conteneur final peut différer de l'extension demandée).
-pub const FILE_PREFIX: &str = "FGFILE:";
-
-/// Parse une ligne `FGFILE:<chemin>` et renvoie le chemin (non vide), sinon `None`.
-pub fn parse_final_path(line: &str) -> Option<String> {
-    let rest = line.trim().strip_prefix(FILE_PREFIX)?.trim();
-    if rest.is_empty() { None } else { Some(rest.to_string()) }
-}
-
 /// Parse une ligne de progression `FGPROG:<downloaded>/<total>`.
 /// `<total>` peut être `NA` ou vide (total inconnu → `None`).
 /// Renvoie `None` pour toute autre ligne.
@@ -218,19 +208,6 @@ mod tests {
     fn parse_progress_ignores_other_lines() {
         assert_eq!(parse_progress("[download] Destination: x.mp4"), None);
         assert_eq!(parse_progress("FGPROG:bad"), None);
-    }
-
-    #[test]
-    fn parse_final_path_reads_sentinel() {
-        assert_eq!(parse_final_path("FGFILE:C:\\dl\\Titre.mkv"), Some("C:\\dl\\Titre.mkv".to_string()));
-        assert_eq!(parse_final_path("  FGFILE:/home/u/v.mp4 "), Some("/home/u/v.mp4".to_string()));
-    }
-
-    #[test]
-    fn parse_final_path_ignores_other_lines() {
-        assert_eq!(parse_final_path("FGPROG:1/2"), None);
-        assert_eq!(parse_final_path("[download] x"), None);
-        assert_eq!(parse_final_path("FGFILE:"), None);
     }
 
     #[test]
