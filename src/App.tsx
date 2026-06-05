@@ -6,6 +6,7 @@ import { filterDownloads } from "./filter";
 import { Toolbar } from "./components/Toolbar";
 import { CategoryTabs } from "./components/CategoryTabs";
 import { AddUrlDialog } from "./components/AddUrlDialog";
+import { AddBatchDialog } from "./components/AddBatchDialog";
 import { DownloadTable } from "./components/DownloadTable";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { HlsVariantDialog } from "./components/HlsVariantDialog";
@@ -17,6 +18,8 @@ export default function App() {
   const [downloads, setDownloads] = useState<Download[]>([]);
   const [speeds, setSpeeds] = useState<Record<string, number>>({});
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [batchOpen, setBatchOpen] = useState(false);
+  const [info, setInfo] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
@@ -65,6 +68,7 @@ export default function App() {
   async function handleAdd(url: string) {
     setDialogOpen(false);
     setError(null);
+    setInfo(null);
     try {
       await api.addDownload(url, DEST_DIR);
       await refresh();
@@ -73,6 +77,23 @@ export default function App() {
       if (!msg.includes("__media_pending__")) {
         setError(`Impossible d'ajouter ce lien : ${msg}`);
       }
+    }
+  }
+
+  async function handleAddBatch(text: string) {
+    setBatchOpen(false);
+    setError(null);
+    setInfo(null);
+    try {
+      const s = await api.addBatchDownloads(text, DEST_DIR);
+      await refresh();
+      const parts = [`${s.added} ajouté(s)`];
+      if (s.skipped_duplicate) parts.push(`${s.skipped_duplicate} doublon(s)`);
+      if (s.skipped_invalid) parts.push(`${s.skipped_invalid} ignoré(s)`);
+      if (s.failed) parts.push(`${s.failed} échec(s)`);
+      setInfo(parts.join(" · "));
+    } catch (e) {
+      setError(`Échec de l'ajout en lot : ${String(e)}`);
     }
   }
 
@@ -89,6 +110,7 @@ export default function App() {
         query={query} onQuery={setQuery}
         status={status} onStatus={setStatus}
         onAdd={() => setDialogOpen(true)}
+        onAddBatch={() => setBatchOpen(true)}
         onPauseAll={() => withRefresh(api.pauseAll)}
         onResumeAll={() => withRefresh(api.resumeAll)}
         onClearCompleted={() => withRefresh(api.clearCompleted)}
@@ -99,6 +121,12 @@ export default function App() {
         <div className="flex items-start gap-2 px-3 py-2 bg-red-50 border-b border-red-200 text-sm text-red-700">
           <span className="flex-1 break-words">{error}</span>
           <button className="px-2 py-0.5 rounded bg-red-100 text-red-700 shrink-0" onClick={() => setError(null)}>✕</button>
+        </div>
+      )}
+      {info && (
+        <div className="flex items-start gap-2 px-3 py-2 bg-indigo-50 border-b border-indigo-200 text-sm text-indigo-700">
+          <span className="flex-1 break-words">{info}</span>
+          <button className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-700 shrink-0" onClick={() => setInfo(null)}>✕</button>
         </div>
       )}
       <div className="flex-1 overflow-auto">
@@ -118,6 +146,7 @@ export default function App() {
         />
       </div>
       <AddUrlDialog open={dialogOpen} onClose={() => setDialogOpen(false)} onAdd={handleAdd} />
+      <AddBatchDialog open={batchOpen} onClose={() => setBatchOpen(false)} onAdd={handleAddBatch} />
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <HlsVariantDialog event={mediaEvent} onClose={() => setMediaEvent(null)} onConfirm={handleHlsConfirm} />
     </div>

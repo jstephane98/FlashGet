@@ -13,6 +13,7 @@ pub mod dash;
 pub mod media_io;
 pub mod live;
 pub mod ytdlp;
+pub mod batch;
 
 use thiserror::Error;
 
