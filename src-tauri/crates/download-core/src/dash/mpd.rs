@@ -77,6 +77,8 @@ pub struct Mpd {
     pub dynamic: bool,
     /// Durée totale (s) depuis MPD@mediaPresentationDuration (0 si absente).
     pub duration_secs: f64,
+    /// MPD@minimumUpdatePeriod en secondes (cadence de refresh du live), si présent.
+    pub minimum_update_period: Option<f64>,
     pub periods: Vec<Period>,
 }
 
@@ -88,6 +90,7 @@ pub fn parse_mpd(xml: &str, base_url: &str) -> Result<Mpd, CoreError> {
     let duration_secs = attr(&root, "mediaPresentationDuration")
         .and_then(|s| parse_iso8601_duration(&s))
         .unwrap_or(0.0);
+    let minimum_update_period = attr(&root, "minimumUpdatePeriod").and_then(|s| parse_iso8601_duration(&s));
 
     let mpd_base = child_base_url(&root, base_url);
 
@@ -120,7 +123,7 @@ pub fn parse_mpd(xml: &str, base_url: &str) -> Result<Mpd, CoreError> {
         }
         periods.push(Period { adaptation_sets });
     }
-    Ok(Mpd { dynamic, duration_secs, periods })
+    Ok(Mpd { dynamic, duration_secs, minimum_update_period, periods })
 }
 
 /// Adressage d'une Representation : SegmentBase/SegmentList/SegmentTemplate au niveau
@@ -370,6 +373,21 @@ mod tests {
             }
             other => panic!("attendu Base, obtenu {other:?}"),
         }
+    }
+
+    #[test]
+    fn parses_minimum_update_period_for_dynamic() {
+        let xml = r#"<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="dynamic" minimumUpdatePeriod="PT2S"><Period/></MPD>"#;
+        let m = parse_mpd(xml, "https://h/p/m.mpd").unwrap();
+        assert!(m.dynamic);
+        assert_eq!(m.minimum_update_period, Some(2.0));
+    }
+
+    #[test]
+    fn minimum_update_period_absent_is_none() {
+        let xml = r#"<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static" mediaPresentationDuration="PT4S"><Period/></MPD>"#;
+        let m = parse_mpd(xml, "https://h/p/m.mpd").unwrap();
+        assert_eq!(m.minimum_update_period, None);
     }
 
     #[test]
