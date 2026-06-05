@@ -575,38 +575,13 @@ pub fn recover_interrupted_recordings(app: &AppHandle) {
                     })
                 })
                 .unwrap_or(false);
-            let work_v = work.clone();
-            let video = match tokio::task::spawn_blocking(move || {
-                download_core::media_io::concat_track(&work_v, "v", v_has_init)
-            })
-            .await
-            {
-                Ok(Ok(p)) => p,
-                _ => {
-                    eprintln!("recovery: concat video failed for {id}");
-                    return;
-                }
-            };
-            let audio = if has_audio {
-                let work_a = work.clone();
-                match tokio::task::spawn_blocking(move || {
-                    download_core::media_io::concat_track(&work_a, "a", a_has_init)
-                })
-                .await
-                {
-                    Ok(Ok(p)) => Some(p),
-                    _ => None,
-                }
-            } else {
-                None
-            };
-            let inputs = download_core::hls::remux::RemuxInputs {
-                video,
-                audio,
-                decryption_key: None,
-            };
-            use download_core::hls::remux::Remuxer;
-            match remux.remux(inputs, &dest).await {
+            // Clé ClearKey persistée par le moteur DASH live (None pour HLS / clair).
+            let decryption_key = std::fs::read_to_string(work.join("clearkey.hex"))
+                .ok()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty());
+            let audio_arg = if has_audio { Some(a_has_init) } else { None };
+            match download_core::media_io::finalize_and_remux(&work, v_has_init, audio_arg, decryption_key, &remux, &dest).await {
                 Ok(()) => {
                     let _ = std::fs::remove_dir_all(&work);
                     let bytes = std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
