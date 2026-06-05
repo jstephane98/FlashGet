@@ -227,8 +227,9 @@ async function sendPage(url, referrer) {
 
 // Bouton vidéo intelligent : envoie l'URL de page (yt-dlp d'abord côté app) + un flux
 // HLS/DASH sniffé en repli (kind "smart").
-async function sendSmart(url, referrer, fallbackUrl) {
+async function sendSmart(url, referrer, fallbackUrl, title) {
   const extras = { kind: "smart" };
+  if (title) extras.filename = title;
   if (fallbackUrl) {
     extras.fallback_url = fallbackUrl;
     extras.fallback_kind = isDashUrl(fallbackUrl) ? "dash" : "hls";
@@ -370,18 +371,19 @@ chrome.runtime.onMessage.addListener((req, _sender, sendResponse) => {
   }
   if (req.cmd === "smartDownload" && req.tabId != null) {
     (async () => {
-      let url, referrer;
+      let url, referrer, title;
       try {
         const tab = await chrome.tabs.get(req.tabId);
         url = tab && tab.url;
         referrer = url;
+        title = tab && tab.title;
       } catch (_e) {
         // pas d'onglet
       }
       if (!url) { sendResponse({ ok: false }); return; }
       const streams = detectedByTab.get(req.tabId) || [];
       const fallbackUrl = streams.length > 0 ? streams[0].url : undefined;
-      const ok = await sendSmart(url, referrer, fallbackUrl);
+      const ok = await sendSmart(url, referrer, fallbackUrl, title);
       sendResponse({ ok });
     })();
     return true; // réponse asynchrone

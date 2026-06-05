@@ -280,6 +280,7 @@ pub(crate) async fn probe_ytdlp(app: &AppHandle, url: &str, headers: RequestHead
 pub(crate) async fn probe_smart(
     app: &AppHandle,
     page_url: &str,
+    suggested_name: Option<String>,
     fallback_url: Option<String>,
     fallback_kind: Option<String>,
     headers: RequestHeaders,
@@ -289,10 +290,12 @@ pub(crate) async fn probe_smart(
         return Ok(());
     }
     if let Some(fb) = fallback_url {
+        // Repli : pas de titre via le moteur direct → on utilise le titre de la page
+        // (tab.title) transmis par l'extension, sinon « video » par défaut.
         let fr = if fallback_kind.as_deref() == Some("dash") {
-            probe_dash_inner(app, &fb, headers, None).await
+            probe_dash_inner(app, &fb, headers, suggested_name).await
         } else {
-            probe_hls_inner(app, &fb, headers, None).await
+            probe_hls_inner(app, &fb, headers, suggested_name).await
         };
         if fr.is_ok() {
             return Ok(());
