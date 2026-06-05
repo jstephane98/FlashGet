@@ -275,7 +275,22 @@ pub(crate) async fn probe_ytdlp(app: &AppHandle, url: &str, headers: RequestHead
 }
 
 async fn probe_ytdlp_inner(app: &AppHandle, url: &str, headers: RequestHeaders) -> Result<(), String> {
-    let (title, formats) = crate::ytdlp::probe_formats(app, url, &headers).await?;
+    // Certains sites (ex. YouTube) refusent l'extraction quand on transmet les en-têtes du
+    // navigateur (les cookies déclenchent un downgrade de client → « Requested format is not
+    // available »), alors que d'autres (ex. Facebook) en ont besoin. On essaie donc d'abord
+    // AVEC les en-têtes, puis on réessaie SANS en cas d'échec (= comportement « coller l'URL »
+    // qui fonctionne). Le jeu d'en-têtes qui a réussi est mémorisé pour que le téléchargement
+    // soit cohérent avec la sonde.
+    let has_headers =
+        headers.cookie.is_some() || headers.referrer.is_some() || headers.user_agent.is_some();
+    let (title, formats, effective_headers) = match crate::ytdlp::probe_formats(app, url, &headers).await {
+        Ok((t, f)) => (t, f, headers),
+        Err(_first) if has_headers => {
+            let (t, f) = crate::ytdlp::probe_formats(app, url, &RequestHeaders::default()).await?;
+            (t, f, RequestHeaders::default())
+        }
+        Err(e) => return Err(e),
+    };
     let selected = download_core::ytdlp::select_variants(&formats);
     if selected.is_empty() {
         return Err("aucune vidéo trouvée sur cette page".into());
@@ -301,7 +316,7 @@ async fn probe_ytdlp_inner(app: &AppHandle, url: &str, headers: RequestHeaders) 
         pending.retain(|_, pm| pm.created.elapsed() < ttl);
         pending.insert(probe_id.clone(), PendingMedia {
             probe: MediaProbe::Ytdlp(format_ids),
-            headers,
+            headers: effective_headers,
             file_name: file_name.clone(),
             source_url: url.to_string(),
             created: std::time::Instant::now(),
