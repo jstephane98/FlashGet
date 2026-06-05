@@ -78,6 +78,9 @@ export function DownloadRow({
           {d.kind === "dash" && (
             <span className="mr-1 px-1 py-0.5 text-[10px] rounded bg-violet-100 text-violet-700 align-middle">DASH</span>
           )}
+          {d.kind === "ytdlp" && (
+            <span className="mr-1 px-1 py-0.5 text-[10px] rounded bg-amber-100 text-amber-700 align-middle">yt-dlp</span>
+          )}
           {isRecording && (
             <span className="mr-1 px-1 py-0.5 text-[10px] rounded bg-red-100 text-red-700 align-middle">LIVE</span>
           )}

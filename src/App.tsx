@@ -69,7 +69,10 @@ export default function App() {
       await api.addDownload(url, DEST_DIR);
       await refresh();
     } catch (e) {
-      setError(`Impossible d'ajouter ce lien : ${String(e)}`);
+      const msg = String(e);
+      if (!msg.includes("__media_pending__")) {
+        setError(`Impossible d'ajouter ce lien : ${msg}`);
+      }
     }
   }
 

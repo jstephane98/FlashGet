@@ -68,4 +68,9 @@ describe("DownloadRow recording mode", () => {
     expect(screen.queryByText("LIVE")).toBeNull();
     expect(screen.queryByTitle("Arrêter (finalise l'enregistrement)")).toBeNull();
   });
+
+  it("affiche le badge yt-dlp pour kind ytdlp", () => {
+    renderRow({ kind: "ytdlp" });
+    expect(screen.getByText("yt-dlp")).toBeTruthy();
+  });
 });
