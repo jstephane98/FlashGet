@@ -118,9 +118,8 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
               type="checkbox"
               checked={notify}
               onChange={(e) => setNotify(e.target.checked)}
-              aria-label="Notifier à la fin d'un téléchargement"
             />
-            <Bell size={16} /> Notifier à la fin d'un téléchargement
+            <Bell size={16} aria-hidden="true" /> Notifier à la fin d'un téléchargement
           </label>
         </div>
         <div className="px-4 py-3">
