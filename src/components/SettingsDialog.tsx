@@ -3,7 +3,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import * as api from "../api";
 import type { BridgeInfo, Category, CategoryDirs } from "../types";
 import { CategoryIcon } from "./categoryIcons";
-import { Settings, Puzzle, X, Check, Video } from "lucide-react";
+import { Settings, Puzzle, X, Check, Video, Bell } from "lucide-react";
 
 const CATS: { key: Category; label: string }[] = [
   { key: "video", label: "Vidéos" },
@@ -22,6 +22,7 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
   const [bridge, setBridge] = useState<BridgeInfo | null>(null);
   const [copied, setCopied] = useState(false);
   const [autostart, setAutostart] = useState(false);
+  const [notify, setNotify] = useState(true);
   const [ytConnected, setYtConnected] = useState(false);
   const [ytBrowser, setYtBrowser] = useState<string>("");
 
@@ -35,6 +36,7 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
     api.getCategoryDirs().then(setDirs);
     api.getBridgeInfo().then(setBridge);
     api.getAutostart().then(setAutostart);
+    api.getNotifyOnComplete().then(setNotify);
     api.youtubeStatus().then(setYtConnected);
     api.getCookiesFromBrowser().then((b) => setYtBrowser(b ?? ""));
     const unsubYt = api.onYoutubeStatus(() => api.youtubeStatus().then(setYtConnected));
@@ -76,6 +78,7 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
     const bps = unlimited ? 0 : Math.round(speedValue * 1024 * 1024);
     await api.updateSettings(Math.max(1, Math.round(maxConcurrent)), bps);
     await api.setAutostart(autostart);
+    await api.setNotifyOnComplete(notify);
     onClose();
   }
 
@@ -107,6 +110,16 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
               onChange={(e) => setAutostart(e.target.checked)}
             />
             Démarrer avec Windows (lancement caché dans la zone de notification)
+          </label>
+        </div>
+        <div className="px-4 py-3 border-b border-border">
+          <label className="text-sm flex items-center gap-2 text-ink-soft">
+            <input
+              type="checkbox"
+              checked={notify}
+              onChange={(e) => setNotify(e.target.checked)}
+            />
+            <Bell size={16} aria-hidden="true" /> Notifier à la fin d'un téléchargement
           </label>
         </div>
         <div className="px-4 py-3">

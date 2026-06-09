@@ -311,6 +311,27 @@ impl Storage {
         Ok(())
     }
 
+    /// Notif système à la fin d'un téléchargement (clé `notify_on_complete`).
+    /// Défaut : activé (true), sauf valeur stockée "0"/"off".
+    pub fn get_notify_on_complete(&self) -> Result<bool, CoreError> {
+        let conn = self.conn.lock().unwrap();
+        let stored: Option<String> = conn
+            .query_row("SELECT value FROM settings WHERE key=?1", ["notify_on_complete"], |r| r.get::<_, String>(0))
+            .ok();
+        Ok(!matches!(stored.as_deref(), Some("0") | Some("off")))
+    }
+
+    pub fn set_notify_on_complete(&self, value: bool) -> Result<(), CoreError> {
+        let conn = self.conn.lock().unwrap();
+        let val = if value { "1" } else { "0" };
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value=?2",
+            rusqlite::params!["notify_on_complete", val],
+        )
+        .map_err(|e| CoreError::Storage(e.to_string()))?;
+        Ok(())
+    }
+
     pub fn get_settings(&self) -> Result<Settings, CoreError> {
         let conn = self.conn.lock().unwrap();
         let read = |key: &str| -> Option<String> {
@@ -738,6 +759,19 @@ mod tests {
         assert_eq!(s.get_cookies_from_browser().unwrap(), Some("chrome".into()));
         s.set_cookies_from_browser(None).unwrap();
         assert_eq!(s.get_cookies_from_browser().unwrap(), None);
+    }
+
+    #[test]
+    fn notify_on_complete_roundtrip_and_default_on() {
+        let s = Storage::open_in_memory().unwrap();
+        // Défaut : activé.
+        assert_eq!(s.get_notify_on_complete().unwrap(), true);
+        // Désactivation persistée.
+        s.set_notify_on_complete(false).unwrap();
+        assert_eq!(s.get_notify_on_complete().unwrap(), false);
+        // Réactivation persistée.
+        s.set_notify_on_complete(true).unwrap();
+        assert_eq!(s.get_notify_on_complete().unwrap(), true);
     }
 
     #[test]

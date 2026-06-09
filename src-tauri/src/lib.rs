@@ -26,6 +26,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let dir = app.path().app_data_dir().map_err(|e| Box::<dyn std::error::Error>::from(e.to_string()))?;
             std::fs::create_dir_all(&dir).ok();
@@ -123,6 +124,8 @@ pub fn run() {
             youtube::youtube_logout,
             youtube::get_cookies_from_browser,
             youtube::set_cookies_from_browser,
+            youtube::get_notify_on_complete,
+            youtube::set_notify_on_complete,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
