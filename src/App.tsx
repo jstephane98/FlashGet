@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import "./index.css";
 import { X } from "lucide-react";
 import type { Download, Priority, Category, DownloadStatus } from "./types";
@@ -27,7 +27,20 @@ export default function App() {
   const [category, setCategory] = useState<Category | "all">("all");
   const [status, setStatus] = useState<DownloadStatus | "all">("all");
   const [mediaEvent, setMediaEvent] = useState<MediaVariantsEvent | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+  const addingRef = useRef(false);
+  const probeTimeoutRef = useRef<number | null>(null);
   const [segs, setSegs] = useState<Record<string, { done: number; total: number }>>({});
+
+  function stopProbing() {
+    setAdding(false);
+    addingRef.current = false;
+    if (probeTimeoutRef.current != null) {
+      clearTimeout(probeTimeoutRef.current);
+      probeTimeoutRef.current = null;
+    }
+  }
 
   async function refresh() {
     setDownloads(await api.listDownloads());
@@ -51,8 +64,18 @@ export default function App() {
     });
     // Un download créé hors UI (capture par l'extension via le bridge) : rafraîchir la liste.
     const unAdded = api.onDownloadAdded(() => refresh());
-    const unMedia = api.onMediaVariants((e) => setMediaEvent(e));
-    const unMediaErr = api.onMediaError((e) => setError(`Vidéo : ${e.message}`));
+    const unMedia = api.onMediaVariants((e) => {
+      stopProbing();
+      setAddError(null);
+      setDialogOpen(false);   // ferme AddUrlDialog (sans effet si déjà fermée — cas extension)
+      setMediaEvent(e);       // ouvre HlsVariantDialog, déjà rempli
+    });
+    const unMediaErr = api.onMediaError((e) => {
+      const fromDialog = addingRef.current;  // lire AVANT stopProbing (qui le remet à false)
+      stopProbing();
+      if (fromDialog) setAddError(`Vidéo : ${e.message}`);
+      else setError(`Vidéo : ${e.message}`);
+    });
     return () => { un.then((f) => f()); unAdded.then((f) => f()); unMedia.then((f) => f()); unMediaErr.then((f) => f()); };
   }, []);
 
@@ -67,16 +90,30 @@ export default function App() {
   }
 
   async function handleAdd(url: string) {
-    setDialogOpen(false);
+    // La boîte reste ouverte : spinner pendant la sonde.
+    setAdding(true);
+    addingRef.current = true;
+    setAddError(null);
     setError(null);
     setInfo(null);
     try {
       await api.addDownload(url, DEST_DIR);
+      // Fichier normal : la sonde a réussi sans variantes → on ferme et on rafraîchit.
+      stopProbing();
+      setDialogOpen(false);
       await refresh();
     } catch (e) {
       const msg = String(e);
-      if (!msg.includes("__media_pending__")) {
-        setError(`Impossible d'ajouter ce lien : ${msg}`);
+      if (msg.includes("__media_pending__")) {
+        // Sonde média en tâche de fond : le spinner continue jusqu'à media://variants
+        // ou media://error. Filet de sécurité : timeout 60 s.
+        probeTimeoutRef.current = window.setTimeout(() => {
+          stopProbing();
+          setAddError("Délai dépassé — réessaie.");
+        }, 60000);
+      } else {
+        stopProbing();
+        setAddError(`Impossible d'ajouter ce lien : ${msg}`);
       }
     }
   }
@@ -110,7 +147,7 @@ export default function App() {
       <Toolbar
         query={query} onQuery={setQuery}
         status={status} onStatus={setStatus}
-        onAdd={() => setDialogOpen(true)}
+        onAdd={() => { stopProbing(); setAddError(null); setDialogOpen(true); }}
         onAddBatch={() => setBatchOpen(true)}
         onPauseAll={() => withRefresh(api.pauseAll)}
         onResumeAll={() => withRefresh(api.resumeAll)}
@@ -146,7 +183,13 @@ export default function App() {
           onRemove={(id) => withRefresh(() => api.removeFromList(id))}
         />
       </div>
-      <AddUrlDialog open={dialogOpen} onClose={() => setDialogOpen(false)} onAdd={handleAdd} />
+      <AddUrlDialog
+        open={dialogOpen}
+        busy={adding}
+        error={addError}
+        onClose={() => { stopProbing(); setAddError(null); setDialogOpen(false); }}
+        onAdd={handleAdd}
+      />
       <AddBatchDialog open={batchOpen} onClose={() => setBatchOpen(false)} onAdd={handleAddBatch} />
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <HlsVariantDialog event={mediaEvent} onClose={() => setMediaEvent(null)} onConfirm={handleHlsConfirm} />
