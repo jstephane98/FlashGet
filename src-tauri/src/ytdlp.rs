@@ -81,6 +81,16 @@ fn reconcile_output(app: &AppHandle, id: &str, dest: &Path) {
     }
 }
 
+/// Referer seul (utilisé quand les cookies passent par --cookies, pas par --add-header Cookie:).
+fn referer_args(headers: &RequestHeaders) -> Vec<String> {
+    let mut a = Vec::new();
+    if let Some(r) = &headers.referrer {
+        a.push("--add-header".into());
+        a.push(format!("Referer:{r}"));
+    }
+    a
+}
+
 /// Arguments d'en-têtes pour yt-dlp. On NE transmet PAS le User-Agent du navigateur :
 /// yt-dlp gère son propre client/UA par site, et un UA de navigateur desktop casse
 /// l'extraction YouTube (« Requested format is not available »). Cookies + Referer sont
@@ -105,7 +115,13 @@ pub async fn probe_formats(
     headers: &RequestHeaders,
 ) -> Result<(String, Vec<download_core::ytdlp::YtdlpFormat>), String> {
     let mut args: Vec<String> = vec!["-J".into(), "--no-playlist".into(), "--no-warnings".into()];
-    args.extend(header_args(headers));
+    let yt = crate::youtube::cookie_args(app, url);
+    if yt.is_empty() {
+        args.extend(header_args(headers));
+    } else {
+        args.extend(yt);
+        args.extend(referer_args(headers));
+    }
     args.push(url.to_string());
 
     let cmd = app
@@ -155,7 +171,13 @@ pub async fn run_download(
         args.push("--ffmpeg-location".into());
         args.push(ff);
     }
-    args.extend(header_args(headers));
+    let yt = crate::youtube::cookie_args(&app, url);
+    if yt.is_empty() {
+        args.extend(header_args(headers));
+    } else {
+        args.extend(yt);
+        args.extend(referer_args(headers));
+    }
     args.push(url.to_string());
 
     let cmd = app
