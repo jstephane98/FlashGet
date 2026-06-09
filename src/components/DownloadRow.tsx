@@ -108,22 +108,22 @@ export function DownloadRow({
   return (
     <div className="flex items-center gap-3 px-4 py-3 border-b border-border text-sm hover:bg-surface/60">
       <div className="flex-[2] min-w-0">
-        <div className="flex items-center gap-1.5 font-semibold truncate text-ink">
+        <div className="flex items-center gap-1.5 font-semibold text-ink min-w-0">
           {/* Status dot */}
           <span className={`inline-block shrink-0 w-2 h-2 rounded-full ${dotClass}`} />
           {d.kind === "hls" && (
-            <span className="px-1 py-0.5 text-[10px] rounded bg-surface text-ink-soft border border-border align-middle">HLS</span>
+            <span className="shrink-0 px-1 py-0.5 text-[10px] rounded bg-surface text-ink-soft border border-border align-middle">HLS</span>
           )}
           {d.kind === "dash" && (
-            <span className="px-1 py-0.5 text-[10px] rounded bg-surface text-ink-soft border border-border align-middle">DASH</span>
+            <span className="shrink-0 px-1 py-0.5 text-[10px] rounded bg-surface text-ink-soft border border-border align-middle">DASH</span>
           )}
           {d.kind === "ytdlp" && (
-            <span className="px-1 py-0.5 text-[10px] rounded bg-surface text-accent-bright border border-border align-middle">yt-dlp</span>
+            <span className="shrink-0 px-1 py-0.5 text-[10px] rounded bg-surface text-accent-bright border border-border align-middle">yt-dlp</span>
           )}
           {isRecording && (
-            <span className="px-1 py-0.5 text-[10px] rounded bg-err/20 text-err border border-err/40 align-middle">LIVE</span>
+            <span className="shrink-0 px-1 py-0.5 text-[10px] rounded bg-err/20 text-err border border-err/40 align-middle">LIVE</span>
           )}
-          {d.file_name}
+          <span className="truncate">{d.file_name}</span>
         </div>
         <div className="h-1.5 mt-1.5 rounded bg-surface overflow-hidden">
           {isRecording ? (
@@ -137,7 +137,7 @@ export function DownloadRow({
       </div>
       <div className="flex-1"><CategoryPill value={d.category} /></div>
       <div className="flex-1"><PriorityPill value={d.priority} onChange={onPriority} /></div>
-      <div className="flex-1 font-mono text-ink-soft text-xs">{stateLabel}</div>
+      <div className="flex-1 text-ink-soft text-xs">{stateLabel}</div>
       <div className="flex-1 font-mono text-xs">
         {d.status === "downloading" || isRecording
           ? <span className="text-accent-bright">{formatSpeed(speed)}</span>
