@@ -2,31 +2,32 @@
 <html lang="fr">
   <head>
     <meta charset="utf-8" />
-    <style>
-      body { font-family: system-ui, sans-serif; max-width: 420px; margin: 24px auto; padding: 0 16px; }
-      label { display: block; font-size: 13px; margin: 12px 0 4px; }
-      input { width: 100%; box-sizing: border-box; padding: 6px; }
-      textarea { width: 100%; box-sizing: border-box; padding: 6px; font-family: inherit; }
-      button { margin-top: 16px; padding: 6px 14px; cursor: pointer; }
-      #saved { color: #16a34a; font-size: 13px; margin-left: 8px; }
-    </style>
+    <link rel="stylesheet" href="ui.css" />
+    <style>body{max-width:420px;margin:24px auto;padding:0 16px}</style>
   </head>
   <body>
+
     <h3>Options FlashGet</h3>
-    <label for="token">Jeton d'appairage (copié depuis l'application)</label>
-    <input id="token" type="text" placeholder="Coller le jeton…" />
-    <label for="port">Port</label>
-    <input id="port" type="number" value="15151" />
-    <label style="display: flex; align-items: center; gap: 6px; margin-top: 14px;">
-      <input id="autoCapture" type="checkbox" style="width: auto;" />
+
+    <label class="options-label" for="token">Jeton d'appairage (copié depuis l'application)</label>
+    <input id="token" class="fg-input" type="text" placeholder="Coller le jeton…" />
+
+    <label class="options-label" for="port">Port</label>
+    <input id="port" class="fg-input" type="number" value="15151" />
+
+    <label class="options-checkbox-row">
+      <input id="autoCapture" type="checkbox" />
       Capture automatique des téléchargements
     </label>
-    <label for="captureTypes">Types capturés (extensions, séparées par des virgules)</label>
-    <textarea id="captureTypes" rows="4"></textarea>
-    <div>
-      <button id="save">Enregistrer</button>
+
+    <label class="options-label" for="captureTypes">Types capturés (extensions, séparées par des virgules)</label>
+    <textarea id="captureTypes" class="fg-input fg-mono" rows="4"></textarea>
+
+    <div style="display:flex;align-items:center;margin-top:16px">
+      <button id="save" class="fg-cta" style="width:auto;padding:10px 24px">Enregistrer</button>
       <span id="saved"></span>
     </div>
+
     <script src="options.js" type="module"></script>
   </body>
 </html>

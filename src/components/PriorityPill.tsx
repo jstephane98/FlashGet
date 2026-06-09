@@ -1,9 +1,9 @@
 import type { Priority } from "../types";
 
 const STYLE: Record<Priority, string> = {
-  high: "bg-red-50 text-red-600",
-  normal: "bg-indigo-50 text-indigo-600",
-  low: "bg-gray-100 text-gray-500",
+  high: "bg-surface text-accent-bright border border-accent/50",
+  normal: "bg-surface text-ink-soft border border-border",
+  low: "bg-surface text-ink-mute border border-border",
 };
 const LABEL: Record<Priority, string> = { high: "HAUTE", normal: "NORMALE", low: "BASSE" };
 
@@ -16,7 +16,7 @@ export function PriorityPill({
 }) {
   return (
     <select
-      className={`text-[10px] font-bold rounded-full px-2 py-0.5 border-0 cursor-pointer ${STYLE[value]}`}
+      className={`text-[10px] font-bold rounded-full px-2 py-0.5 cursor-pointer ${STYLE[value]}`}
       value={value}
       onChange={(e) => onChange(e.target.value as Priority)}
       title="Priorité"

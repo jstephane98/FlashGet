@@ -73,47 +73,85 @@ export function DownloadRow({
       : isSegmented && seg && d.status === "downloading"
         ? `En cours · ${seg.done}/${seg.total} segments`
         : `${STATUS_LABEL[d.status]} · ${pct}%`;
+  // Status indicator dot classes
+  const dotClass =
+    isRecording
+      ? "bg-err animate-pulse"
+      : d.status === "downloading"
+        ? "bg-accent shadow-[0_0_8px_#f59e0b]"
+        : d.status === "completed"
+          ? "bg-ok"
+          : d.status === "paused"
+            ? "bg-accent-soft"
+            : d.status === "queued"
+              ? "bg-queued"
+              : d.status === "error"
+                ? "bg-err"
+                : "bg-ink-mute";
+
+  // Progress bar fill classes
+  const barFill =
+    isRecording
+      ? "bg-err animate-pulse"
+      : indeterminate
+        ? "bg-accent animate-pulse"
+        : d.status === "completed"
+          ? "bg-okdim transition-[width] duration-300"
+          : d.status === "paused"
+            ? "bg-accent-soft transition-[width] duration-300"
+            : d.status === "queued"
+              ? "bg-queued transition-[width] duration-300"
+              : d.status === "error"
+                ? "bg-err transition-[width] duration-300"
+                : "bg-accent transition-[width] duration-300";
+
   return (
-    <div className="flex items-center gap-3 px-3 py-2 border-b border-gray-100 text-sm">
+    <div className="flex items-center gap-3 px-4 py-3 border-b border-border text-sm hover:bg-surface/60">
       <div className="flex-[2] min-w-0">
-        <div className="font-semibold truncate">
+        <div className="flex items-center gap-1.5 font-semibold text-ink min-w-0">
+          {/* Status dot */}
+          <span className={`inline-block shrink-0 w-2 h-2 rounded-full ${dotClass}`} />
           {d.kind === "hls" && (
-            <span className="mr-1 px-1 py-0.5 text-[10px] rounded bg-indigo-100 text-indigo-700 align-middle">HLS</span>
+            <span className="shrink-0 px-1 py-0.5 text-[10px] rounded bg-surface text-ink-soft border border-border align-middle">HLS</span>
           )}
           {d.kind === "dash" && (
-            <span className="mr-1 px-1 py-0.5 text-[10px] rounded bg-violet-100 text-violet-700 align-middle">DASH</span>
+            <span className="shrink-0 px-1 py-0.5 text-[10px] rounded bg-surface text-ink-soft border border-border align-middle">DASH</span>
           )}
           {d.kind === "ytdlp" && (
-            <span className="mr-1 px-1 py-0.5 text-[10px] rounded bg-amber-100 text-amber-700 align-middle">yt-dlp</span>
+            <span className="shrink-0 px-1 py-0.5 text-[10px] rounded bg-surface text-accent-bright border border-border align-middle">yt-dlp</span>
           )}
           {isRecording && (
-            <span className="mr-1 px-1 py-0.5 text-[10px] rounded bg-red-100 text-red-700 align-middle">LIVE</span>
+            <span className="shrink-0 px-1 py-0.5 text-[10px] rounded bg-err/20 text-err border border-err/40 align-middle">LIVE</span>
           )}
-          {d.file_name}
+          <span className="truncate">{d.file_name}</span>
         </div>
-        <div className="h-1.5 mt-1 rounded bg-gray-200 overflow-hidden">
+        <div className="h-1.5 mt-1.5 rounded bg-surface overflow-hidden">
           {isRecording ? (
-            <div className="h-full w-1/3 rounded bg-red-500 animate-pulse" />
+            <div className={`h-full w-1/3 rounded ${barFill}`} />
           ) : indeterminate ? (
-            <div className="h-full w-1/3 rounded bg-indigo-600 animate-pulse" />
+            <div className={`h-full w-1/3 rounded ${barFill}`} />
           ) : (
-            <div className={`h-full rounded ${d.status === "completed" ? "bg-green-500" : "bg-indigo-600"}`} style={{ width: `${pct}%` }} />
+            <div className={`h-full rounded ${barFill}`} style={{ width: `${pct}%` }} />
           )}
         </div>
       </div>
       <div className="flex-1"><CategoryPill value={d.category} /></div>
       <div className="flex-1"><PriorityPill value={d.priority} onChange={onPriority} /></div>
-      <div className="flex-1">{stateLabel}</div>
-      <div className="flex-1">{d.status === "downloading" || isRecording ? formatSpeed(speed) : "—"}</div>
+      <div className="flex-1 text-ink-soft text-xs">{stateLabel}</div>
+      <div className="flex-1 font-mono text-xs">
+        {d.status === "downloading" || isRecording
+          ? <span className="text-accent-bright">{formatSpeed(speed)}</span>
+          : <span className="text-ink-mute">—</span>}
+      </div>
       <div className="flex gap-1 items-center">
         {isRecording ? (
-          <button className="px-2 py-1 rounded bg-gray-100" onClick={onStop} title="Arrêter (finalise l'enregistrement)">⏹</button>
+          <button className="px-2 py-1 rounded bg-surface text-ink-soft hover:text-ink" onClick={onStop} title="Arrêter (finalise l'enregistrement)">⏹</button>
         ) : d.status === "downloading" ? (
-          <button className="px-2 py-1 rounded bg-gray-100" onClick={onPause}>⏸</button>
+          <button className="px-2 py-1 rounded bg-surface text-ink-soft hover:text-ink" onClick={onPause}>⏸</button>
         ) : d.status !== "completed" ? (
-          <button className="px-2 py-1 rounded bg-gray-100" onClick={onResume}>▶</button>
+          <button className="px-2 py-1 rounded bg-surface text-ink-soft hover:text-ink" onClick={onResume}>▶</button>
         ) : null}
-        <button className="px-2 py-1 rounded bg-gray-100" onClick={onCancel} title="Annuler (efface le fichier)">✕</button>
+        <button className="px-2 py-1 rounded bg-surface text-ink-soft hover:text-ink" onClick={onCancel} title="Annuler (efface le fichier)">✕</button>
         <RowMenu canOpen={d.status === "completed"} onOpenFile={onOpenFile} onOpenFolder={onOpenFolder} onRemove={onRemove} />
       </div>
     </div>

@@ -18,13 +18,13 @@ export function CategoryTabs({
   onChange: (c: Category | "all") => void;
 }) {
   return (
-    <div className="flex gap-1 px-3 pt-2 bg-gray-50 border-b border-gray-200 text-[11px]">
+    <div className="flex gap-1 px-3 pt-2 bg-bg border-b border-border text-[11px]">
       {TABS.map((t) => (
         <button
           key={t.key}
           onClick={() => onChange(t.key)}
           className={`px-3 py-1.5 rounded-t-md ${
-            active === t.key ? "bg-white text-indigo-600 font-semibold border border-gray-200 border-b-white -mb-px" : "text-gray-500"
+            active === t.key ? "bg-surface text-accent-bright font-semibold border border-border border-b-surface -mb-px" : "text-ink-soft"
           }`}
         >
           {t.label}

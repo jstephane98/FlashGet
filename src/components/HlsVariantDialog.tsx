@@ -36,37 +36,45 @@ export function HlsVariantDialog({
   }, [event]);
   if (!event) return null;
   return (
-    <div className="fixed inset-0 bg-black/30 flex items-center justify-center" onClick={onClose}>
-      <div className="bg-white rounded-lg p-5 w-[480px]" onClick={(e) => e.stopPropagation()}>
-        <h3 className="font-semibold mb-1">Télécharger la vidéo</h3>
+    <div className="fixed inset-0 bg-deep/80 flex items-center justify-center" onClick={onClose}>
+      <div className="bg-bg border border-border rounded-xl p-5 w-[480px] text-ink shadow-[0_20px_50px_rgba(0,0,0,.5)]" onClick={(e) => e.stopPropagation()}>
+        <h3 className="font-bold text-ink mb-1">Télécharger la vidéo</h3>
         <div className="flex items-center gap-1 mb-3">
           <input
-            className="flex-1 text-sm border border-gray-300 rounded px-2 py-1"
+            className="flex-1 text-sm bg-surface text-ink placeholder:text-ink-mute border border-border rounded px-2 py-1"
             value={name}
             onChange={(e) => setName(e.target.value)}
             aria-label="Nom du fichier"
           />
-          <span className="text-sm text-gray-400 shrink-0">.mp4</span>
+          <span className="text-sm text-ink-mute shrink-0">.mp4</span>
         </div>
         <div className="space-y-1 max-h-64 overflow-auto">
           {event.variants.map((v) => (
-            <label key={v.index} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 cursor-pointer">
+            <label
+              key={v.index}
+              className={
+                "flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer bg-surface border " +
+                (selected === v.index
+                  ? "border-accent text-accent-bright"
+                  : "border-border hover:border-accent/50")
+              }
+            >
               <input
                 type="radio"
                 name="variant"
                 checked={selected === v.index}
                 onChange={() => setSelected(v.index)}
               />
-              <span className="text-sm">{label(v)}</span>
+              <span className="text-sm font-mono">{label(v)}</span>
             </label>
           ))}
         </div>
         <div className="flex justify-end gap-2 mt-4">
-          <button className="px-3 py-1.5 text-sm rounded-md bg-gray-100" onClick={onClose}>
+          <button className="px-3 py-1.5 text-sm rounded-md bg-surface text-ink-soft border border-border" onClick={onClose}>
             Annuler
           </button>
           <button
-            className="px-3 py-1.5 text-sm rounded-md bg-indigo-600 text-white font-semibold"
+            className="px-3 py-1.5 text-sm rounded-md cta-grad font-semibold"
             onClick={() => onConfirm(event.probe_id, selected, name.trim())}
           >
             Télécharger

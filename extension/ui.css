@@ -1,0 +1,232 @@
+@font-face { font-family:"Archivo"; font-weight:500; font-display:swap; src:url("fonts/archivo-500.woff2") format("woff2"); }
+@font-face { font-family:"Archivo"; font-weight:700; font-display:swap; src:url("fonts/archivo-700.woff2") format("woff2"); }
+@font-face { font-family:"Archivo"; font-weight:800; font-display:swap; src:url("fonts/archivo-800.woff2") format("woff2"); }
+@font-face { font-family:"JetBrains Mono"; font-weight:500; font-display:swap; src:url("fonts/jetbrains-mono-500.woff2") format("woff2"); }
+@font-face { font-family:"JetBrains Mono"; font-weight:700; font-display:swap; src:url("fonts/jetbrains-mono-700.woff2") format("woff2"); }
+
+:root{
+  --bg:#0f172a;
+  --surface:#1e293b;
+  --border:#334155;
+  --ink:#e2e8f0;
+  --ink-soft:#94a3b8;
+  --ink-mute:#64748b;
+  --accent:#f59e0b;
+  --accent-soft:#fbbf24;
+  --accent-ink:#3b1d00;
+  --ok:#34d399;
+}
+
+*{ box-sizing:border-box; }
+
+body{
+  font-family:"Archivo",system-ui,sans-serif;
+  background:var(--bg);
+  color:var(--ink);
+  margin:0;
+}
+
+h3{
+  font-weight:800;
+  margin:0 0 16px;
+}
+
+hr{
+  border:none;
+  border-top:1px solid var(--border);
+  margin:14px 0;
+}
+
+.muted{
+  color:var(--ink-soft);
+  font-size:12px;
+}
+
+/* CTA button (amber gradient) */
+.fg-cta{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  width:100%;
+  background-image:linear-gradient(160deg,var(--accent-soft),var(--accent));
+  color:var(--accent-ink);
+  font-weight:800;
+  border:none;
+  border-radius:11px;
+  padding:12px;
+  font-size:14px;
+  cursor:pointer;
+  box-shadow:0 6px 18px rgba(245,158,11,.35);
+  font-family:inherit;
+}
+
+.fg-cta:hover{
+  filter:brightness(1.08);
+}
+
+/* Secondary button */
+.fg-btn{
+  width:100%;
+  background:var(--surface);
+  border:1px solid var(--border);
+  color:var(--ink);
+  border-radius:9px;
+  padding:9px 12px;
+  cursor:pointer;
+  margin-top:6px;
+  font-family:inherit;
+  font-size:13px;
+}
+
+.fg-btn:hover{
+  background:#263347;
+}
+
+/* Text / textarea input */
+.fg-input{
+  width:100%;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:9px;
+  padding:10px 11px;
+  color:var(--ink);
+  font-size:13px;
+  font-family:inherit;
+  resize:vertical;
+}
+
+.fg-input::placeholder{
+  color:var(--ink-mute);
+}
+
+.fg-input:focus{
+  outline:none;
+  border-color:var(--accent);
+}
+
+.fg-mono{
+  font-family:"JetBrains Mono",monospace;
+}
+
+/* Status dot */
+.dot{
+  width:8px;
+  height:8px;
+  border-radius:50%;
+  display:inline-block;
+  flex-shrink:0;
+}
+
+.on{
+  background:var(--ok);
+  box-shadow:0 0 7px var(--ok);
+}
+
+.off{
+  background:var(--ink-mute);
+}
+
+/* JS-toggled visibility — MUST stay */
+.hidden{ display:none; }
+
+/* Popup layout */
+.head{
+  display:flex;
+  align-items:center;
+  gap:9px;
+  padding:14px 16px;
+  border-bottom:1px solid var(--border);
+}
+
+.logo{
+  width:24px;
+  height:24px;
+  border-radius:7px;
+  background:linear-gradient(160deg,var(--accent-soft),var(--accent));
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  color:var(--accent-ink);
+  font-weight:800;
+  font-size:14px;
+  flex-shrink:0;
+}
+
+.brand{
+  font-weight:800;
+  font-size:14px;
+}
+
+.status{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  font-size:12px;
+}
+
+.body{
+  padding:16px;
+}
+
+/* URL section separator */
+.url-section-label{
+  font-size:11px;
+  font-weight:700;
+  text-transform:uppercase;
+  letter-spacing:.06em;
+  color:var(--ink-mute);
+  display:flex;
+  align-items:center;
+  gap:8px;
+  margin:14px 0 10px;
+}
+
+.url-section-label::before,
+.url-section-label::after{
+  content:"";
+  flex:1;
+  height:1px;
+  background:var(--border);
+}
+
+/* Toast */
+#toast{
+  font-size:12px;
+  color:var(--ok);
+  margin-top:8px;
+  min-height:14px;
+}
+
+/* Options page */
+.options-label{
+  display:block;
+  font-size:12px;
+  color:var(--ink-soft);
+  margin:14px 0 5px;
+  font-weight:500;
+}
+
+.options-checkbox-row{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  margin-top:14px;
+  font-size:13px;
+  color:var(--ink);
+  cursor:pointer;
+}
+
+.options-checkbox-row input[type="checkbox"]{
+  width:16px;
+  height:16px;
+  accent-color:var(--accent);
+  cursor:pointer;
+  flex-shrink:0;
+}
+
+#saved{
+  color:var(--ok);
+  font-size:13px;
+  margin-left:8px;
+}

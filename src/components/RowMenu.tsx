@@ -14,23 +14,23 @@ export function RowMenu({
   const [open, setOpen] = useState(false);
   return (
     <div className="relative">
-      <button className="px-2 py-1 rounded bg-gray-100" onClick={() => setOpen((o) => !o)} title="Actions">⋯</button>
+      <button className="px-2 py-1 rounded bg-surface text-ink-soft hover:text-ink" onClick={() => setOpen((o) => !o)} title="Actions">⋯</button>
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 top-8 z-20 w-44 bg-white border border-gray-200 rounded-lg shadow-lg text-sm overflow-hidden">
+          <div className="absolute right-0 top-8 z-20 w-44 bg-surface border border-border rounded-lg shadow-[0_20px_50px_rgba(0,0,0,.5)] text-sm text-ink overflow-hidden">
             <button
-              className="block w-full text-left px-3 py-2 hover:bg-gray-50 disabled:opacity-40"
+              className="block w-full text-left px-3 py-2 hover:bg-bg disabled:opacity-40"
               disabled={!canOpen}
               onClick={() => { setOpen(false); onOpenFile(); }}
             >📂 Ouvrir le fichier</button>
             <button
-              className="block w-full text-left px-3 py-2 hover:bg-gray-50 disabled:opacity-40"
+              className="block w-full text-left px-3 py-2 hover:bg-bg disabled:opacity-40"
               disabled={!canOpen}
               onClick={() => { setOpen(false); onOpenFolder(); }}
             >🗂 Ouvrir le dossier</button>
             <button
-              className="block w-full text-left px-3 py-2 hover:bg-gray-50 border-t border-gray-100"
+              className="block w-full text-left px-3 py-2 hover:bg-bg border-t border-border"
               onClick={() => { setOpen(false); onRemove(); }}
             >🗑 Retirer de la liste</button>
           </div>

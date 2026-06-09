@@ -105,7 +105,7 @@ export default function App() {
   const visible = filterDownloads(downloads, { query, category, status });
 
   return (
-    <div className="h-screen flex flex-col">
+    <div className="h-screen flex flex-col bg-bg text-ink">
       <Toolbar
         query={query} onQuery={setQuery}
         status={status} onStatus={setStatus}
@@ -118,15 +118,15 @@ export default function App() {
       />
       <CategoryTabs active={category} onChange={setCategory} />
       {error && (
-        <div className="flex items-start gap-2 px-3 py-2 bg-red-50 border-b border-red-200 text-sm text-red-700">
+        <div className="flex items-start gap-2 px-3 py-2 bg-err/10 border-b border-err/40 text-sm text-err">
           <span className="flex-1 break-words">{error}</span>
-          <button className="px-2 py-0.5 rounded bg-red-100 text-red-700 shrink-0" onClick={() => setError(null)}>✕</button>
+          <button className="px-2 py-0.5 rounded bg-err/20 text-err shrink-0" onClick={() => setError(null)}>✕</button>
         </div>
       )}
       {info && (
-        <div className="flex items-start gap-2 px-3 py-2 bg-indigo-50 border-b border-indigo-200 text-sm text-indigo-700">
+        <div className="flex items-start gap-2 px-3 py-2 bg-accent/10 border-b border-accent/40 text-sm text-accent-bright">
           <span className="flex-1 break-words">{info}</span>
-          <button className="px-2 py-0.5 rounded bg-indigo-100 text-indigo-700 shrink-0" onClick={() => setInfo(null)}>✕</button>
+          <button className="px-2 py-0.5 rounded bg-accent/20 text-accent-bright shrink-0" onClick={() => setInfo(null)}>✕</button>
         </div>
       )}
       <div className="flex-1 overflow-auto">

@@ -24,19 +24,19 @@ export function Toolbar({
   onSettings: () => void;
 }) {
   return (
-    <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-200 bg-white">
-      <button className="px-3 py-1.5 text-sm rounded-md bg-indigo-600 text-white font-semibold" onClick={onAdd}>+ Ajouter</button>
-      <button className="px-3 py-1.5 text-sm rounded-md bg-indigo-50 text-indigo-700 font-semibold border border-indigo-200" onClick={onAddBatch}>+ Lot</button>
-      <button className="px-3 py-1.5 text-sm rounded-md bg-gray-100 text-gray-600" onClick={onPauseAll}>⏸ Tout</button>
-      <button className="px-3 py-1.5 text-sm rounded-md bg-gray-100 text-gray-600" onClick={onResumeAll}>▶ Tout</button>
+    <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-surface">
+      <button className="px-3 py-1.5 text-sm rounded-md cta-grad font-semibold" onClick={onAdd}>+ Ajouter</button>
+      <button className="px-3 py-1.5 text-sm rounded-md bg-bg text-ink font-semibold border border-border" onClick={onAddBatch}>+ Lot</button>
+      <button className="px-3 py-1.5 text-sm rounded-md bg-bg text-ink-soft border border-border" onClick={onPauseAll}>⏸ Tout</button>
+      <button className="px-3 py-1.5 text-sm rounded-md bg-bg text-ink-soft border border-border" onClick={onResumeAll}>▶ Tout</button>
       <input
-        className="flex-1 bg-gray-100 rounded-md px-3 py-1.5 text-sm"
+        className="flex-1 bg-bg text-ink placeholder:text-ink-mute border border-border rounded-md px-3 py-1.5 text-sm"
         placeholder="🔍 Rechercher par nom…"
         value={query}
         onChange={(e) => onQuery(e.target.value)}
       />
       <select
-        className="border border-gray-200 rounded-md px-2 py-1.5 text-sm bg-white"
+        className="border border-border rounded-md px-2 py-1.5 text-sm bg-bg text-ink"
         value={status}
         onChange={(e) => onStatus(e.target.value as DownloadStatus | "all")}
       >
@@ -48,8 +48,8 @@ export function Toolbar({
         <option value="completed">Terminé</option>
         <option value="error">Erreur</option>
       </select>
-      <button className="px-3 py-1.5 text-sm rounded-md bg-gray-100 text-gray-600" onClick={onClearCompleted} title="Vider les terminés">🧹</button>
-      <button className="px-3 py-1.5 text-sm rounded-md bg-gray-100 text-gray-600" onClick={onSettings} title="Réglages">⚙</button>
+      <button className="px-3 py-1.5 text-sm rounded-md bg-bg text-ink-soft border border-border" onClick={onClearCompleted} title="Vider les terminés">🧹</button>
+      <button className="px-3 py-1.5 text-sm rounded-md bg-bg text-ink-soft border border-border" onClick={onSettings} title="Réglages">⚙</button>
     </div>
   );
 }
