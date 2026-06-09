@@ -133,3 +133,22 @@ export function getAutostart(): Promise<boolean> {
 export function setAutostart(enabled: boolean): Promise<void> {
   return invoke("set_autostart", { enabled });
 }
+
+export function youtubeLogin(): Promise<void> {
+  return invoke("youtube_login");
+}
+export function youtubeStatus(): Promise<boolean> {
+  return invoke<boolean>("youtube_status");
+}
+export function youtubeLogout(): Promise<void> {
+  return invoke("youtube_logout");
+}
+export function getCookiesFromBrowser(): Promise<string | null> {
+  return invoke<string | null>("get_cookies_from_browser");
+}
+export function setCookiesFromBrowser(value: string | null): Promise<void> {
+  return invoke("set_cookies_from_browser", { value });
+}
+export function onYoutubeStatus(cb: () => void): Promise<UnlistenFn> {
+  return listen("youtube://status", () => cb());
+}

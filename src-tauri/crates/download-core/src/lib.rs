@@ -14,6 +14,7 @@ pub mod media_io;
 pub mod live;
 pub mod ytdlp;
 pub mod batch;
+pub mod cookies;
 
 use thiserror::Error;
 
