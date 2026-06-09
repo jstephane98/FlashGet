@@ -873,6 +873,20 @@ fn launch(app: &AppHandle, download: Download, handle: DownloadHandle) {
                 if let Err(e) = st.storage.update_state(&id_for_rx, p.downloaded_bytes, p.status) {
                     eprintln!("failed to persist download {id_for_rx}: {e}");
                 }
+                // Notif système une seule fois par transition vers un état terminal.
+                let is_terminal_notify = matches!(p.status, DownloadStatus::Completed | DownloadStatus::Error)
+                    && last_persisted != Some(p.status);
+                if is_terminal_notify && st.storage.get_notify_on_complete().unwrap_or(true) {
+                    let file_name = st.storage.get_by_id(&id_for_rx).ok().flatten()
+                        .map(|d| d.file_name)
+                        .unwrap_or_else(|| id_for_rx.clone());
+                    let (title, body) = match p.status {
+                        DownloadStatus::Completed => ("Téléchargement terminé", file_name),
+                        _ => ("Échec du téléchargement", file_name),
+                    };
+                    use tauri_plugin_notification::NotificationExt;
+                    let _ = app_for_rx.notification().builder().title(title).body(&body).show();
+                }
                 last_persisted = Some(p.status);
             }
         }
