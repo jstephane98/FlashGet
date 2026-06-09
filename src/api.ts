@@ -27,6 +27,10 @@ export function onMediaError(cb: (e: MediaErrorEvent) => void): Promise<Unlisten
   return listen<MediaErrorEvent>("media://error", (e) => cb(e.payload));
 }
 
+export function onMediaProbing(cb: () => void): Promise<UnlistenFn> {
+  return listen("media://probing", () => cb());
+}
+
 export function addMediaDownload(probeId: string, variantIndex: number, fileName: string): Promise<Download> {
   return invoke<Download>("add_media_download", { probeId, variantIndex, fileName });
 }

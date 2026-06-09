@@ -11,6 +11,7 @@ import { AddBatchDialog } from "./components/AddBatchDialog";
 import { DownloadTable } from "./components/DownloadTable";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { HlsVariantDialog } from "./components/HlsVariantDialog";
+import { ProbingOverlay } from "./components/ProbingOverlay";
 import type { MediaVariantsEvent } from "./api";
 
 const DEST_DIR = "";
@@ -31,6 +32,8 @@ export default function App() {
   const [addError, setAddError] = useState<string | null>(null);
   const addingRef = useRef(false);
   const probeTimeoutRef = useRef<number | null>(null);
+  const [extProbing, setExtProbing] = useState(false);
+  const extProbeTimeoutRef = useRef<number | null>(null);
   const [segs, setSegs] = useState<Record<string, { done: number; total: number }>>({});
 
   function stopProbing() {
@@ -39,6 +42,14 @@ export default function App() {
     if (probeTimeoutRef.current != null) {
       clearTimeout(probeTimeoutRef.current);
       probeTimeoutRef.current = null;
+    }
+  }
+
+  function stopExtProbing() {
+    setExtProbing(false);
+    if (extProbeTimeoutRef.current != null) {
+      clearTimeout(extProbeTimeoutRef.current);
+      extProbeTimeoutRef.current = null;
     }
   }
 
@@ -64,21 +75,33 @@ export default function App() {
     });
     // Un download créé hors UI (capture par l'extension via le bridge) : rafraîchir la liste.
     const unAdded = api.onDownloadAdded(() => refresh());
+    const unProbing = api.onMediaProbing(() => {
+      setExtProbing(true);
+      if (extProbeTimeoutRef.current != null) clearTimeout(extProbeTimeoutRef.current);
+      extProbeTimeoutRef.current = window.setTimeout(() => {
+        setExtProbing(false);
+        extProbeTimeoutRef.current = null;
+        setError("Délai dépassé — la recherche des formats n'a pas abouti.");
+      }, 60000);
+    });
     const unMedia = api.onMediaVariants((e) => {
+      stopExtProbing();
       stopProbing();
       setAddError(null);
       setDialogOpen(false);   // ferme AddUrlDialog (sans effet si déjà fermée — cas extension)
       setMediaEvent(e);       // ouvre HlsVariantDialog, déjà rempli
     });
     const unMediaErr = api.onMediaError((e) => {
+      stopExtProbing();
       const fromDialog = addingRef.current;  // lire AVANT stopProbing (qui le remet à false)
       stopProbing();
       if (fromDialog) setAddError(`Vidéo : ${e.message}`);
       else setError(`Vidéo : ${e.message}`);
     });
     return () => {
-      un.then((f) => f()); unAdded.then((f) => f()); unMedia.then((f) => f()); unMediaErr.then((f) => f());
+      un.then((f) => f()); unAdded.then((f) => f()); unMedia.then((f) => f()); unMediaErr.then((f) => f()); unProbing.then((f) => f());
       if (probeTimeoutRef.current != null) clearTimeout(probeTimeoutRef.current);
+      if (extProbeTimeoutRef.current != null) clearTimeout(extProbeTimeoutRef.current);
     };
   }, []);
 
@@ -197,6 +220,7 @@ export default function App() {
       <AddBatchDialog open={batchOpen} onClose={() => setBatchOpen(false)} onAdd={handleAddBatch} />
       <SettingsDialog open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       <HlsVariantDialog event={mediaEvent} onClose={() => setMediaEvent(null)} onConfirm={handleHlsConfirm} />
+      <ProbingOverlay open={extProbing} onClose={stopExtProbing} />
     </div>
   );
 }

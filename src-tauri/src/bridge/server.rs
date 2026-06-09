@@ -80,6 +80,16 @@ async fn handle_conn(app: AppHandle, stream: TcpStream) {
             }
             ServerReply::CaptureRequested { url, filename, referrer, cookie, user_agent, kind, fallback_url, fallback_kind } => {
                 let headers = RequestHeaders { referrer, cookie, user_agent };
+                let is_probe = matches!(
+                    kind.as_deref(),
+                    Some("smart") | Some("hls") | Some("dash") | Some("page")
+                );
+                if is_probe {
+                    // Feedback immédiat pour les sondes déclenchées par l'extension :
+                    // l'app passe devant et affiche un overlay de chargement.
+                    let _ = app.emit("media://probing", ());
+                    crate::commands::focus_main_window(&app);
+                }
                 if kind.as_deref() == Some("smart") {
                     match commands::probe_smart(&app, &url, filename, fallback_url, fallback_kind, headers).await {
                         Ok(()) => serde_json::json!({ "type": "ack", "kind": "smart" }).to_string(),
@@ -111,11 +121,7 @@ async fn handle_conn(app: AppHandle, stream: TcpStream) {
                             // pas les downloads inconnus reçus via `download://progress`).
                             let _ = app.emit("download://added", &d);
                             // Faire surgir la fenêtre de l'app au premier plan (UX type IDM).
-                            if let Some(win) = app.get_webview_window("main") {
-                                let _ = win.unminimize();
-                                let _ = win.show();
-                                let _ = win.set_focus();
-                            }
+                            crate::commands::focus_main_window(&app);
                             serde_json::json!({ "type": "ack", "id": d.id }).to_string()
                         }
                         Err(e) => serde_json::json!({ "type": "error", "error": e }).to_string(),
