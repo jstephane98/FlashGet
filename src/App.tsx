@@ -76,7 +76,10 @@ export default function App() {
       if (fromDialog) setAddError(`Vidéo : ${e.message}`);
       else setError(`Vidéo : ${e.message}`);
     });
-    return () => { un.then((f) => f()); unAdded.then((f) => f()); unMedia.then((f) => f()); unMediaErr.then((f) => f()); };
+    return () => {
+      un.then((f) => f()); unAdded.then((f) => f()); unMedia.then((f) => f()); unMediaErr.then((f) => f());
+      if (probeTimeoutRef.current != null) clearTimeout(probeTimeoutRef.current);
+    };
   }, []);
 
   async function handleHlsConfirm(probeId: string, variantIndex: number, fileName: string) {
@@ -90,6 +93,7 @@ export default function App() {
   }
 
   async function handleAdd(url: string) {
+    stopProbing(); // annule tout timer/sonde précédent avant de ré-armer
     // La boîte reste ouverte : spinner pendant la sonde.
     setAdding(true);
     addingRef.current = true;
