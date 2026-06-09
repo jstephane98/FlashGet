@@ -142,10 +142,8 @@ Dans `src-tauri/capabilities/default.json`, ajouter `"notification:default"` au 
 
 - [ ] **Step 4: Vérifier que ça compile**
 
-Run: `cargo build -p flashget` (ou `cargo check` dans `src-tauri`)
+Run: `cargo check` (depuis `src-tauri/`)
 Expected: compile sans erreur (le crate télécharge `tauri-plugin-notification`).
-
-> Note : si le nom du package binaire diffère, utiliser `cargo check` depuis `src-tauri/`. L'objectif est que le workspace Tauri compile avec le plugin enregistré.
 
 - [ ] **Step 5: Commit**
 
