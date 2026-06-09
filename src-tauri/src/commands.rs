@@ -842,6 +842,15 @@ pub fn recover_interrupted_recordings(app: &AppHandle) {
     }
 }
 
+/// Ramène la fenêtre principale au premier plan (montre + désiconifie + focus).
+pub(crate) fn focus_main_window(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+}
+
 /// Émet une notif système de fin de téléchargement (Completed/Error) si le réglage
 /// `notify_on_complete` est activé. Le corps de la notif = nom du fichier (repli : id).
 fn notify_terminal(app: &AppHandle, status: DownloadStatus, id: &str) {
