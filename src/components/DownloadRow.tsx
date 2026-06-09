@@ -4,6 +4,7 @@ import { formatSpeed, percent, recordingLabel } from "../format";
 import { PriorityPill } from "./PriorityPill";
 import { CategoryPill } from "./CategoryPill";
 import { RowMenu } from "./RowMenu";
+import { Square, Pause, Play, X } from "lucide-react";
 
 const STATUS_LABEL: Record<string, string> = {
   queued: "En file",
@@ -145,13 +146,13 @@ export function DownloadRow({
       </div>
       <div className="flex gap-1 items-center">
         {isRecording ? (
-          <button className="px-2 py-1 rounded bg-surface text-ink-soft hover:text-ink" onClick={onStop} title="Arrêter (finalise l'enregistrement)">⏹</button>
+          <button className="inline-flex items-center justify-center px-2 py-1 rounded bg-surface text-ink-soft hover:text-ink" onClick={onStop} title="Arrêter (finalise l'enregistrement)" aria-label="Arrêter l'enregistrement"><Square size={14} /></button>
         ) : d.status === "downloading" ? (
-          <button className="px-2 py-1 rounded bg-surface text-ink-soft hover:text-ink" onClick={onPause}>⏸</button>
+          <button className="inline-flex items-center justify-center px-2 py-1 rounded bg-surface text-ink-soft hover:text-ink" onClick={onPause} title="Mettre en pause" aria-label="Mettre en pause"><Pause size={14} /></button>
         ) : d.status !== "completed" ? (
-          <button className="px-2 py-1 rounded bg-surface text-ink-soft hover:text-ink" onClick={onResume}>▶</button>
+          <button className="inline-flex items-center justify-center px-2 py-1 rounded bg-surface text-ink-soft hover:text-ink" onClick={onResume} title="Reprendre" aria-label="Reprendre"><Play size={14} /></button>
         ) : null}
-        <button className="px-2 py-1 rounded bg-surface text-ink-soft hover:text-ink" onClick={onCancel} title="Annuler (efface le fichier)">✕</button>
+        <button className="inline-flex items-center justify-center px-2 py-1 rounded bg-surface text-ink-soft hover:text-ink" onClick={onCancel} title="Annuler (efface le fichier)" aria-label="Annuler"><X size={14} /></button>
         <RowMenu canOpen={d.status === "completed"} onOpenFile={onOpenFile} onOpenFolder={onOpenFolder} onRemove={onRemove} />
       </div>
     </div>
