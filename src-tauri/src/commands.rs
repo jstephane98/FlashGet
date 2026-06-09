@@ -874,16 +874,25 @@ fn notify_terminal(app: &AppHandle, status: DownloadStatus, id: &str) {
     {
         // Émission native : permet de gérer le clic (on_activated) — absent du plugin desktop.
         // app_id = identifiant du config = AUMID du raccourci créé par l'installateur.
+        // NB : le callback se déclenche tant que l'app tourne (cas normal : elle vient d'émettre
+        // la notif). Un clic depuis le Centre de notifications après fermeture de l'app ne fait rien
+        // (aucun serveur COM d'activation enregistré) — limite acceptée.
         let app_id = app.config().identifier.clone();
         let handle = app.clone();
-        let _ = tauri_winrt_notification::Toast::new(&app_id)
+        if let Err(e) = tauri_winrt_notification::Toast::new(&app_id)
             .title(title)
             .text1(&body)
             .on_activated(move |_action| {
-                focus_main_window(&handle);
+                // on_activated tourne sur le thread COM/WinRT, pas le thread principal Tauri :
+                // marshaler la manipulation de fenêtre sur le thread principal.
+                let h = handle.clone();
+                let _ = handle.run_on_main_thread(move || focus_main_window(&h));
                 Ok(())
             })
-            .show();
+            .show()
+        {
+            eprintln!("notif Windows échouée: {e}");
+        }
     }
 
     #[cfg(not(target_os = "windows"))]
