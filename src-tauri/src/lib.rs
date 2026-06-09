@@ -124,6 +124,8 @@ pub fn run() {
             youtube::youtube_logout,
             youtube::get_cookies_from_browser,
             youtube::set_cookies_from_browser,
+            youtube::get_notify_on_complete,
+            youtube::set_notify_on_complete,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
