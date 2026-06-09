@@ -149,6 +149,12 @@ export function getCookiesFromBrowser(): Promise<string | null> {
 export function setCookiesFromBrowser(value: string | null): Promise<void> {
   return invoke("set_cookies_from_browser", { value });
 }
+export function getNotifyOnComplete(): Promise<boolean> {
+  return invoke<boolean>("get_notify_on_complete");
+}
+export function setNotifyOnComplete(value: boolean): Promise<void> {
+  return invoke("set_notify_on_complete", { value });
+}
 export function onYoutubeStatus(cb: () => void): Promise<UnlistenFn> {
   return listen("youtube://status", () => cb());
 }
