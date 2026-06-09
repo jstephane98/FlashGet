@@ -2,37 +2,41 @@
 <html lang="fr">
   <head>
     <meta charset="utf-8" />
-    <style>
-      body { font-family: system-ui, sans-serif; width: 260px; margin: 0; padding: 12px; }
-      .status { display: flex; align-items: center; gap: 6px; font-size: 13px; margin-bottom: 10px; }
-      .dot { width: 8px; height: 8px; border-radius: 50%; }
-      .on { background: #22c55e; } .off { background: #9ca3af; }
-      input { width: 100%; box-sizing: border-box; padding: 6px; margin-bottom: 8px; }
-      button { width: 100%; padding: 6px; margin-bottom: 6px; cursor: pointer; }
-      .muted { font-size: 12px; color: #6b7280; }
-      .hidden { display: none; }
-      #toast { font-size: 12px; color: #16a34a; }
-    </style>
+    <link rel="stylesheet" href="ui.css" />
+    <style>body{width:320px}</style>
   </head>
   <body>
-    <div class="status">
-      <span id="dot" class="dot off"></span>
-      <span id="statusText">…</span>
+
+    <!-- Header -->
+    <div class="head">
+      <div class="logo">↓</div>
+      <span class="brand">FlashGet</span>
+      <div class="status" style="margin-left:auto">
+        <span id="dot" class="dot off"></span>
+        <span id="statusText">…</span>
+      </div>
     </div>
 
-    <div id="connectedView" class="hidden">
-      <button id="downloadVideo">⬇ Télécharger la vidéo de cette page</button>
-      <div id="toast"></div>
-      <hr />
-      <div class="muted">Télécharger un fichier par URL</div>
-      <input id="url" type="text" placeholder="Coller une URL…" />
-      <button id="sendUrl">Envoyer</button>
-    </div>
+    <!-- Main body -->
+    <div class="body">
 
-    <div id="disconnectedView" class="hidden">
-      <p class="muted">FlashGet non détecté. Lancez l'application.</p>
-      <button id="openOptions">Options</button>
-      <button id="retry">Réessayer</button>
+      <!-- Connected view -->
+      <div id="connectedView" class="hidden">
+        <button id="downloadVideo" class="fg-cta">⬇ Télécharger la vidéo de cette page</button>
+        <div id="toast"></div>
+
+        <div class="url-section-label">Télécharger un fichier par URL</div>
+        <input id="url" class="fg-input" type="text" placeholder="Coller une URL…" />
+        <button id="sendUrl" class="fg-btn">Envoyer</button>
+      </div>
+
+      <!-- Disconnected view -->
+      <div id="disconnectedView" class="hidden">
+        <p class="muted">FlashGet non détecté. Lancez l'application.</p>
+        <button id="openOptions" class="fg-btn">Options</button>
+        <button id="retry" class="fg-btn">Réessayer</button>
+      </div>
+
     </div>
 
     <script src="popup.js" type="module"></script>
