@@ -291,6 +291,26 @@ impl Storage {
         Ok(())
     }
 
+    /// Repli yt-dlp `--cookies-from-browser` (clé `cookies_from_browser`). Vide = None.
+    pub fn get_cookies_from_browser(&self) -> Result<Option<String>, CoreError> {
+        let conn = self.conn.lock().unwrap();
+        Ok(conn
+            .query_row("SELECT value FROM settings WHERE key=?1", ["cookies_from_browser"], |r| r.get::<_, String>(0))
+            .ok()
+            .filter(|s| !s.is_empty()))
+    }
+
+    pub fn set_cookies_from_browser(&self, value: Option<String>) -> Result<(), CoreError> {
+        let conn = self.conn.lock().unwrap();
+        let val = value.unwrap_or_default();
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value=?2",
+            rusqlite::params!["cookies_from_browser", val],
+        )
+        .map_err(|e| CoreError::Storage(e.to_string()))?;
+        Ok(())
+    }
+
     pub fn get_settings(&self) -> Result<Settings, CoreError> {
         let conn = self.conn.lock().unwrap();
         let read = |key: &str| -> Option<String> {
@@ -708,6 +728,16 @@ mod tests {
         let s = Storage::open_in_memory().unwrap();
         s.update_paths("ghost", "x", "y").unwrap();
         assert!(s.get_by_id("ghost").unwrap().is_none());
+    }
+
+    #[test]
+    fn cookies_from_browser_roundtrip_and_default_none() {
+        let s = Storage::open_in_memory().unwrap();
+        assert_eq!(s.get_cookies_from_browser().unwrap(), None);
+        s.set_cookies_from_browser(Some("chrome".into())).unwrap();
+        assert_eq!(s.get_cookies_from_browser().unwrap(), Some("chrome".into()));
+        s.set_cookies_from_browser(None).unwrap();
+        assert_eq!(s.get_cookies_from_browser().unwrap(), None);
     }
 
     #[test]
