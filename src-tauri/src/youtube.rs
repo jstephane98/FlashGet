@@ -3,7 +3,7 @@
 use crate::state::AppState;
 use download_core::cookies::{self, CookieSource, NetscapeCookie};
 use std::path::PathBuf;
-use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder, WindowEvent};
+use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 const UA_CHROME: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 const SESSION_COOKIES: [&str; 3] = ["__Secure-3PSID", "SAPISID", "SID"];
@@ -77,7 +77,7 @@ fn open_login(app: &AppHandle) -> Result<(), String> {
         let _ = w.set_focus();
         return Ok(());
     }
-    let win = WebviewWindowBuilder::new(
+    let _win = WebviewWindowBuilder::new(
         app,
         "yt-login",
         WebviewUrl::External("https://www.youtube.com/".parse().map_err(|e| format!("{e}"))?),
@@ -87,31 +87,25 @@ fn open_login(app: &AppHandle) -> Result<(), String> {
     .user_agent(UA_CHROME)
     .build()
     .map_err(|e| e.to_string())?;
+    // Capture les cookies par sondage tant que la fenêtre est ouverte (ne piège jamais la fermeture).
     let app2 = app.clone();
-    win.on_window_event(move |ev| {
-        if let WindowEvent::CloseRequested { api, .. } = ev {
-            api.prevent_close(); // garder la fenêtre vivante le temps de lire les cookies
-            let app3 = app2.clone();
-            tauri::async_runtime::spawn(async move {
-                // WebView2 écrit ses cookies de façon asynchrone : réessayer un court instant.
-                for _ in 0..6 {
-                    if sync_cookies(&app3).unwrap_or(false) {
-                        break;
-                    }
-                    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-                }
-                let _ = app3.emit("youtube://status", ());
-                if let Some(w) = app3.get_webview_window("yt-login") {
-                    let _ = w.destroy();
-                }
-            });
+    tauri::async_runtime::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+            if app2.get_webview_window("yt-login").is_none() {
+                break; // fenêtre fermée par l'utilisateur
+            }
+            if sync_cookies(&app2).unwrap_or(false) {
+                let _ = app2.emit("youtube://status", ());
+            }
         }
+        let _ = app2.emit("youtube://status", ()); // rafraîchir le statut après fermeture
     });
     Ok(())
 }
 
 #[tauri::command]
-pub fn youtube_login(app: AppHandle) -> Result<(), String> {
+pub async fn youtube_login(app: AppHandle) -> Result<(), String> {
     open_login(&app)
 }
 
