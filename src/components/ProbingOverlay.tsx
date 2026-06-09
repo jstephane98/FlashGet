@@ -9,7 +9,7 @@ export function ProbingOverlay({ open, onClose }: { open: boolean; onClose: () =
         onClick={(e) => e.stopPropagation()}
       >
         <Loader2 size={20} className="animate-spin text-accent-bright" aria-hidden="true" />
-        <span className="text-sm text-ink-soft">Recherche des formats disponibles…</span>
+        <span role="status" className="text-sm text-ink-soft">Recherche des formats disponibles…</span>
       </div>
     </div>
   );
