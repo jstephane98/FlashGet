@@ -68,27 +68,27 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
   }
 
   return (
-    <div className="fixed inset-0 bg-black/30 flex items-center justify-center" onClick={onClose}>
-      <div className="bg-white rounded-lg w-[460px] max-h-[80vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
-        <h3 className="font-semibold px-4 py-3 border-b border-gray-200">⚙ Réglages</h3>
-        <div className="px-4 py-3 border-b border-gray-100">
-          <label className="block text-sm text-gray-600 mb-1.5">Téléchargements simultanés max</label>
-          <input type="number" min={1} className="border border-gray-200 rounded-md px-2 py-1 text-sm w-24"
+    <div className="fixed inset-0 bg-deep/80 flex items-center justify-center" onClick={onClose}>
+      <div className="bg-bg border border-border rounded-xl w-[460px] max-h-[80vh] overflow-auto text-ink shadow-[0_20px_50px_rgba(0,0,0,.5)]" onClick={(e) => e.stopPropagation()}>
+        <h3 className="font-bold text-ink px-4 py-3 border-b border-border">⚙ Réglages</h3>
+        <div className="px-4 py-3 border-b border-border">
+          <label className="block text-sm text-ink-soft mb-1.5">Téléchargements simultanés max</label>
+          <input type="number" min={1} className="bg-surface text-ink border border-border rounded-md px-2 py-1 text-sm w-24"
             value={maxConcurrent} onChange={(e) => setMaxConcurrent(Number(e.target.value))} />
         </div>
-        <div className="px-4 py-3 border-b border-gray-100">
-          <label className="block text-sm text-gray-600 mb-1.5">Vitesse de téléchargement max (Mo/s)</label>
+        <div className="px-4 py-3 border-b border-border">
+          <label className="block text-sm text-ink-soft mb-1.5">Vitesse de téléchargement max (Mo/s)</label>
           <div className="flex items-center gap-3">
             <input type="number" min={0} step={0.1} disabled={unlimited}
-              className="border border-gray-200 rounded-md px-2 py-1 text-sm w-24 disabled:opacity-50"
+              className="bg-surface text-ink border border-border rounded-md px-2 py-1 text-sm w-24 disabled:opacity-50"
               value={speedValue} onChange={(e) => setSpeedValue(Number(e.target.value))} />
-            <label className="text-sm flex items-center gap-1">
+            <label className="text-sm flex items-center gap-1 text-ink-soft">
               <input type="checkbox" checked={unlimited} onChange={(e) => setUnlimited(e.target.checked)} /> Illimitée
             </label>
           </div>
         </div>
-        <div className="px-4 py-3 border-b border-gray-100">
-          <label className="text-sm flex items-center gap-2">
+        <div className="px-4 py-3 border-b border-border">
+          <label className="text-sm flex items-center gap-2 text-ink-soft">
             <input
               type="checkbox"
               checked={autostart}
@@ -98,60 +98,60 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
           </label>
         </div>
         <div className="px-4 py-3">
-          <div className="text-sm font-medium text-gray-700 mb-2">Dossiers par catégorie</div>
-          <div className="text-[11px] text-gray-400 mb-2">Vide = dossier Téléchargements par défaut.</div>
+          <div className="text-sm font-medium text-ink mb-2">Dossiers par catégorie</div>
+          <div className="text-[11px] text-ink-mute mb-2">Vide = dossier Téléchargements par défaut.</div>
           {CATS.map((c) => (
             <div key={c.key} className="flex items-center gap-2 mb-1.5 text-sm">
-              <span className="w-28 text-gray-600">{c.label}</span>
-              <span className="flex-1 truncate bg-gray-100 rounded px-2 py-1 text-xs text-gray-500">
+              <span className="w-28 text-ink-soft">{c.label}</span>
+              <span className="flex-1 truncate bg-surface border border-border rounded px-2 py-1 text-xs text-ink-soft">
                 {(dirs && dirs[c.key]) || "(Téléchargements)"}
               </span>
-              <button className="px-2 py-1 rounded bg-gray-100 text-xs" onClick={() => pickDir(c.key)}>Parcourir…</button>
+              <button className="px-2 py-1 rounded bg-surface border border-border text-ink-soft text-xs" onClick={() => pickDir(c.key)}>Parcourir…</button>
               {dirs && dirs[c.key] && (
-                <button className="px-2 py-1 rounded bg-gray-100 text-xs" onClick={() => clearDir(c.key)}>✕</button>
+                <button className="px-2 py-1 rounded bg-surface border border-border text-ink-soft text-xs" onClick={() => clearDir(c.key)}>✕</button>
               )}
             </div>
           ))}
         </div>
-        <div className="px-4 py-3 border-t border-gray-100">
-          <div className="font-medium mb-2">🧩 Extension navigateur</div>
+        <div className="px-4 py-3 border-t border-border">
+          <div className="font-medium text-ink mb-2">🧩 Extension navigateur</div>
           <div className="flex items-center gap-2 mb-2 text-sm">
             <span
               className={
                 "inline-block w-2 h-2 rounded-full " +
-                (bridge?.listening ? "bg-green-500" : "bg-gray-400")
+                (bridge?.listening ? "bg-ok" : "bg-ink-mute")
               }
             />
-            <span className="text-gray-600">
+            <span className="text-ink-soft">
               {bridge?.listening
                 ? `Serveur local à l'écoute (port ${bridge.port})`
                 : "Serveur local indisponible"}
             </span>
           </div>
-          <label className="block text-xs text-gray-500 mb-1">
+          <label className="block text-xs text-ink-mute mb-1">
             Jeton d'appairage (à coller dans les options de l'extension)
           </label>
           <div className="flex items-center gap-2">
-            <code className="flex-1 truncate bg-gray-100 rounded px-2 py-1 text-xs">
+            <code className="flex-1 truncate font-mono bg-surface text-ink border border-border rounded px-2 py-1 text-xs">
               {bridge?.token ?? "…"}
             </code>
             <button
-              className="text-xs border rounded px-2 py-1 hover:bg-gray-50"
+              className="text-xs border border-border rounded px-2 py-1 bg-surface text-ink-soft hover:text-ink"
               onClick={copyToken}
             >
               {copied ? "Copié ✓" : "Copier"}
             </button>
             <button
-              className="text-xs border rounded px-2 py-1 hover:bg-gray-50"
+              className="text-xs border border-border rounded px-2 py-1 bg-surface text-ink-soft hover:text-ink"
               onClick={regenToken}
             >
               Régénérer
             </button>
           </div>
         </div>
-        <div className="flex justify-end gap-2 px-4 py-3 border-t border-gray-100">
-          <button className="px-3 py-1.5 text-sm rounded-md bg-gray-100" onClick={onClose}>Fermer</button>
-          <button className="px-3 py-1.5 text-sm rounded-md bg-indigo-600 text-white font-semibold" onClick={save}>Enregistrer</button>
+        <div className="flex justify-end gap-2 px-4 py-3 border-t border-border">
+          <button className="px-3 py-1.5 text-sm rounded-md bg-surface text-ink-soft border border-border" onClick={onClose}>Fermer</button>
+          <button className="px-3 py-1.5 text-sm rounded-md cta-grad font-semibold" onClick={save}>Enregistrer</button>
         </div>
       </div>
     </div>
