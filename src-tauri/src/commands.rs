@@ -842,6 +842,28 @@ pub fn recover_interrupted_recordings(app: &AppHandle) {
     }
 }
 
+/// Émet une notif système de fin de téléchargement (Completed/Error) si le réglage
+/// `notify_on_complete` est activé. Le corps de la notif = nom du fichier (repli : id).
+fn notify_terminal(app: &AppHandle, status: DownloadStatus, id: &str) {
+    let st = app.state::<AppState>();
+    if !st.storage.get_notify_on_complete().unwrap_or(true) {
+        return;
+    }
+    let file_name = st
+        .storage
+        .get_by_id(id)
+        .ok()
+        .flatten()
+        .map(|d| d.file_name)
+        .unwrap_or_else(|| id.to_string());
+    let (title, body) = match status {
+        DownloadStatus::Completed => ("Téléchargement terminé", file_name),
+        _ => ("Échec du téléchargement", file_name),
+    };
+    use tauri_plugin_notification::NotificationExt;
+    let _ = app.notification().builder().title(title).body(&body).show();
+}
+
 /// Lance les deux tâches (relais de progression + moteur) pour un téléchargement.
 fn launch(app: &AppHandle, download: Download, handle: DownloadHandle) {
     let id = download.id.clone();
@@ -873,19 +895,14 @@ fn launch(app: &AppHandle, download: Download, handle: DownloadHandle) {
                 if let Err(e) = st.storage.update_state(&id_for_rx, p.downloaded_bytes, p.status) {
                     eprintln!("failed to persist download {id_for_rx}: {e}");
                 }
-                // Notif système une seule fois par transition vers un état terminal.
-                let is_terminal_notify = matches!(p.status, DownloadStatus::Completed | DownloadStatus::Error)
-                    && last_persisted != Some(p.status);
-                if is_terminal_notify && st.storage.get_notify_on_complete().unwrap_or(true) {
-                    let file_name = st.storage.get_by_id(&id_for_rx).ok().flatten()
-                        .map(|d| d.file_name)
-                        .unwrap_or_else(|| id_for_rx.clone());
-                    let (title, body) = match p.status {
-                        DownloadStatus::Completed => ("Téléchargement terminé", file_name),
-                        _ => ("Échec du téléchargement", file_name),
-                    };
-                    use tauri_plugin_notification::NotificationExt;
-                    let _ = app_for_rx.notification().builder().title(title).body(&body).show();
+                // Notif de fin via le canal de progression (Completed). Une seule fois par
+                // transition terminale : la garde `last_persisted != Some(p.status)` est évaluée
+                // AVANT la réaffectation de `last_persisted` ci-dessous. Les échecs (Error) ne
+                // passent pas par ce canal : ils sont notifiés depuis le bras Err de la tâche moteur.
+                if matches!(p.status, DownloadStatus::Completed | DownloadStatus::Error)
+                    && last_persisted != Some(p.status)
+                {
+                    notify_terminal(&app_for_rx, p.status, &id_for_rx);
                 }
                 last_persisted = Some(p.status);
             }
@@ -962,6 +979,7 @@ fn launch(app: &AppHandle, download: Download, handle: DownloadHandle) {
                     segments_done: None,
                     segments_total: None,
                 });
+                notify_terminal(&app_for_dl, DownloadStatus::Error, &id_for_dl);
             }
         }
         // Libérer le slot et relancer la file.
