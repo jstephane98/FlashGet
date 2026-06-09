@@ -2,13 +2,14 @@ import { useEffect, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import * as api from "../api";
 import type { BridgeInfo, Category, CategoryDirs } from "../types";
+import { CategoryIcon } from "./categoryIcons";
 
 const CATS: { key: Category; label: string }[] = [
-  { key: "video", label: "🎬 Vidéos" },
-  { key: "document", label: "📄 Documents" },
-  { key: "program", label: "⚙ Programmes" },
-  { key: "archive", label: "🗜 Archives" },
-  { key: "music", label: "🎵 Musique" },
+  { key: "video", label: "Vidéos" },
+  { key: "document", label: "Documents" },
+  { key: "program", label: "Programmes" },
+  { key: "archive", label: "Archives" },
+  { key: "music", label: "Musique" },
   { key: "other", label: "Autre" },
 ];
 
@@ -102,7 +103,7 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
           <div className="text-[11px] text-ink-mute mb-2">Vide = dossier Téléchargements par défaut.</div>
           {CATS.map((c) => (
             <div key={c.key} className="flex items-center gap-2 mb-1.5 text-sm">
-              <span className="w-28 text-ink-soft">{c.label}</span>
+              <span className="inline-flex items-center gap-1.5 w-28 text-ink-soft"><CategoryIcon cat={c.key} size={15} /> {c.label}</span>
               <span className="flex-1 truncate bg-surface border border-border rounded px-2 py-1 text-xs text-ink-soft">
                 {(dirs && dirs[c.key]) || "(Téléchargements)"}
               </span>
