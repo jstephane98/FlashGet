@@ -62,7 +62,6 @@ pub fn cookie_args(app: &AppHandle, url: &str) -> Vec<String> {
     if !cookies::cookies_apply_to(url) {
         return Vec::new();
     }
-    let _ = sync_cookies(app); // best-effort ; n'écrase pas si pas de session
     let path = cookies_path(app);
     let has_file = path.as_ref().map(|p| p.exists()).unwrap_or(false);
     let browser = app.state::<AppState>().storage.get_cookies_from_browser().ok().flatten();
@@ -90,9 +89,22 @@ fn open_login(app: &AppHandle) -> Result<(), String> {
     .map_err(|e| e.to_string())?;
     let app2 = app.clone();
     win.on_window_event(move |ev| {
-        if let WindowEvent::CloseRequested { .. } = ev {
-            let _ = sync_cookies(&app2); // yt-login encore vivant → lit ses cookies
-            let _ = app2.emit("youtube://status", ());
+        if let WindowEvent::CloseRequested { api, .. } = ev {
+            api.prevent_close(); // garder la fenêtre vivante le temps de lire les cookies
+            let app3 = app2.clone();
+            tauri::async_runtime::spawn(async move {
+                // WebView2 écrit ses cookies de façon asynchrone : réessayer un court instant.
+                for _ in 0..6 {
+                    if sync_cookies(&app3).unwrap_or(false) {
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+                }
+                let _ = app3.emit("youtube://status", ());
+                if let Some(w) = app3.get_webview_window("yt-login") {
+                    let _ = w.destroy();
+                }
+            });
         }
     });
     Ok(())
@@ -110,6 +122,9 @@ pub fn youtube_status(app: AppHandle) -> Result<bool, String> {
 
 #[tauri::command]
 pub fn youtube_logout(app: AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window("yt-login") {
+        let _ = w.destroy();
+    }
     if let Some(p) = cookies_path(&app) {
         let _ = std::fs::remove_file(p);
     }
