@@ -125,3 +125,11 @@ export function getBridgeInfo(): Promise<BridgeInfo> {
 export function regenerateBridgeToken(): Promise<string> {
   return invoke<string>("regenerate_bridge_token");
 }
+
+export function getAutostart(): Promise<boolean> {
+  return invoke<boolean>("get_autostart");
+}
+
+export function setAutostart(enabled: boolean): Promise<void> {
+  return invoke("set_autostart", { enabled });
+}
