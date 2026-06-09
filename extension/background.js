@@ -1,6 +1,7 @@
 import { buildCapture } from "./buildCapture.js";
 import { shouldCapture, parseCaptureTypes, DEFAULT_CAPTURE_TYPES } from "./capture-rules.js";
-import { isHlsUrl, isHlsContentType, isDashUrl, isDashContentType, dedupeStreams } from "./media-rules.js";
+import { isHlsUrl, isHlsContentType, isDashUrl, isDashContentType } from "./media-rules.js";
+import { recordStream, getStreams, clearStreams } from "./stream-store.js";
 
 const DEFAULT_PORT = 15151;
 const KEEPALIVE_ALARM = "flashget-keepalive";
@@ -11,19 +12,13 @@ let reconnectTimer = null;
 let connecting = false;
 let pending = []; // captures en attente d'une connexion authentifiée : [{ url, referrer, filename, ts }]
 
-// Flux HLS détectés par onglet : Map<tabId, [{ url, ts }]>
-const detectedByTab = new Map();
-
-function recordStream(tabId, url) {
-  if (tabId < 0) return;
-  const list = detectedByTab.get(tabId) || [];
-  const next = dedupeStreams([...list, { url, ts: Date.now() }]);
-  detectedByTab.set(tabId, next.slice(-20)); // borne anti-accumulation
-}
-
+// Flux HLS/DASH détectés par onglet : persistés dans chrome.storage.session (via
+// stream-store.js) pour survivre à l'éviction du service worker MV3 (~30 s d'inactivité).
 chrome.webRequest.onBeforeRequest.addListener(
   (details) => {
-    if (isHlsUrl(details.url) || isDashUrl(details.url)) recordStream(details.tabId, details.url);
+    if (isHlsUrl(details.url) || isDashUrl(details.url)) {
+      recordStream(chrome.storage.session, details.tabId, details.url, Date.now());
+    }
   },
   { urls: ["http://*/*", "https://*/*"] },
 );
@@ -33,7 +28,9 @@ chrome.webRequest.onHeadersReceived.addListener(
     const ct = (details.responseHeaders || []).find(
       (h) => h.name.toLowerCase() === "content-type",
     );
-    if (ct && (isHlsContentType(ct.value) || isDashContentType(ct.value))) recordStream(details.tabId, details.url);
+    if (ct && (isHlsContentType(ct.value) || isDashContentType(ct.value))) {
+      recordStream(chrome.storage.session, details.tabId, details.url, Date.now());
+    }
   },
   { urls: ["http://*/*", "https://*/*"] },
   ["responseHeaders"],
@@ -41,9 +38,9 @@ chrome.webRequest.onHeadersReceived.addListener(
 
 // Purge l'entrée d'un onglet à la navigation (nouvelle URL) et à sa fermeture.
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-  if (changeInfo.url) detectedByTab.delete(tabId);
+  if (changeInfo.url) clearStreams(chrome.storage.session, tabId);
 });
-chrome.tabs.onRemoved.addListener((tabId) => detectedByTab.delete(tabId));
+chrome.tabs.onRemoved.addListener((tabId) => clearStreams(chrome.storage.session, tabId));
 
 // Renvoie les captures mises en file une fois la connexion authentifiée (ignore les trop vieilles).
 async function flushPending() {
@@ -335,9 +332,11 @@ chrome.runtime.onMessage.addListener((req, _sender, sendResponse) => {
     return false;
   }
   if (req.cmd === "listMedia") {
-    const list = detectedByTab.get(req.tabId) || [];
-    sendResponse({ streams: list });
-    return false;
+    (async () => {
+      const streams = await getStreams(chrome.storage.session, req.tabId);
+      sendResponse({ streams });
+    })();
+    return true; // réponse asynchrone
   }
   if (req.cmd === "sendMedia" && req.url) {
     (async () => {
@@ -381,7 +380,7 @@ chrome.runtime.onMessage.addListener((req, _sender, sendResponse) => {
         // pas d'onglet
       }
       if (!url) { sendResponse({ ok: false }); return; }
-      const streams = detectedByTab.get(req.tabId) || [];
+      const streams = await getStreams(chrome.storage.session, req.tabId);
       const fallbackUrl = streams.length > 0 ? streams[0].url : undefined;
       const ok = await sendSmart(url, referrer, fallbackUrl, title);
       sendResponse({ ok });
