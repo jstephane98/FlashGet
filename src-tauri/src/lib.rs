@@ -3,6 +3,7 @@ mod commands;
 mod remux;
 mod state;
 mod ytdlp;
+mod youtube;
 
 use download_core::storage::Storage;
 use state::AppState;
@@ -117,6 +118,11 @@ pub fn run() {
             commands::regenerate_bridge_token,
             commands::get_autostart,
             commands::set_autostart,
+            youtube::youtube_login,
+            youtube::youtube_status,
+            youtube::youtube_logout,
+            youtube::get_cookies_from_browser,
+            youtube::set_cookies_from_browser,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
