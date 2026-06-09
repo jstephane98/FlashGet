@@ -3,7 +3,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import * as api from "../api";
 import type { BridgeInfo, Category, CategoryDirs } from "../types";
 import { CategoryIcon } from "./categoryIcons";
-import { Settings, Puzzle, X, Check } from "lucide-react";
+import { Settings, Puzzle, X, Check, Video } from "lucide-react";
 
 const CATS: { key: Category; label: string }[] = [
   { key: "video", label: "Vidéos" },
@@ -22,6 +22,8 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
   const [bridge, setBridge] = useState<BridgeInfo | null>(null);
   const [copied, setCopied] = useState(false);
   const [autostart, setAutostart] = useState(false);
+  const [ytConnected, setYtConnected] = useState(false);
+  const [ytBrowser, setYtBrowser] = useState<string>("");
 
   useEffect(() => {
     if (!open) return;
@@ -33,6 +35,10 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
     api.getCategoryDirs().then(setDirs);
     api.getBridgeInfo().then(setBridge);
     api.getAutostart().then(setAutostart);
+    api.youtubeStatus().then(setYtConnected);
+    api.getCookiesFromBrowser().then((b) => setYtBrowser(b ?? ""));
+    const unsubYt = api.onYoutubeStatus(() => api.youtubeStatus().then(setYtConnected));
+    return () => { unsubYt.then((f) => f()); };
   }, [open]);
 
   if (!open) return null;
@@ -61,6 +67,10 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
     const token = await api.regenerateBridgeToken();
     setBridge((b) => (b ? { ...b, token } : b));
   }
+
+  async function ytLogin() { await api.youtubeLogin(); }
+  async function ytLogout() { await api.youtubeLogout(); setYtConnected(false); }
+  async function ytSetBrowser(v: string) { setYtBrowser(v); await api.setCookiesFromBrowser(v || null); }
 
   async function save() {
     const bps = unlimited ? 0 : Math.round(speedValue * 1024 * 1024);
@@ -150,6 +160,26 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
               Régénérer
             </button>
           </div>
+        </div>
+        <div className="px-4 py-3 border-t border-border">
+          <div className="font-medium text-ink mb-2 inline-flex items-center gap-2"><Video size={16} /> Compte YouTube</div>
+          <div className="flex items-center gap-2 mb-2 text-sm">
+            <span className={"inline-block w-2 h-2 rounded-full " + (ytConnected ? "bg-ok" : "bg-ink-mute")} />
+            <span className="text-ink-soft">{ytConnected ? "Connecté" : "Non connecté"}</span>
+            <span className="flex-1" />
+            {ytConnected ? (
+              <button className="text-xs border border-border rounded px-2 py-1 bg-surface text-ink-soft" onClick={ytLogout}>Se déconnecter</button>
+            ) : (
+              <button className="text-xs rounded px-2 py-1 cta-grad font-semibold" onClick={ytLogin}>Se connecter à YouTube</button>
+            )}
+          </div>
+          <label className="block text-xs text-ink-soft mb-1">Repli : cookies du navigateur</label>
+          <select className="bg-bg text-ink border border-border rounded-md px-2 py-1.5 text-sm" value={ytBrowser} onChange={(e) => ytSetBrowser(e.target.value)}>
+            <option value="">Aucun</option>
+            <option value="chrome">Chrome</option>
+            <option value="edge">Edge</option>
+            <option value="firefox">Firefox</option>
+          </select>
         </div>
         <div className="flex justify-end gap-2 px-4 py-3 border-t border-border">
           <button className="px-3 py-1.5 text-sm rounded-md bg-surface text-ink-soft border border-border" onClick={onClose}>Fermer</button>
