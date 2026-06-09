@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { MoreHorizontal, File, FolderOpen, Trash2 } from "lucide-react";
 
 export function RowMenu({
   canOpen,
@@ -14,7 +15,7 @@ export function RowMenu({
   const [open, setOpen] = useState(false);
   return (
     <div className="relative">
-      <button className="px-2 py-1 rounded bg-surface text-ink-soft hover:text-ink" onClick={() => setOpen((o) => !o)} title="Actions">⋯</button>
+      <button className="inline-flex items-center justify-center px-2 py-1 rounded bg-surface text-ink-soft hover:text-ink" onClick={() => setOpen((o) => !o)} title="Actions" aria-label="Actions"><MoreHorizontal size={16} /></button>
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
@@ -23,16 +24,16 @@ export function RowMenu({
               className="block w-full text-left px-3 py-2 hover:bg-bg disabled:opacity-40"
               disabled={!canOpen}
               onClick={() => { setOpen(false); onOpenFile(); }}
-            >📂 Ouvrir le fichier</button>
+            ><span className="inline-flex items-center gap-2"><File size={15} /> Ouvrir le fichier</span></button>
             <button
               className="block w-full text-left px-3 py-2 hover:bg-bg disabled:opacity-40"
               disabled={!canOpen}
               onClick={() => { setOpen(false); onOpenFolder(); }}
-            >🗂 Ouvrir le dossier</button>
+            ><span className="inline-flex items-center gap-2"><FolderOpen size={15} /> Ouvrir le dossier</span></button>
             <button
               className="block w-full text-left px-3 py-2 hover:bg-bg border-t border-border"
               onClick={() => { setOpen(false); onRemove(); }}
-            >🗑 Retirer de la liste</button>
+            ><span className="inline-flex items-center gap-2"><Trash2 size={15} /> Retirer de la liste</span></button>
           </div>
         </>
       )}
