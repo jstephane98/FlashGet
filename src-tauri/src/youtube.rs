@@ -92,14 +92,18 @@ fn open_login(app: &AppHandle) -> Result<(), String> {
     tauri::async_runtime::spawn(async move {
         loop {
             tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
-            if app2.get_webview_window("yt-login").is_none() {
-                break; // fenêtre fermée par l'utilisateur
-            }
-            if sync_cookies(&app2).unwrap_or(false) {
-                let _ = app2.emit("youtube://status", ());
+            match app2.get_webview_window("yt-login") {
+                None => break, // fenêtre fermée par l'utilisateur
+                Some(win) => {
+                    if sync_cookies(&app2).unwrap_or(false) {
+                        // Connexion détectée → cookies captés → fermer la fenêtre automatiquement.
+                        let _ = win.destroy();
+                        break;
+                    }
+                }
             }
         }
-        let _ = app2.emit("youtube://status", ()); // rafraîchir le statut après fermeture
+        let _ = app2.emit("youtube://status", ()); // rafraîchir le statut (connecté ou fermé)
     });
     Ok(())
 }
