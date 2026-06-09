@@ -842,6 +842,15 @@ pub fn recover_interrupted_recordings(app: &AppHandle) {
     }
 }
 
+/// Ramène la fenêtre principale au premier plan (montre + désiconifie + focus).
+pub(crate) fn focus_main_window(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+    }
+}
+
 /// Émet une notif système de fin de téléchargement (Completed/Error) si le réglage
 /// `notify_on_complete` est activé. Le corps de la notif = nom du fichier (repli : id).
 fn notify_terminal(app: &AppHandle, status: DownloadStatus, id: &str) {
@@ -860,8 +869,37 @@ fn notify_terminal(app: &AppHandle, status: DownloadStatus, id: &str) {
         DownloadStatus::Completed => ("Téléchargement terminé", file_name),
         _ => ("Échec du téléchargement", file_name),
     };
-    use tauri_plugin_notification::NotificationExt;
-    let _ = app.notification().builder().title(title).body(&body).show();
+
+    #[cfg(target_os = "windows")]
+    {
+        // Émission native : permet de gérer le clic (on_activated) — absent du plugin desktop.
+        // app_id = identifiant du config = AUMID du raccourci créé par l'installateur.
+        // NB : le callback se déclenche tant que l'app tourne (cas normal : elle vient d'émettre
+        // la notif). Un clic depuis le Centre de notifications après fermeture de l'app ne fait rien
+        // (aucun serveur COM d'activation enregistré) — limite acceptée.
+        let app_id = app.config().identifier.clone();
+        let handle = app.clone();
+        if let Err(e) = tauri_winrt_notification::Toast::new(&app_id)
+            .title(title)
+            .text1(&body)
+            .on_activated(move |_action| {
+                // on_activated tourne sur le thread COM/WinRT, pas le thread principal Tauri :
+                // marshaler la manipulation de fenêtre sur le thread principal.
+                let h = handle.clone();
+                let _ = handle.run_on_main_thread(move || focus_main_window(&h));
+                Ok(())
+            })
+            .show()
+        {
+            eprintln!("notif Windows échouée: {e}");
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        use tauri_plugin_notification::NotificationExt;
+        let _ = app.notification().builder().title(title).body(&body).show();
+    }
 }
 
 /// Lance les deux tâches (relais de progression + moteur) pour un téléchargement.
