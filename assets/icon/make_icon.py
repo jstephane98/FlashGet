@@ -1,4 +1,4 @@
-"""Générateur déterministe de l'icône FlashGet (variante B : flèche + barre, dégradé indigo).
+"""Générateur déterministe de l'icône FlashGet (variante B : flèche + barre, dégradé ambre).
 
 Produit :
   - assets/icon/flashget-1024.png        (master 1024x1024, RGBA, coins transparents)
@@ -17,8 +17,8 @@ EXT_DIR = os.path.join(ROOT, "extension", "icons")
 
 SS = 2                       # supersampling pour l'anticrénelage
 S = 1024 * SS
-TOP = (99, 102, 241)         # indigo-500 #6366F1
-BOT = (67, 56, 202)          # indigo-700 #4338CA
+TOP = (251, 191, 36)         # amber-400 #fbbf24
+BOT = (245, 158, 11)         # amber-500 #f59e0b
 WHITE = (255, 255, 255, 255)
 
 
