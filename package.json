@@ -18,6 +18,8 @@
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
+    "@fontsource/archivo": "^5.2.8",
+    "@fontsource/jetbrains-mono": "^5.2.8",
     "@tauri-apps/cli": "^2",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",

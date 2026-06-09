@@ -2,5 +2,16 @@
 @tailwind components;
 @tailwind utilities;
 
-:root { color-scheme: light; }
-body { margin: 0; font-family: "Segoe UI", system-ui, sans-serif; background: #fbfbfd; color: #1d1d29; }
+@font-face { font-family: "Archivo"; font-weight: 500; font-style: normal; font-display: swap; src: url("./assets/fonts/archivo-500.woff2") format("woff2"); }
+@font-face { font-family: "Archivo"; font-weight: 700; font-style: normal; font-display: swap; src: url("./assets/fonts/archivo-700.woff2") format("woff2"); }
+@font-face { font-family: "Archivo"; font-weight: 800; font-style: normal; font-display: swap; src: url("./assets/fonts/archivo-800.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-weight: 500; font-style: normal; font-display: swap; src: url("./assets/fonts/jetbrains-mono-500.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-weight: 700; font-style: normal; font-display: swap; src: url("./assets/fonts/jetbrains-mono-700.woff2") format("woff2"); }
+
+:root { color-scheme: dark; }
+html, body, #root { height: 100%; }
+body { margin: 0; font-family: "Archivo", ui-sans-serif, system-ui, sans-serif; background: #0f172a; color: #e2e8f0; }
+
+@layer components {
+  .cta-grad { background-image: linear-gradient(160deg, #fbbf24, #f59e0b); color: #3b1d00; }
+}
