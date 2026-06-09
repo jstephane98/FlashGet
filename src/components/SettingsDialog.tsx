@@ -3,6 +3,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import * as api from "../api";
 import type { BridgeInfo, Category, CategoryDirs } from "../types";
 import { CategoryIcon } from "./categoryIcons";
+import { Settings, Puzzle, X, Check } from "lucide-react";
 
 const CATS: { key: Category; label: string }[] = [
   { key: "video", label: "Vidéos" },
@@ -71,7 +72,7 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
   return (
     <div className="fixed inset-0 bg-deep/80 flex items-center justify-center" onClick={onClose}>
       <div className="bg-bg border border-border rounded-xl w-[460px] max-h-[80vh] overflow-auto text-ink shadow-[0_20px_50px_rgba(0,0,0,.5)]" onClick={(e) => e.stopPropagation()}>
-        <h3 className="font-bold text-ink px-4 py-3 border-b border-border">⚙ Réglages</h3>
+        <h3 className="font-bold text-ink px-4 py-3 border-b border-border"><span className="inline-flex items-center gap-2"><Settings size={18} /> Réglages</span></h3>
         <div className="px-4 py-3 border-b border-border">
           <label className="block text-sm text-ink-soft mb-1.5">Téléchargements simultanés max</label>
           <input type="number" min={1} className="bg-surface text-ink border border-border rounded-md px-2 py-1 text-sm w-24"
@@ -109,13 +110,13 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
               </span>
               <button className="px-2 py-1 rounded bg-surface border border-border text-ink-soft text-xs" onClick={() => pickDir(c.key)}>Parcourir…</button>
               {dirs && dirs[c.key] && (
-                <button className="px-2 py-1 rounded bg-surface border border-border text-ink-soft text-xs" onClick={() => clearDir(c.key)}>✕</button>
+                <button className="px-2 py-1 rounded bg-surface border border-border text-ink-soft text-xs" onClick={() => clearDir(c.key)} aria-label="Retirer le dossier"><X size={14} /></button>
               )}
             </div>
           ))}
         </div>
         <div className="px-4 py-3 border-t border-border">
-          <div className="font-medium text-ink mb-2">🧩 Extension navigateur</div>
+          <div className="font-medium text-ink mb-2"><span className="inline-flex items-center gap-2"><Puzzle size={16} /> Extension navigateur</span></div>
           <div className="flex items-center gap-2 mb-2 text-sm">
             <span
               className={
@@ -140,7 +141,7 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
               className="text-xs border border-border rounded px-2 py-1 bg-surface text-ink-soft hover:text-ink"
               onClick={copyToken}
             >
-              {copied ? "Copié ✓" : "Copier"}
+              {copied ? <span className="inline-flex items-center gap-1">Copié <Check size={12} /></span> : "Copier"}
             </button>
             <button
               className="text-xs border border-border rounded px-2 py-1 bg-surface text-ink-soft hover:text-ink"

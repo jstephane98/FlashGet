@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import "./index.css";
+import { X } from "lucide-react";
 import type { Download, Priority, Category, DownloadStatus } from "./types";
 import * as api from "./api";
 import { filterDownloads } from "./filter";
@@ -120,13 +121,13 @@ export default function App() {
       {error && (
         <div className="flex items-start gap-2 px-3 py-2 bg-err/10 border-b border-err/40 text-sm text-err">
           <span className="flex-1 break-words">{error}</span>
-          <button className="px-2 py-0.5 rounded bg-err/20 text-err shrink-0" onClick={() => setError(null)}>✕</button>
+          <button className="px-2 py-0.5 rounded bg-err/20 text-err shrink-0" onClick={() => setError(null)} aria-label="Fermer"><X size={14} /></button>
         </div>
       )}
       {info && (
         <div className="flex items-start gap-2 px-3 py-2 bg-accent/10 border-b border-accent/40 text-sm text-accent-bright">
           <span className="flex-1 break-words">{info}</span>
-          <button className="px-2 py-0.5 rounded bg-accent/20 text-accent-bright shrink-0" onClick={() => setInfo(null)}>✕</button>
+          <button className="px-2 py-0.5 rounded bg-accent/20 text-accent-bright shrink-0" onClick={() => setInfo(null)} aria-label="Fermer"><X size={14} /></button>
         </div>
       )}
       <div className="flex-1 overflow-auto">
