@@ -4078,6 +4078,7 @@ dependencies = [
  "tauri-plugin-opener",
  "tauri-plugin-shell",
  "tauri-plugin-single-instance",
+ "tauri-winrt-notification",
  "tokio",
  "tokio-tungstenite",
  "uuid",

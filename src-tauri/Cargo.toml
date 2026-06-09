@@ -37,3 +37,6 @@ uuid = { version = "1", features = ["v4"] }
 tokio-tungstenite = "0.24"
 futures-util = "0.3"
 
+[target.'cfg(windows)'.dependencies]
+tauri-winrt-notification = "0.7"
+
