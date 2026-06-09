@@ -57,18 +57,19 @@ pub fn sync_cookies(app: &AppHandle) -> Result<bool, String> {
     Ok(true)
 }
 
-/// Args cookies pour un run yt-dlp (re-synchro best-effort avant). Vide si non YouTube.
-pub fn cookie_args(app: &AppHandle, url: &str) -> Vec<String> {
+/// Args cookies de COMPTE pour yt-dlp (--cookies / --cookies-from-browser), si une source
+/// existe pour cette URL YouTube/Google ; `None` sinon (ou hors YouTube). N'inclut pas le Referer.
+pub fn account_cookie_args(app: &AppHandle, url: &str) -> Option<Vec<String>> {
     if !cookies::cookies_apply_to(url) {
-        return Vec::new();
+        return None;
     }
     let path = cookies_path(app);
     let has_file = path.as_ref().map(|p| p.exists()).unwrap_or(false);
     let browser = app.state::<AppState>().storage.get_cookies_from_browser().ok().flatten();
     match cookies::choose_cookie_source(url, has_file, browser.as_deref()) {
-        CookieSource::File => vec!["--cookies".into(), path.unwrap().to_string_lossy().to_string()],
-        CookieSource::Browser(b) => vec!["--cookies-from-browser".into(), b],
-        CookieSource::None => Vec::new(),
+        CookieSource::File => Some(vec!["--cookies".into(), path.unwrap().to_string_lossy().to_string()]),
+        CookieSource::Browser(b) => Some(vec!["--cookies-from-browser".into(), b]),
+        CookieSource::None => None,
     }
 }
 

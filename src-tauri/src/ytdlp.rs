@@ -109,19 +109,34 @@ fn header_args(headers: &RequestHeaders) -> Vec<String> {
 }
 
 /// Sonde les formats d'une URL via `yt-dlp -J`. Renvoie (titre, formats).
+/// Pour YouTube : essaie d'abord SANS cookies de compte (les cookies cassent l'extraction
+/// quand YouTube force SABR/PO-token) ; en cas d'échec, réessaie AVEC.
 pub async fn probe_formats(
     app: &AppHandle,
     url: &str,
     headers: &RequestHeaders,
 ) -> Result<(String, Vec<download_core::ytdlp::YtdlpFormat>), String> {
-    let mut args: Vec<String> = vec!["-J".into(), "--no-playlist".into(), "--no-warnings".into()];
-    let yt = crate::youtube::cookie_args(app, url);
-    if yt.is_empty() {
-        args.extend(header_args(headers));
-    } else {
-        args.extend(yt);
-        args.extend(referer_args(headers));
+    let primary = header_args(headers);
+    match probe_once(app, url, &primary).await {
+        Ok(r) => Ok(r),
+        Err(e) => {
+            if let Some(mut ck) = crate::youtube::account_cookie_args(app, url) {
+                ck.extend(referer_args(headers));
+                probe_once(app, url, &ck).await
+            } else {
+                Err(e)
+            }
+        }
     }
+}
+
+async fn probe_once(
+    app: &AppHandle,
+    url: &str,
+    extra: &[String],
+) -> Result<(String, Vec<download_core::ytdlp::YtdlpFormat>), String> {
+    let mut args: Vec<String> = vec!["-J".into(), "--no-playlist".into(), "--no-warnings".into()];
+    args.extend(extra.iter().cloned());
     args.push(url.to_string());
 
     let cmd = app
@@ -140,9 +155,8 @@ pub async fn probe_formats(
     download_core::ytdlp::parse_formats(&stdout).map_err(|e| e.to_string())
 }
 
-/// Télécharge via yt-dlp avec le format choisi, en émettant la progression.
-/// Pause → tue le process en gardant le partiel ; annulation → tue + supprime ;
-/// succès → émet Completed.
+/// Télécharge via yt-dlp. Pour YouTube : essaie d'abord SANS cookies de compte ; si l'essai
+/// échoue avant d'avoir téléchargé le moindre octet (et hors pause/annulation), réessaie AVEC.
 #[allow(clippy::too_many_arguments)]
 pub async fn run_download(
     app: AppHandle,
@@ -153,6 +167,33 @@ pub async fn run_download(
     handle: DownloadHandle,
     headers: &RequestHeaders,
     tx: UnboundedSender<Progress>,
+) -> Result<(), CoreError> {
+    let primary = header_args(headers);
+    match run_yt(&app, id, url, format_id, dest, &handle, &tx, &primary).await {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            // Repli cookies (YouTube) : seulement si rien n'a été téléchargé et pas pause/annulation.
+            if handle.downloaded() == 0 && !handle.is_paused() && !handle.is_cancelled() {
+                if let Some(mut ck) = crate::youtube::account_cookie_args(&app, url) {
+                    ck.extend(referer_args(headers));
+                    return run_yt(&app, id, url, format_id, dest, &handle, &tx, &ck).await;
+                }
+            }
+            Err(e)
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn run_yt(
+    app: &AppHandle,
+    id: &str,
+    url: &str,
+    format_id: &str,
+    dest: &Path,
+    handle: &DownloadHandle,
+    tx: &UnboundedSender<Progress>,
+    extra: &[String],
 ) -> Result<(), CoreError> {
     let mut args: Vec<String> = vec![
         "-f".into(),
@@ -171,13 +212,7 @@ pub async fn run_download(
         args.push("--ffmpeg-location".into());
         args.push(ff);
     }
-    let yt = crate::youtube::cookie_args(&app, url);
-    if yt.is_empty() {
-        args.extend(header_args(headers));
-    } else {
-        args.extend(yt);
-        args.extend(referer_args(headers));
-    }
+    args.extend(extra.iter().cloned());
     args.push(url.to_string());
 
     let cmd = app
@@ -211,7 +246,7 @@ pub async fn run_download(
                     Some(CommandEvent::Stdout(bytes)) => {
                         let line = String::from_utf8_lossy(&bytes);
                         if let Some((dl, t)) = download_core::ytdlp::parse_progress(&line) {
-                            handle.add_downloaded(dl.saturating_sub(last)); // compteur absolu -> delta
+                            handle.add_downloaded(dl.saturating_sub(last));
                             last = dl;
                             if t.is_some() { total = t; }
                             let _ = tx.send(mk(dl, total, DownloadStatus::Downloading));
@@ -225,7 +260,7 @@ pub async fn run_download(
                     Some(CommandEvent::Terminated(payload)) => {
                         let code = payload.code.unwrap_or(-1);
                         if code == 0 {
-                            reconcile_output(&app, id, dest);
+                            reconcile_output(app, id, dest);
                             let _ = tx.send(mk(last, total, DownloadStatus::Completed));
                             return Ok(());
                         }
