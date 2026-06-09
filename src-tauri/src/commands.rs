@@ -869,8 +869,28 @@ fn notify_terminal(app: &AppHandle, status: DownloadStatus, id: &str) {
         DownloadStatus::Completed => ("Téléchargement terminé", file_name),
         _ => ("Échec du téléchargement", file_name),
     };
-    use tauri_plugin_notification::NotificationExt;
-    let _ = app.notification().builder().title(title).body(&body).show();
+
+    #[cfg(target_os = "windows")]
+    {
+        // Émission native : permet de gérer le clic (on_activated) — absent du plugin desktop.
+        // app_id = identifiant du config = AUMID du raccourci créé par l'installateur.
+        let app_id = app.config().identifier.clone();
+        let handle = app.clone();
+        let _ = tauri_winrt_notification::Toast::new(&app_id)
+            .title(title)
+            .text1(&body)
+            .on_activated(move |_action| {
+                focus_main_window(&handle);
+                Ok(())
+            })
+            .show();
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        use tauri_plugin_notification::NotificationExt;
+        let _ = app.notification().builder().title(title).body(&body).show();
+    }
 }
 
 /// Lance les deux tâches (relais de progression + moteur) pour un téléchargement.
