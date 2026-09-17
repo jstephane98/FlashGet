@@ -105,11 +105,11 @@ export default function App() {
     };
   }, []);
 
-  async function handleHlsConfirm(probeId: string, variantIndex: number, fileName: string) {
+  async function handleHlsConfirm(probeId: string, variantIndex: number, fileName: string, timeRange?: string) {
     setMediaEvent(null);
     try {
-      await api.addMediaDownload(probeId, variantIndex, fileName);
-      await refresh();
+      await api.addMediaDownload(probeId, variantIndex, fileName, timeRange);
+      refresh();
     } catch (e) {
       setError(`Impossible de démarrer la vidéo : ${String(e)}`);
     }

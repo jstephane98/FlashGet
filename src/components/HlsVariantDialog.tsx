@@ -22,10 +22,12 @@ export function HlsVariantDialog({
 }: {
   event: MediaVariantsEvent | null;
   onClose: () => void;
-  onConfirm: (probeId: string, variantIndex: number, fileName: string) => void;
+  onConfirm: (probeId: string, variantIndex: number, fileName: string, timeRange?: string) => void;
 }) {
   const [selected, setSelected] = useState(0);
   const [name, setName] = useState("");
+  const [startTime, setStartTime] = useState("");
+  const [endTime, setEndTime] = useState("");
   useEffect(() => {
     if (event) {
       if (event.variants.length) {
@@ -72,13 +74,40 @@ export function HlsVariantDialog({
             </label>
           ))}
         </div>
+        <div className="mt-3 flex items-center gap-2 text-sm text-ink-mute">
+          <span>Découper :</span>
+          <input
+            type="text"
+            className="w-16 bg-surface border border-border rounded px-2 py-1 text-ink placeholder:text-ink-soft text-center"
+            placeholder="00:00"
+            value={startTime}
+            onChange={(e) => setStartTime(e.target.value)}
+          />
+          <span>à</span>
+          <input
+            type="text"
+            className="w-16 bg-surface border border-border rounded px-2 py-1 text-ink placeholder:text-ink-soft text-center"
+            placeholder="Fin"
+            value={endTime}
+            onChange={(e) => setEndTime(e.target.value)}
+          />
+          <span className="text-xs ml-1">(ex: 1:30)</span>
+        </div>
         <div className="flex justify-end gap-2 mt-4">
           <button className="px-3 py-1.5 text-sm rounded-md bg-surface text-ink-soft border border-border" onClick={onClose}>
             Annuler
           </button>
           <button
             className="px-3 py-1.5 text-sm rounded-md cta-grad font-semibold"
-            onClick={() => onConfirm(event.probe_id, selected, name.trim())}
+            onClick={() => {
+              const start = startTime.trim();
+              const end = endTime.trim();
+              let range: string | undefined = undefined;
+              if (start || end) {
+                range = `*${start || '00:00'}-${end || 'inf'}`;
+              }
+              onConfirm(event.probe_id, selected, name.trim(), range);
+            }}
           >
             Télécharger
           </button>

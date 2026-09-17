@@ -477,8 +477,8 @@ async fn fetch_text<F: ByteFetcher>(fetcher: &F, url: &str, headers: &RequestHea
 
 /// Crée un download média (HLS ou DASH) à partir d'un probe et de la variante choisie.
 #[tauri::command]
-pub async fn add_media_download(app: AppHandle, probe_id: String, variant_index: u32, file_name: Option<String>) -> Result<Download, String> {
-    enum Built { Hls { url: String, audio_url: Option<String> }, Dash { mpd_url: String, selection: String }, Ytdlp { url: String, format_id: String } }
+pub async fn add_media_download(app: AppHandle, probe_id: String, variant_index: u32, file_name: Option<String>, time_range: Option<String>) -> Result<Download, String> {
+    enum Built { Hls { url: String, audio_url: Option<String> }, Dash { mpd_url: String, selection: String }, Ytdlp { url: String, format_id: String, time_range: Option<String> } }
     let (built, file_name, headers) = {
         let state = app.state::<AppState>();
         let mut pending = state.pending_media.lock().unwrap();
@@ -504,7 +504,7 @@ pub async fn add_media_download(app: AppHandle, probe_id: String, variant_index:
             }
             MediaProbe::Ytdlp(format_ids) => {
                 let format_id = format_ids.get(variant_index as usize).ok_or_else(|| "variante invalide".to_string())?.clone();
-                Built::Ytdlp { url: pm.source_url.clone(), format_id }
+                Built::Ytdlp { url: pm.source_url.clone(), format_id, time_range }
             }
         };
         let ext = if let Built::Ytdlp { ref format_id, .. } = built {
@@ -535,7 +535,10 @@ pub async fn add_media_download(app: AppHandle, probe_id: String, variant_index:
     let (kind, url, audio_url, media_selection) = match built {
         Built::Hls { url, audio_url } => (DownloadKind::Hls, url, audio_url, None),
         Built::Dash { mpd_url, selection } => (DownloadKind::Dash, mpd_url, None, Some(selection)),
-        Built::Ytdlp { url, format_id } => (DownloadKind::Ytdlp, url, None, Some(format_id)),
+        Built::Ytdlp { url, format_id, time_range } => {
+            let sel = serde_json::json!({ "format_id": format_id, "time_range": time_range }).to_string();
+            (DownloadKind::Ytdlp, url, None, Some(sel))
+        }
     };
     let download = Download {
         id: uuid::Uuid::new_v4().to_string(),
@@ -1000,8 +1003,14 @@ fn launch(app: &AppHandle, download: Download, handle: DownloadHandle) {
                 download_core::dash::engine::download_dash(&fetcher, &remux, &id_for_dl, &url, &selection, &dest, handle, limiter, tx, &headers).await
             }
             download_core::model::DownloadKind::Ytdlp => {
-                let format_id = media_selection.clone().unwrap_or_default();
-                crate::ytdlp::run_download(app_for_dl.clone(), &id_for_dl, &url, &format_id, &dest, handle, &headers, tx).await
+                let (format_id, time_range) = match media_selection.as_deref().and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok()) {
+                    Some(v) => (
+                        v.get("format_id").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+                        v.get("time_range").and_then(|x| x.as_str()).map(String::from),
+                    ),
+                    None => (media_selection.clone().unwrap_or_default(), None), // fallback au cas où c'était un ancien téléchargement
+                };
+                crate::ytdlp::run_download(app_for_dl.clone(), &id_for_dl, &url, &format_id, time_range, &dest, handle, &headers, tx).await
                     .map(|()| download_core::engine::Outcome::Completed)
             }
         };

@@ -31,8 +31,8 @@ export function onMediaProbing(cb: () => void): Promise<UnlistenFn> {
   return listen("media://probing", () => cb());
 }
 
-export function addMediaDownload(probeId: string, variantIndex: number, fileName: string): Promise<Download> {
-  return invoke<Download>("add_media_download", { probeId, variantIndex, fileName });
+export function addMediaDownload(probeId: string, variantIndex: number, fileName: string, timeRange?: string): Promise<Download> {
+  return invoke<Download>("add_media_download", { probeId, variantIndex, fileName, timeRange });
 }
 
 export function addDownload(url: string, destDir: string): Promise<Download> {

@@ -135,7 +135,13 @@ async fn probe_once(
     url: &str,
     extra: &[String],
 ) -> Result<(String, Vec<download_core::ytdlp::YtdlpFormat>), String> {
-    let mut args: Vec<String> = vec!["-J".into(), "--no-playlist".into(), "--no-warnings".into()];
+    let mut args: Vec<String> = vec![
+        "-J".into(),
+        "--no-playlist".into(),
+        "--no-warnings".into(),
+        "--js-runtimes".into(),
+        "node".into(),
+    ];
     args.extend(extra.iter().cloned());
     args.push(url.to_string());
 
@@ -163,20 +169,21 @@ pub async fn run_download(
     id: &str,
     url: &str,
     format_id: &str,
+    time_range: Option<String>,
     dest: &Path,
     handle: DownloadHandle,
     headers: &RequestHeaders,
     tx: UnboundedSender<Progress>,
 ) -> Result<(), CoreError> {
     let primary = header_args(headers);
-    match run_yt(&app, id, url, format_id, dest, &handle, &tx, &primary).await {
+    match run_yt(&app, id, url, format_id, time_range.clone(), dest, &handle, &tx, &primary).await {
         Ok(()) => Ok(()),
         Err(e) => {
             // Repli cookies (YouTube) : seulement si rien n'a été téléchargé et pas pause/annulation.
             if handle.downloaded() == 0 && !handle.is_paused() && !handle.is_cancelled() {
                 if let Some(mut ck) = crate::youtube::account_cookie_args(&app, url) {
                     ck.extend(referer_args(headers));
-                    return run_yt(&app, id, url, format_id, dest, &handle, &tx, &ck).await;
+                    return run_yt(&app, id, url, format_id, time_range.clone(), dest, &handle, &tx, &ck).await;
                 }
             }
             Err(e)
@@ -190,6 +197,7 @@ async fn run_yt(
     id: &str,
     url: &str,
     format_id: &str,
+    time_range: Option<String>,
     dest: &Path,
     handle: &DownloadHandle,
     tx: &UnboundedSender<Progress>,
@@ -201,7 +209,13 @@ async fn run_yt(
         "--no-playlist".into(),
         "--newline".into(),
         "--continue".into(),
+        "--js-runtimes".into(),
+        "node".into(),
     ];
+    if let Some(range) = time_range {
+        args.push("--download-sections".into());
+        args.push(range);
+    }
     if format_id == "bestaudio" {
         args.push("-x".into());
         args.push("--audio-format".into());
