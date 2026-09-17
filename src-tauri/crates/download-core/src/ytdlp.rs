@@ -147,11 +147,18 @@ pub fn select_variants(formats: &[YtdlpFormat]) -> Vec<(String, YtdlpVariant)> {
             YtdlpVariant { resolution, bandwidth, est_size: f.filesize },
         ));
     }
+    out.push((
+        "bestaudio".to_string(),
+        YtdlpVariant { resolution: Some("Audio uniquement".to_string()), bandwidth: 0, est_size: None },
+    ));
     out
 }
 
 /// Argument `-f` : fusionne l'audio si le format est vidéo-seul, avec repli.
 pub fn build_format_arg(format_id: &str) -> String {
+    if format_id == "bestaudio" {
+        return "bestaudio".to_string();
+    }
     format!("{format_id}+bestaudio/{format_id}/best")
 }
 
@@ -190,12 +197,13 @@ mod tests {
     fn select_variants_keeps_video_dedups_sorts() {
         let (_t, formats) = parse_formats(SAMPLE).unwrap();
         let v = select_variants(&formats);
-        assert_eq!(v.len(), 2);
+        assert_eq!(v.len(), 3);
         assert_eq!(v[0].0, "137");
         assert_eq!(v[0].1.resolution.as_deref(), Some("1920x1080"));
         assert_eq!(v[0].1.bandwidth, 4_000_000);
         assert_eq!(v[0].1.est_size, Some(5000));
         assert_eq!(v[1].0, "18");
+        assert_eq!(v[2].0, "bestaudio");
     }
 
     #[test]
@@ -248,9 +256,10 @@ mod tests {
             filesize: None, tbr: None,
         }];
         let v = select_variants(&formats);
-        assert_eq!(v.len(), 1);
+        assert_eq!(v.len(), 2);
         assert_eq!(v[0].1.resolution, None);
         assert_eq!(v[0].1.bandwidth, 0);
+        assert_eq!(v[1].0, "bestaudio");
     }
 
     #[test]

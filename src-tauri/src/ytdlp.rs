@@ -201,13 +201,21 @@ async fn run_yt(
         "--no-playlist".into(),
         "--newline".into(),
         "--continue".into(),
-        "--merge-output-format".into(),
-        "mp4".into(),
+    ];
+    if format_id == "bestaudio" {
+        args.push("-x".into());
+        args.push("--audio-format".into());
+        args.push("mp3".into());
+    } else {
+        args.push("--merge-output-format".into());
+        args.push("mp4".into());
+    }
+    args.extend_from_slice(&[
         "--progress-template".into(),
         format!("{}%(progress.downloaded_bytes)s/%(progress.total_bytes)s", download_core::ytdlp::PROGRESS_PREFIX),
         "-o".into(),
         dest.to_string_lossy().to_string(),
-    ];
+    ]);
     if let Some(ff) = ffmpeg_location() {
         args.push("--ffmpeg-location".into());
         args.push(ff);

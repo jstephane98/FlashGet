@@ -489,7 +489,6 @@ pub async fn add_media_download(app: AppHandle, probe_id: String, variant_index:
             Some(n) => download_core::naming::sanitize_title(Some(n)),
             None => pm.file_name.clone(),
         };
-        let file_name = download_core::naming::ensure_extension(&stem, "mp4");
         let headers = pm.headers.clone();
         let built = match &pm.probe {
             MediaProbe::Hls(master) => {
@@ -508,6 +507,12 @@ pub async fn add_media_download(app: AppHandle, probe_id: String, variant_index:
                 Built::Ytdlp { url: pm.source_url.clone(), format_id }
             }
         };
+        let ext = if let Built::Ytdlp { ref format_id, .. } = built {
+            if format_id == "bestaudio" { "mp3" } else { "mp4" }
+        } else {
+            "mp4"
+        };
+        let file_name = download_core::naming::ensure_extension(&stem, ext);
         let r = (built, file_name, headers);
         pending.remove(&probe_id);
         r
@@ -515,7 +520,8 @@ pub async fn add_media_download(app: AppHandle, probe_id: String, variant_index:
 
     let dest_dir = {
         let state = app.state::<AppState>();
-        match state.storage.category_dir(Category::Video).map_err(|e| e.to_string())? {
+        let cat = if file_name.ends_with(".mp3") { Category::Music } else { Category::Video };
+        match state.storage.category_dir(cat).map_err(|e| e.to_string())? {
             Some(p) => PathBuf::from(p),
             None => app.path().download_dir().map_err(|e| e.to_string())?,
         }
