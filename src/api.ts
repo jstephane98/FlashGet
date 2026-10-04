@@ -46,8 +46,8 @@ export interface BatchSummary {
   failed: number;
 }
 
-export function addBatchDownloads(text: string, destDir: string): Promise<BatchSummary> {
-  return invoke<BatchSummary>("add_batch_downloads", { args: { text, dest_dir: destDir } });
+export function addBatchDownloads(text: string, destDir: string, mode: string = "direct"): Promise<BatchSummary> {
+  return invoke<BatchSummary>("add_batch_downloads", { args: { text, dest_dir: destDir, mode } });
 }
 
 export function listDownloads(): Promise<Download[]> {

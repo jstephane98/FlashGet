@@ -108,6 +108,8 @@ pub async fn add_download(app: AppHandle, args: AddArgs) -> Result<Download, Str
 pub struct AddBatchArgs {
     pub text: String,
     pub dest_dir: String,
+    #[serde(default)]
+    pub mode: Option<String>,
 }
 
 #[derive(serde::Serialize)]
@@ -177,15 +179,82 @@ pub(crate) async fn add_url_no_probe(
     Ok(download)
 }
 
+/// Crée un téléchargement yt-dlp (vidéo meilleure qualité ou audio MP3) en file.
+async fn add_ytdlp_queued(app: &AppHandle, url: &str, title: &str, audio: bool) -> Result<Download, String> {
+    let stem = download_core::naming::sanitize_title(Some(title));
+    let stem = if stem.trim().is_empty() { "video".to_string() } else { stem };
+    let ext = if audio { "mp3" } else { "mp4" };
+    let file_name = download_core::naming::ensure_extension(&stem, ext);
+    let category = if audio { Category::Music } else { Category::Video };
+    let dest_dir = {
+        let state = app.state::<AppState>();
+        match state.storage.category_dir(category).map_err(|e| e.to_string())? {
+            Some(p) => PathBuf::from(p),
+            None => app.path().download_dir().map_err(|e| e.to_string())?,
+        }
+    };
+    std::fs::create_dir_all(&dest_dir).map_err(|e| format!("dossier de destination inaccessible: {e}"))?;
+    let dest_path = dest_dir.join(&file_name);
+    if dest_path.parent() != Some(dest_dir.as_path()) {
+        return Err("nom de fichier invalide".into());
+    }
+    let format_id = if audio { "bestaudio" } else { "bestvideo" };
+    let sel = serde_json::json!({ "format_id": format_id, "time_range": serde_json::Value::Null }).to_string();
+    let download = Download {
+        id: uuid::Uuid::new_v4().to_string(),
+        url: url.to_string(),
+        file_name,
+        dest_path: dest_path.to_string_lossy().to_string(),
+        total_bytes: None,
+        downloaded_bytes: 0,
+        status: DownloadStatus::Queued,
+        supports_ranges: false,
+        error: None,
+        priority: Priority::Normal,
+        category,
+        referrer: None,
+        cookie: None,
+        user_agent: None,
+        kind: DownloadKind::Ytdlp,
+        audio_url: None,
+        media_selection: Some(sel),
+    };
+    app.state::<AppState>().storage.upsert(&download).map_err(|e| e.to_string())?;
+    Ok(download)
+}
+
 /// Ajoute en lot : parse le texte (une URL par ligne), crée chaque téléchargement
 /// en `Queued` sans sonder, puis ré-évalue la file une seule fois. Une ligne en échec
 /// (ex. dossier inaccessible) n'interrompt pas les suivantes.
+/// `mode` : `None`/`"direct"` = fichiers directs ; `"video"` ou `"audio"` = via yt-dlp
+/// (les playlists sont développées en une entrée par vidéo).
 #[tauri::command]
 pub async fn add_batch_downloads(app: AppHandle, args: AddBatchArgs) -> Result<BatchSummary, String> {
     let parsed = download_core::batch::parse_batch(&args.text);
     let mut added = 0usize;
     let mut failed = 0usize;
+    let mode = args.mode.as_deref().unwrap_or("direct");
     for url in &parsed.urls {
+        if mode == "video" || mode == "audio" {
+            match crate::ytdlp::list_entries(&app, url).await {
+                Ok(entries) => {
+                    for (u, t) in entries {
+                        match add_ytdlp_queued(&app, &u, &t, mode == "audio").await {
+                            Ok(_) => added += 1,
+                            Err(e) => {
+                                eprintln!("batch: échec ajout {u}: {e}");
+                                failed += 1;
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("batch: échec lecture {url}: {e}");
+                    failed += 1;
+                }
+            }
+            continue;
+        }
         match add_url_no_probe(&app, url, &args.dest_dir, RequestHeaders::default()).await {
             Ok(_) => added += 1,
             Err(e) => {

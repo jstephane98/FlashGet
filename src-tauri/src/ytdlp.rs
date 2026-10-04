@@ -130,6 +130,51 @@ pub async fn probe_formats(
     }
 }
 
+/// Liste les vidéos d'une URL (playlist YouTube incluse) via `yt-dlp --flat-playlist -J`.
+/// Renvoie des couples (url, titre). Pour une vidéo seule, renvoie un seul élément.
+pub async fn list_entries(app: &AppHandle, url: &str) -> Result<Vec<(String, String)>, String> {
+    let args: Vec<String> = vec![
+        "-J".into(),
+        "--flat-playlist".into(),
+        "--yes-playlist".into(),
+        "--no-warnings".into(),
+        "--js-runtimes".into(),
+        "node".into(),
+        url.to_string(),
+    ];
+    let cmd = app
+        .shell()
+        .sidecar("yt-dlp")
+        .map_err(|e| format!("yt-dlp introuvable: {e}"))?
+        .env("PYTHONUTF8", "1")
+        .env("PYTHONIOENCODING", "utf-8");
+    let output = cmd.args(args).output().await.map_err(|e| format!("échec exécution yt-dlp: {e}"))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let tail: String = stderr.lines().rev().take(3).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
+        return Err(format!("yt-dlp a échoué: {tail}"));
+    }
+    let v: serde_json::Value = serde_json::from_slice(&output.stdout).map_err(|e| format!("sortie yt-dlp illisible: {e}"))?;
+    let title_of = |e: &serde_json::Value| e.get("title").and_then(|t| t.as_str()).unwrap_or("").to_string();
+    if let Some(entries) = v.get("entries").and_then(|e| e.as_array()) {
+        let mut out = Vec::new();
+        for e in entries {
+            let u = e
+                .get("url")
+                .and_then(|x| x.as_str())
+                .or_else(|| e.get("webpage_url").and_then(|x| x.as_str()))
+                .map(|s| s.to_string())
+                .or_else(|| e.get("id").and_then(|x| x.as_str()).map(|id| format!("https://www.youtube.com/watch?v={id}")));
+            if let Some(u) = u {
+                out.push((u, title_of(e)));
+            }
+        }
+        return Ok(out);
+    }
+    let u = v.get("webpage_url").and_then(|x| x.as_str()).unwrap_or(url).to_string();
+    Ok(vec![(u, title_of(&v))])
+}
+
 async fn probe_once(
     app: &AppHandle,
     url: &str,

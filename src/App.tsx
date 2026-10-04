@@ -7,7 +7,7 @@ import { filterDownloads } from "./filter";
 import { Toolbar } from "./components/Toolbar";
 import { CategoryTabs } from "./components/CategoryTabs";
 import { AddUrlDialog } from "./components/AddUrlDialog";
-import { AddBatchDialog } from "./components/AddBatchDialog";
+import { AddBatchDialog, type BatchMode } from "./components/AddBatchDialog";
 import { DownloadTable } from "./components/DownloadTable";
 import { SettingsDialog } from "./components/SettingsDialog";
 import { HlsVariantDialog } from "./components/HlsVariantDialog";
@@ -145,12 +145,12 @@ export default function App() {
     }
   }
 
-  async function handleAddBatch(text: string) {
+  async function handleAddBatch(text: string, mode: BatchMode) {
     setBatchOpen(false);
     setError(null);
-    setInfo(null);
+    setInfo(mode === "direct" ? null : "Lecture des liens/playlists en cours…");
     try {
-      const s = await api.addBatchDownloads(text, DEST_DIR);
+      const s = await api.addBatchDownloads(text, DEST_DIR, mode);
       await refresh();
       const parts = [`${s.added} ajouté(s)`];
       if (s.skipped_duplicate) parts.push(`${s.skipped_duplicate} doublon(s)`);
