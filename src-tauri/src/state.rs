@@ -18,6 +18,8 @@ pub struct AppState {
     pub bridge_listening: Arc<AtomicBool>,
     /// Liens analysés (page Nouveau / captures) en attente de confirmation (probe_id → PendingLink).
     pub pending_links: Mutex<HashMap<String, crate::link::PendingLink>>,
+    /// Planificateur et suivi de fin de file. Verrou feuille (voir `queue.rs`).
+    pub planner: Mutex<crate::queue::PlannerState>,
 }
 
 impl AppState {
@@ -29,6 +31,7 @@ impl AppState {
             limiter: Arc::new(RateLimiter::new(max_speed_bps)),
             bridge_listening: Arc::new(AtomicBool::new(false)),
             pending_links: Mutex::new(HashMap::new()),
+            planner: Mutex::new(crate::queue::PlannerState::default()),
         }
     }
 }

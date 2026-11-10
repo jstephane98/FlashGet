@@ -388,10 +388,7 @@ pub fn update_settings(app: AppHandle, max_concurrent: u32, max_speed_bps: u64) 
 
 #[tauri::command]
 pub fn pause_all(state: State<AppState>) -> Result<(), String> {
-    let handles = state.handles.lock().unwrap();
-    for h in handles.values() {
-        h.pause();
-    }
+    crate::queue::pause_active(&state);
     Ok(())
 }
 
@@ -553,6 +550,8 @@ pub(crate) fn reevaluate_with(app: &AppHandle, forced: Option<&str>) {
         handles.insert(id.clone(), handle.clone());
         // Marquer Downloading conditionnellement — ne jamais écraser un statut terminal.
         let _ = state.storage.mark_active(&id, download.downloaded_bytes);
+        // Début (ou poursuite) d'une exécution de la file. Ordre des verrous : handles → planner.
+        crate::queue::on_started(app);
         launch(app, download, handle);
         free -= 1;
     }
@@ -727,6 +726,14 @@ fn launch(app: &AppHandle, download: Download, handle: DownloadHandle) {
             let persist = matches!(p.status, DownloadStatus::Completed | DownloadStatus::Paused | DownloadStatus::Error)
                 || (p.status == DownloadStatus::Recording && last_persisted != Some(DownloadStatus::Recording));
             if persist {
+                // Pause demandée par la sortie de plage du planificateur : l'élément retourne
+                // en attente (`Held`) au lieu de `Paused`. Nettoyé aussi sur Completed/Error.
+                if p.status != DownloadStatus::Recording
+                    && crate::queue::take_hold_on_pause(&app_for_rx, &id_for_rx)
+                    && p.status == DownloadStatus::Paused
+                {
+                    p.status = DownloadStatus::Held;
+                }
                 let st = app_for_rx.state::<AppState>();
                 if let Err(e) = st.storage.update_state(&id_for_rx, p.downloaded_bytes, p.status) {
                     eprintln!("failed to persist download {id_for_rx}: {e}");
@@ -740,7 +747,10 @@ fn launch(app: &AppHandle, download: Download, handle: DownloadHandle) {
                 {
                     notify_terminal(&app_for_rx, p.status, &id_for_rx);
                 }
+                let first = last_persisted != Some(p.status);
                 last_persisted = Some(p.status);
+                // Suivi de fin de file, APRÈS la persistance (le comptage lit le statut à jour).
+                crate::queue::on_terminal_persisted(&app_for_rx, p.status, first);
             }
             // Émission APRÈS la persistance des états terminaux : un refresh() côté UI
             // déclenché par l'évènement lit ainsi le statut et completed_at à jour.
@@ -819,6 +829,8 @@ fn launch(app: &AppHandle, download: Download, handle: DownloadHandle) {
                     segments_total: None, parts: None,
                 });
                 notify_terminal(&app_for_dl, DownloadStatus::Error, &id_for_dl);
+                crate::queue::take_hold_on_pause(&app_for_dl, &id_for_dl);
+                crate::queue::on_terminal_persisted(&app_for_dl, DownloadStatus::Error, true);
             }
         }
         // Libérer le slot et relancer la file.

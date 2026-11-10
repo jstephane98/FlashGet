@@ -4,6 +4,7 @@ mod dest;
 mod library;
 mod link;
 mod prefs;
+mod queue;
 mod remux;
 mod state;
 mod ytdlp;
@@ -35,6 +36,7 @@ pub fn run() {
             app.manage(AppState::new(storage, settings.max_speed_bps));
             bridge::start(app.handle().clone());
             commands::recover_interrupted_recordings(app.handle());
+            queue::start_planner_loop(app.handle().clone());
 
             // --- System tray ---
             use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -131,6 +133,15 @@ pub fn run() {
             youtube::set_notify_on_complete,
             prefs::get_ui_pref,
             prefs::set_ui_pref,
+            queue::reorder_queue,
+            queue::start_queue,
+            queue::pause_queue,
+            queue::get_queue_paused,
+            queue::get_schedule,
+            queue::set_schedule,
+            queue::get_end_action,
+            queue::set_end_action,
+            queue::run_end_action,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
