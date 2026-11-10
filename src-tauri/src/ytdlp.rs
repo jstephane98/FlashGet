@@ -116,17 +116,61 @@ pub async fn probe_formats(
     url: &str,
     headers: &RequestHeaders,
 ) -> Result<(String, Vec<download_core::ytdlp::YtdlpFormat>), String> {
+    probe_with(app, url, headers, |json| download_core::ytdlp::parse_formats(json).map_err(|e| e.to_string())).await
+}
+
+/// Comme `probe_formats`, mais parse la sortie via `parse_info` : métadonnées détaillées
+/// (`MediaInfo`) + formats bruts. Même processus, mêmes en-têtes, même repli cookies YouTube.
+pub async fn probe_info(
+    app: &AppHandle,
+    url: &str,
+    headers: &RequestHeaders,
+) -> Result<(download_core::ytdlp::MediaInfo, Vec<download_core::ytdlp::YtdlpFormat>), String> {
+    probe_with(app, url, headers, |json| download_core::ytdlp::parse_info(json).map_err(|e| e.to_string())).await
+}
+
+/// `yt-dlp -J` puis `parse` ; en cas d'échec (process OU parse), réessaie avec les
+/// cookies de compte YouTube s'il y en a.
+async fn probe_with<T>(
+    app: &AppHandle,
+    url: &str,
+    headers: &RequestHeaders,
+    parse: fn(&str) -> Result<T, String>,
+) -> Result<T, String> {
     let primary = header_args(headers);
-    match probe_once(app, url, &primary).await {
+    match probe_once(app, url, &primary, parse).await {
         Ok(r) => Ok(r),
         Err(e) => {
             if let Some(mut ck) = crate::youtube::account_cookie_args(app, url) {
                 ck.extend(referer_args(headers));
-                probe_once(app, url, &ck).await
+                probe_once(app, url, &ck, parse).await
             } else {
                 Err(e)
             }
         }
+    }
+}
+
+/// Certains sites (ex. YouTube) refusent l'extraction quand on transmet les en-têtes du
+/// navigateur (les cookies déclenchent un downgrade de client → « Requested format is not
+/// available »), alors que d'autres (ex. Facebook) en ont besoin. On essaie donc d'abord
+/// AVEC les en-têtes, puis on réessaie SANS en cas d'échec (= comportement « coller l'URL »
+/// qui fonctionne). Renvoie aussi le jeu d'en-têtes qui a réussi, pour que le téléchargement
+/// soit cohérent avec la sonde.
+pub async fn with_header_fallback<T, F, Fut>(headers: RequestHeaders, probe: F) -> Result<(T, RequestHeaders), String>
+where
+    F: Fn(RequestHeaders) -> Fut,
+    Fut: std::future::Future<Output = Result<T, String>>,
+{
+    let has_headers =
+        headers.cookie.is_some() || headers.referrer.is_some() || headers.user_agent.is_some();
+    match probe(headers.clone()).await {
+        Ok(t) => Ok((t, headers)),
+        Err(_first) if has_headers => {
+            let t = probe(RequestHeaders::default()).await?;
+            Ok((t, RequestHeaders::default()))
+        }
+        Err(e) => Err(e),
     }
 }
 
@@ -175,11 +219,12 @@ pub async fn list_entries(app: &AppHandle, url: &str) -> Result<Vec<(String, Str
     Ok(vec![(u, title_of(&v))])
 }
 
-async fn probe_once(
+async fn probe_once<T>(
     app: &AppHandle,
     url: &str,
     extra: &[String],
-) -> Result<(String, Vec<download_core::ytdlp::YtdlpFormat>), String> {
+    parse: fn(&str) -> Result<T, String>,
+) -> Result<T, String> {
     let mut args: Vec<String> = vec![
         "-J".into(),
         "--no-playlist".into(),
@@ -203,7 +248,7 @@ async fn probe_once(
         return Err(format!("yt-dlp -J a échoué: {tail}"));
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
-    download_core::ytdlp::parse_formats(&stdout).map_err(|e| e.to_string())
+    parse(&stdout)
 }
 
 /// Télécharge via yt-dlp. Pour YouTube : essaie d'abord SANS cookies de compte ; si l'essai

@@ -1,6 +1,7 @@
 mod bridge;
 mod commands;
 mod dest;
+mod link;
 mod prefs;
 mod remux;
 mod state;
@@ -117,6 +118,7 @@ pub fn run() {
             commands::regenerate_bridge_token,
             commands::get_autostart,
             commands::set_autostart,
+            link::probe_link,
             youtube::youtube_login,
             youtube::youtube_status,
             youtube::youtube_logout,

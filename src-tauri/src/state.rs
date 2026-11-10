@@ -21,6 +21,8 @@ pub struct AppState {
     pub bridge_listening: Arc<AtomicBool>,
     /// Probes HLS en attente d'un choix de variante (probe_id → PendingMedia).
     pub pending_media: Mutex<HashMap<String, PendingMedia>>,
+    /// Liens analysés (page Nouveau / captures) en attente de confirmation (probe_id → PendingLink).
+    pub pending_links: Mutex<HashMap<String, crate::link::PendingLink>>,
 }
 
 impl AppState {
@@ -32,6 +34,7 @@ impl AppState {
             limiter: Arc::new(RateLimiter::new(max_speed_bps)),
             bridge_listening: Arc::new(AtomicBool::new(false)),
             pending_media: Mutex::new(HashMap::new()),
+            pending_links: Mutex::new(HashMap::new()),
         }
     }
 }

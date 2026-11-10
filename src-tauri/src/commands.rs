@@ -20,7 +20,8 @@ pub struct AddArgs {
 }
 
 /// Crée un téléchargement (statut Queued), le persiste, puis ré-évalue la file.
-/// Logique réutilisable par la commande Tauri ET par le bridge navigateur.
+/// Le bridge ne l'appelle plus (captures → `link::capture`) ; sort à la Task 11 si sans appelant.
+#[allow(dead_code)]
 pub(crate) async fn add_url(app: &AppHandle, url: &str, dest_dir: &str, headers: RequestHeaders, suggested_name: Option<String>) -> Result<Download, String> {
     add_url_with_probe(app, url, dest_dir, headers, suggested_name, None).await
 }
@@ -278,15 +279,15 @@ pub struct MediaErrorEvent {
     pub message: String,
 }
 
-/// Corps interne : sonde un master/media HLS, mémorise le probe et émet `media://variants`.
-async fn probe_hls_inner(
+/// Sonde un master/media HLS SANS effet de bord : playlist maître (une seule variante
+/// synthétique pour une media playlist) + variantes affichables (éventuellement vide).
+pub(crate) async fn hls_variants(
     app: &AppHandle,
     url: &str,
-    headers: RequestHeaders,
-    suggested_name: Option<String>,
-) -> Result<(), String> {
+    headers: &RequestHeaders,
+) -> Result<(MasterPlaylist, Vec<MediaVariant>), String> {
     let fetcher = { app.state::<AppState>().fetcher.clone() };
-    let text = tokio::time::timeout(std::time::Duration::from_secs(30), fetch_text(&fetcher, url, &headers))
+    let text = tokio::time::timeout(std::time::Duration::from_secs(30), fetch_text(&fetcher, url, headers))
         .await
         .map_err(|_| "délai dépassé lors de la récupération de la playlist".to_string())?
         .map_err(|e| e.to_string())?;
@@ -294,7 +295,7 @@ async fn probe_hls_inner(
     let (master, total_duration) = if is_master(&text) {
         let m = parse_master(&text, url);
         let dur = if let Some(v) = m.variants.get(best_variant(&m)) {
-            match tokio::time::timeout(std::time::Duration::from_secs(30), fetch_text(&fetcher, &v.uri, &headers)).await {
+            match tokio::time::timeout(std::time::Duration::from_secs(30), fetch_text(&fetcher, &v.uri, headers)).await {
                 Ok(Ok(t)) => parse_media(&t, &v.uri).total_duration(),
                 _ => 0.0,
             }
@@ -317,10 +318,6 @@ async fn probe_hls_inner(
         (m, dur)
     };
 
-    if master.variants.is_empty() {
-        return Err("aucune variante HLS trouvée".into());
-    }
-
     let variants: Vec<MediaVariant> = master
         .variants
         .iter()
@@ -336,6 +333,20 @@ async fn probe_hls_inner(
             },
         })
         .collect();
+    Ok((master, variants))
+}
+
+/// Corps interne : sonde un master/media HLS, mémorise le probe et émet `media://variants`.
+async fn probe_hls_inner(
+    app: &AppHandle,
+    url: &str,
+    headers: RequestHeaders,
+    suggested_name: Option<String>,
+) -> Result<(), String> {
+    let (master, variants) = hls_variants(app, url, &headers).await?;
+    if master.variants.is_empty() {
+        return Err("aucune variante HLS trouvée".into());
+    }
 
     let probe_id = uuid::Uuid::new_v4().to_string();
     let file_name = download_core::naming::sanitize_title(suggested_name.as_deref());
@@ -360,6 +371,8 @@ async fn probe_hls_inner(
 }
 
 /// Sonde un master/media HLS ; en cas d'échec, émet `media://error` et fait surgir la fenêtre.
+/// Plus appelée depuis le bridge (captures → `link::capture`) ; supprimée à la Task 11.
+#[allow(dead_code)]
 pub(crate) async fn probe_hls(
     app: &AppHandle,
     url: &str,
@@ -378,21 +391,30 @@ pub(crate) async fn probe_hls(
     result
 }
 
-/// Corps interne : sonde un MPD DASH, mémorise le probe et émet `media://variants`.
-async fn probe_dash_inner(app: &AppHandle, url: &str, headers: RequestHeaders, suggested_name: Option<String>) -> Result<(), String> {
+/// Sonde un MPD DASH SANS effet de bord : MPD parsé + variantes vidéo (éventuellement vide).
+pub(crate) async fn dash_variants(
+    app: &AppHandle,
+    url: &str,
+    headers: &RequestHeaders,
+) -> Result<(download_core::dash::mpd::Mpd, Vec<MediaVariant>), String> {
     let fetcher = { app.state::<AppState>().fetcher.clone() };
-    let text = tokio::time::timeout(std::time::Duration::from_secs(30), fetch_text(&fetcher, url, &headers))
+    let text = tokio::time::timeout(std::time::Duration::from_secs(30), fetch_text(&fetcher, url, headers))
         .await
         .map_err(|_| "délai dépassé lors de la récupération du MPD".to_string())?
         .map_err(|e| e.to_string())?;
     let mpd = download_core::dash::mpd::parse_mpd(&text, url).map_err(|e| e.to_string())?;
-    let vlist = download_core::dash::select::video_variants(&mpd);
-    if vlist.is_empty() {
-        return Err("aucune variante vidéo DASH trouvée".into());
-    }
-    let variants: Vec<MediaVariant> = vlist.iter().map(|(_, v)| MediaVariant {
+    let variants: Vec<MediaVariant> = download_core::dash::select::video_variants(&mpd).iter().map(|(_, v)| MediaVariant {
         index: v.index, resolution: v.resolution.clone(), bandwidth: v.bandwidth, est_size: v.est_size,
     }).collect();
+    Ok((mpd, variants))
+}
+
+/// Corps interne : sonde un MPD DASH, mémorise le probe et émet `media://variants`.
+async fn probe_dash_inner(app: &AppHandle, url: &str, headers: RequestHeaders, suggested_name: Option<String>) -> Result<(), String> {
+    let (mpd, variants) = dash_variants(app, url, &headers).await?;
+    if variants.is_empty() {
+        return Err("aucune variante vidéo DASH trouvée".into());
+    }
     let probe_id = uuid::Uuid::new_v4().to_string();
     let file_name = download_core::naming::sanitize_title(suggested_name.as_deref());
     {
@@ -410,6 +432,8 @@ async fn probe_dash_inner(app: &AppHandle, url: &str, headers: RequestHeaders, s
 }
 
 /// Sonde un MPD DASH ; en cas d'échec, émet `media://error` et fait surgir la fenêtre.
+/// Plus appelée depuis le bridge (captures → `link::capture`) ; supprimée à la Task 11.
+#[allow(dead_code)]
 pub(crate) async fn probe_dash(app: &AppHandle, url: &str, headers: RequestHeaders, suggested_name: Option<String>) -> Result<(), String> {
     let result = probe_dash_inner(app, url, headers, suggested_name).await;
     if let Err(e) = &result {
@@ -432,6 +456,8 @@ pub(crate) async fn probe_ytdlp(app: &AppHandle, url: &str, headers: RequestHead
 /// Bouton vidéo intelligent : yt-dlp d'abord (ré-extrait des URL fraîches, gère les sites
 /// à URL signée), puis repli sur le flux HLS/DASH sniffé si yt-dlp ne trouve rien.
 /// Émet `media://error` une seule fois si tout échoue.
+/// Plus appelée depuis le bridge (captures → `link::capture`) ; supprimée à la Task 11.
+#[allow(dead_code)]
 pub(crate) async fn probe_smart(
     app: &AppHandle,
     page_url: &str,
@@ -467,22 +493,11 @@ pub(crate) async fn probe_smart(
 }
 
 async fn probe_ytdlp_inner(app: &AppHandle, url: &str, headers: RequestHeaders) -> Result<(), String> {
-    // Certains sites (ex. YouTube) refusent l'extraction quand on transmet les en-têtes du
-    // navigateur (les cookies déclenchent un downgrade de client → « Requested format is not
-    // available »), alors que d'autres (ex. Facebook) en ont besoin. On essaie donc d'abord
-    // AVEC les en-têtes, puis on réessaie SANS en cas d'échec (= comportement « coller l'URL »
-    // qui fonctionne). Le jeu d'en-têtes qui a réussi est mémorisé pour que le téléchargement
-    // soit cohérent avec la sonde.
-    let has_headers =
-        headers.cookie.is_some() || headers.referrer.is_some() || headers.user_agent.is_some();
-    let (title, formats, effective_headers) = match crate::ytdlp::probe_formats(app, url, &headers).await {
-        Ok((t, f)) => (t, f, headers),
-        Err(_first) if has_headers => {
-            let (t, f) = crate::ytdlp::probe_formats(app, url, &RequestHeaders::default()).await?;
-            (t, f, RequestHeaders::default())
-        }
-        Err(e) => return Err(e),
-    };
+    // Avec les en-têtes du navigateur, puis sans (voir `with_header_fallback`).
+    let ((title, formats), effective_headers) = crate::ytdlp::with_header_fallback(headers, |h| async move {
+        crate::ytdlp::probe_formats(app, url, &h).await
+    })
+    .await?;
     let selected = download_core::ytdlp::select_variants(&formats);
     if selected.is_empty() {
         return Err("aucune vidéo trouvée sur cette page".into());
