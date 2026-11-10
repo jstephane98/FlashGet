@@ -166,7 +166,7 @@ pub async fn download_hls<F: ByteFetcher, R: Remuxer>(
         speed_bps: 0,
         status: DownloadStatus::Completed,
         segments_done: Some(total_segments),
-        segments_total: Some(total_segments),
+        segments_total: Some(total_segments), parts: None,
     });
     Ok(Outcome::Completed)
 }

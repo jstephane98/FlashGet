@@ -836,7 +836,7 @@ pub fn recover_interrupted_recordings(app: &AppHandle) {
                             speed_bps: 0,
                             status: DownloadStatus::Completed,
                             segments_done: None,
-                            segments_total: None,
+                            segments_total: None, parts: None,
                         },
                     );
                 }
@@ -1030,7 +1030,7 @@ fn launch(app: &AppHandle, download: Download, handle: DownloadHandle) {
                     speed_bps: 0,
                     status: DownloadStatus::Error,
                     segments_done: None,
-                    segments_total: None,
+                    segments_total: None, parts: None,
                 });
                 notify_terminal(&app_for_dl, DownloadStatus::Error, &id_for_dl);
             }

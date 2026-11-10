@@ -54,6 +54,7 @@ export interface Progress {
   status: DownloadStatus;
   segments_done?: number | null;
   segments_total?: number | null;
+  parts?: number[] | null;
 }
 
 export interface BridgeInfo {

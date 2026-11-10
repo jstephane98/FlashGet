@@ -120,7 +120,7 @@ pub async fn download_dash<F: ByteFetcher, R: Remuxer>(
     let _ = progress.send(Progress {
         id: id.to_string(), downloaded_bytes: handle.downloaded(), total_bytes: None,
         speed_bps: 0, status: DownloadStatus::Completed,
-        segments_done: Some(total_segments), segments_total: Some(total_segments),
+        segments_done: Some(total_segments), segments_total: Some(total_segments), parts: None,
     });
     Ok(Outcome::Completed)
 }
