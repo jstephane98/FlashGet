@@ -2,12 +2,16 @@ import { useEffect, useRef, useState } from "react";
 import * as api from "../api";
 import type { Settings } from "../types";
 import { t } from "../i18n";
-import type { MsgKey } from "../i18n";
 import { SettingsNav, type SectionId } from "../components/settings/SettingsNav";
 import { GeneralSection } from "../components/settings/GeneralSection";
 import { DownloadsSection } from "../components/settings/DownloadsSection";
 import { FoldersSection } from "../components/settings/FoldersSection";
-import { SectionShell, ghostBtn } from "../components/settings/controls";
+import { VideoSection } from "../components/settings/VideoSection";
+import { ExtensionSection } from "../components/settings/ExtensionSection";
+import { NotificationsSection } from "../components/settings/NotificationsSection";
+import { UpdatesSection } from "../components/settings/UpdatesSection";
+import { AboutSection } from "../components/settings/AboutSection";
+import { ghostBtn } from "../components/settings/controls";
 
 export function SettingsPage({ onSaved }: { onSaved(s: Settings): void }) {
   const [section, setSection] = useState<SectionId>("general");
@@ -76,7 +80,11 @@ export function SettingsPage({ onSaved }: { onSaved(s: Settings): void }) {
         {section === "general" ? <GeneralSection {...props} />
           : section === "downloads" ? <DownloadsSection {...props} rev={rev} />
           : section === "folders" ? <FoldersSection />
-          : <SectionShell title={t(`set.nav.${section}` as MsgKey)} desc={t("set.soon")}>{null}</SectionShell>}
+          : section === "video" ? <VideoSection {...props} rev={rev} />
+          : section === "extension" ? <ExtensionSection />
+          : section === "notifications" ? <NotificationsSection {...props} />
+          : section === "updates" ? <UpdatesSection />
+          : <AboutSection />}
       </div>
     </div>
   );

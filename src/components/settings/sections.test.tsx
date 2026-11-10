@@ -1,0 +1,133 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, fireEvent, cleanup, waitFor, act } from "@testing-library/react";
+import type { Settings } from "../../types";
+
+vi.mock("../../api");
+import * as api from "../../api";
+import { VideoSection } from "./VideoSection";
+import { ExtensionSection } from "./ExtensionSection";
+import { NotificationsSection } from "./NotificationsSection";
+import { UpdatesSection } from "./UpdatesSection";
+import { AboutSection } from "./AboutSection";
+
+const S: Settings = {
+  max_concurrent: 3, max_speed_bps: 0, connections: 8, retries: 5, auto_resume: true,
+  conflict: "rename", close_to_tray: true, notify_complete: true, notify_error: true,
+  video_max_height: 1080, audio_format: "mp3", audio_kbps: 320, sub_langs: ["fr"],
+};
+const save = vi.fn();
+let ytCb: () => void = () => {};
+
+beforeEach(() => {
+  vi.mocked(api.getYtdlpVersion).mockResolvedValue("2026.10.30");
+  vi.mocked(api.appVersion).mockResolvedValue("0.1.0");
+  vi.mocked(api.youtubeStatus).mockResolvedValue(false);
+  vi.mocked(api.youtubeLogin).mockResolvedValue(undefined);
+  vi.mocked(api.youtubeLogout).mockResolvedValue(undefined);
+  vi.mocked(api.getCookiesFromBrowser).mockResolvedValue(null);
+  vi.mocked(api.setCookiesFromBrowser).mockResolvedValue(undefined);
+  vi.mocked(api.onYoutubeStatus).mockImplementation(async (cb) => { ytCb = cb; return () => {}; });
+  vi.mocked(api.getBridgeInfo).mockResolvedValue({ listening: true, port: 6789, token: "tok-abc" });
+  vi.mocked(api.regenerateBridgeToken).mockResolvedValue("tok-new");
+});
+afterEach(() => { cleanup(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
+
+const props = { settings: S, save, rev: 0 };
+
+describe("VideoSection", () => {
+  it("affiche la version de yt-dlp", async () => {
+    render(<VideoSection {...props} />);
+    expect(await screen.findByText("2026.10.30")).toBeTruthy();
+  });
+
+  it("qualité 720p", () => {
+    render(<VideoSection {...props} />);
+    fireEvent.change(screen.getByLabelText("Qualité vidéo préférée"), { target: { value: "720" } });
+    expect(save).toHaveBeenCalledWith({ video_max_height: 720 });
+  });
+
+  it("format M4A puis débit 256", () => {
+    render(<VideoSection {...props} />);
+    fireEvent.click(screen.getByRole("button", { name: "M4A" }));
+    expect(save).toHaveBeenCalledWith({ audio_format: "m4a" });
+    fireEvent.change(screen.getByLabelText("Débit audio"), { target: { value: "256" } });
+    expect(save).toHaveBeenCalledWith({ audio_kbps: 256 });
+  });
+
+  it("décocher la dernière langue n'enregistre rien", () => {
+    render(<VideoSection {...props} />);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Français" }));
+    expect(save).not.toHaveBeenCalled();
+    expect((screen.getByRole("checkbox", { name: "Français" }) as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("cocher Allemand ajoute de", () => {
+    render(<VideoSection {...props} />);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Allemand" }));
+    expect(save).toHaveBeenCalledWith({ sub_langs: ["fr", "de"] });
+  });
+
+  it("YouTube : connexion puis déconnexion", async () => {
+    render(<VideoSection {...props} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Se connecter à YouTube" }));
+    expect(api.youtubeLogin).toHaveBeenCalled();
+    vi.mocked(api.youtubeStatus).mockResolvedValue(true);
+    await act(async () => { ytCb(); });
+    fireEvent.click(await screen.findByRole("button", { name: "Se déconnecter" }));
+    expect(api.youtubeLogout).toHaveBeenCalled();
+  });
+
+  it("cookies Edge", async () => {
+    render(<VideoSection {...props} />);
+    fireEvent.change(await screen.findByLabelText("Cookies d'un navigateur"), { target: { value: "edge" } });
+    expect(api.setCookiesFromBrowser).toHaveBeenCalledWith("edge");
+  });
+});
+
+describe("ExtensionSection", () => {
+  it("état, copie du jeton", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    render(<ExtensionSection />);
+    expect(await screen.findByText("À l'écoute sur le port 6789")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Copier" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("tok-abc"));
+    expect(await screen.findByRole("button", { name: "Copié" })).toBeTruthy();
+  });
+
+  it("régénérer demande confirmation", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    render(<ExtensionSection />);
+    const btn = await screen.findByRole("button", { name: "Régénérer" });
+    fireEvent.click(btn);
+    expect(api.regenerateBridgeToken).not.toHaveBeenCalled();
+    confirm.mockReturnValue(true);
+    fireEvent.click(btn);
+    await waitFor(() => expect(api.regenerateBridgeToken).toHaveBeenCalled());
+    expect(await screen.findByText("tok-new")).toBeTruthy();
+    confirm.mockRestore();
+  });
+});
+
+describe("NotificationsSection", () => {
+  it("échec désactivé", () => {
+    render(<NotificationsSection {...props} />);
+    fireEvent.click(screen.getByRole("switch", { name: "En cas d'échec" }));
+    expect(save).toHaveBeenCalledWith({ notify_error: false });
+  });
+});
+
+describe("Versions", () => {
+  it("Mises à jour", async () => {
+    render(<UpdatesSection />);
+    expect(await screen.findByText("0.1.0")).toBeTruthy();
+    expect(await screen.findByText("2026.10.30")).toBeTruthy();
+  });
+
+  it("À propos", async () => {
+    render(<AboutSection />);
+    expect(await screen.findByText("Version 0.1.0")).toBeTruthy();
+    expect(screen.getByText(/yt-dlp, FFmpeg/)).toBeTruthy();
+    expect(screen.queryByText(/aria2/)).toBeNull();
+  });
+});
