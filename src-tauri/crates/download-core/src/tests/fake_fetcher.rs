@@ -14,11 +14,14 @@ pub struct FakeFetcher {
     pub chunk_size: usize,
     /// Si false, `probe` ne révèle pas la taille (total_bytes = None).
     pub probe_reports_size: bool,
+    /// Si présent, chaque flux s'interrompt sur une erreur réseau à cet offset absolu
+    /// (les octets avant l'offset sont livrés).
+    pub fail_at: Option<u64>,
 }
 
 impl FakeFetcher {
     pub fn new(data: Vec<u8>, supports_ranges: bool) -> Self {
-        Self { data, supports_ranges, chunk_size: 7, probe_reports_size: true }
+        Self { data, supports_ranges, chunk_size: 7, probe_reports_size: true, fail_at: None }
     }
 }
 
@@ -44,18 +47,21 @@ impl ByteFetcher for FakeFetcher {
         range: Option<(u64, u64)>,
         _headers: &RequestHeaders,
     ) -> Result<BoxStream<'static, Result<Bytes, CoreError>>, CoreError> {
-        let slice: Vec<u8> = match range {
-            Some((start, end)) => {
-                let start = start as usize;
-                let end = (end as usize + 1).min(self.data.len());
-                self.data[start..end].to_vec()
-            }
-            None => self.data.clone(),
+        let (start, end) = match range {
+            Some((start, end)) => (start as usize, (end as usize + 1).min(self.data.len())),
+            None => (0, self.data.len()),
         };
-        let chunks: Vec<Result<Bytes, CoreError>> = slice
+        // Coupure simulée : on ne livre que jusqu'à `fail_at`, puis une erreur réseau.
+        let cut = self.fail_at.map(|f| (f as usize).clamp(start, end.max(start)));
+        let deliver_end = cut.unwrap_or(end).min(end);
+        let slice = &self.data[start..deliver_end.max(start)];
+        let mut chunks: Vec<Result<Bytes, CoreError>> = slice
             .chunks(self.chunk_size.max(1))
             .map(|c| Ok(Bytes::copy_from_slice(c)))
             .collect();
+        if cut.is_some_and(|c| c < end) {
+            chunks.push(Err(CoreError::Network("connexion interrompue".into())));
+        }
         Ok(stream::iter(chunks).boxed())
     }
 }

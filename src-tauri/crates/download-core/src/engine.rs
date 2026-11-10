@@ -10,6 +10,7 @@ use std::sync::Arc;
 use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::mpsc;
 
+/// Connexions (segments) par fichier par défaut, quand aucun réglage n'est fourni.
 pub const DEFAULT_SEGMENTS: u32 = 8;
 
 /// Contrôle partagé d'un téléchargement en cours.
@@ -49,6 +50,10 @@ impl DownloadHandle {
     pub fn add_downloaded(&self, n: u64) {
         self.downloaded.fetch_add(n, Ordering::SeqCst);
     }
+    /// Remet le compteur à `n` (nouvelle tentative d'un outil qui rapporte un cumul).
+    pub fn set_downloaded(&self, n: u64) {
+        self.downloaded.store(n, Ordering::SeqCst);
+    }
 }
 
 /// Issue d'un run du moteur.
@@ -60,7 +65,11 @@ pub enum Outcome {
 }
 
 /// Télécharge `url` vers `dest`. Émet la progression (octets cumulés) sur `progress`.
-/// Reprend depuis le sidecar s'il existe. Multi-segments si le serveur le supporte.
+/// Reprend depuis le sidecar s'il existe. Multi-segments (`segments` connexions, ramené
+/// à 1 au minimum) si le serveur le supporte ; un sidecar existant garde son découpage.
+/// En cas d'échec d'un segment, la progression est enregistrée dans le sidecar avant de
+/// renvoyer l'erreur : une nouvelle tentative reprend là où les segments se sont arrêtés.
+#[allow(clippy::too_many_arguments)]
 pub async fn download<F: ByteFetcher>(
     fetcher: &F,
     id: &str,
@@ -70,6 +79,7 @@ pub async fn download<F: ByteFetcher>(
     limiter: Arc<RateLimiter>,
     progress: mpsc::UnboundedSender<Progress>,
     headers: &RequestHeaders,
+    segments: u32,
 ) -> Result<Outcome, CoreError> {
     use futures_util::future::join_all;
     use futures_util::StreamExt;
@@ -89,7 +99,7 @@ pub async fn download<F: ByteFetcher>(
         _ => {
             let total = probe_total;
             let segs = if probe.supports_ranges && total > 0 {
-                compute_segments(total, DEFAULT_SEGMENTS)
+                compute_segments(total, segments.max(1))
             } else if total > 0 {
                 vec![(0, total - 1)]
             } else {
@@ -213,7 +223,15 @@ pub async fn download<F: ByteFetcher>(
                     file.flush().await?;
                     return Ok((idx, Outcome::Paused));
                 }
-                let chunk = chunk?;
+                let chunk = match chunk {
+                    Ok(c) => c,
+                    Err(e) => {
+                        // Les octets déjà comptés doivent être sur le disque avant que
+                        // le sidecar ne les déclare faits.
+                        file.flush().await?;
+                        return Err(e);
+                    }
+                };
                 limiter.acquire(chunk.len() as u64).await;
                 file.write_all(&chunk).await?;
                 seg_progress.fetch_add(chunk.len() as u64, Ordering::SeqCst);
@@ -230,15 +248,21 @@ pub async fn download<F: ByteFetcher>(
     let results = join_all(futs).await;
 
     let mut outcome = Outcome::Completed;
+    let mut first_err: Option<CoreError> = None;
     for r in results {
-        match r? {
-            (_, Outcome::Completed) => {}
-            (_, Outcome::Paused) => {
+        match r {
+            Err(e) => {
+                if first_err.is_none() {
+                    first_err = Some(e);
+                }
+            }
+            Ok((_, Outcome::Completed)) => {}
+            Ok((_, Outcome::Paused)) => {
                 if outcome == Outcome::Completed {
                     outcome = Outcome::Paused;
                 }
             }
-            (_, Outcome::Cancelled) => {
+            Ok((_, Outcome::Cancelled)) => {
                 outcome = Outcome::Cancelled;
             }
         }
@@ -249,6 +273,20 @@ pub async fn download<F: ByteFetcher>(
         let done = all_parts[idx].1.load(Ordering::SeqCst);
         let (s, e, _) = state.segments[idx];
         state.segments[idx] = (s, e, done.min(e - s + 1));
+    }
+
+    // Échec d'un segment : une annulation l'emporte (rien à garder) ; sinon on enregistre la
+    // progression pour que la tentative suivante (ou une reprise manuelle) reparte de là.
+    if let Some(err) = first_err {
+        if outcome == Outcome::Cancelled || handle.cancel.load(Ordering::SeqCst) {
+            resume::clear(dest);
+            let _ = std::fs::remove_file(dest);
+            return Ok(Outcome::Cancelled);
+        }
+        if let Err(se) = resume::save(dest, &state) {
+            eprintln!("engine: sidecar non enregistré après l'échec de {id}: {se}");
+        }
+        return Err(err);
     }
 
     match outcome {
@@ -322,7 +360,7 @@ mod tests {
         let dest = collect_dest(&dir);
         let (tx, _rx) = mpsc::unbounded_channel();
 
-        let outcome = download(&fetcher, "id1", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default())
+        let outcome = download(&fetcher, "id1", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default(), DEFAULT_SEGMENTS)
             .await
             .unwrap();
 
@@ -339,7 +377,7 @@ mod tests {
         let dest = collect_dest(&dir);
         let (tx, _rx) = mpsc::unbounded_channel();
 
-        download(&fetcher, "id2", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default())
+        download(&fetcher, "id2", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default(), DEFAULT_SEGMENTS)
             .await
             .unwrap();
 
@@ -354,7 +392,7 @@ mod tests {
         let dest = collect_dest(&dir);
         let (tx, mut rx) = mpsc::unbounded_channel();
 
-        download(&fetcher, "id3", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default())
+        download(&fetcher, "id3", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default(), DEFAULT_SEGMENTS)
             .await
             .unwrap();
 
@@ -367,7 +405,7 @@ mod tests {
 
     async fn run_collect(fetcher: &FakeFetcher, dest: &std::path::Path, handle: DownloadHandle) -> Vec<Progress> {
         let (tx, mut rx) = mpsc::unbounded_channel();
-        download(fetcher, "p1", "http://x/f", dest, handle, unlimited(), tx, &RequestHeaders::default())
+        download(fetcher, "p1", "http://x/f", dest, handle, unlimited(), tx, &RequestHeaders::default(), DEFAULT_SEGMENTS)
             .await
             .unwrap();
         std::iter::from_fn(|| rx.try_recv().ok()).collect()
@@ -385,6 +423,53 @@ mod tests {
         assert_eq!(parts.len(), DEFAULT_SEGMENTS as usize);
         assert!(parts.iter().all(|f| (*f - 1.0).abs() < f32::EPSILON));
         assert!(all.iter().filter_map(|p| p.parts.as_ref()).flatten().all(|f| (0.0..=1.0).contains(f)));
+    }
+
+    #[tokio::test]
+    async fn segments_count_follows_argument() {
+        let fetcher = FakeFetcher::new(vec![7u8; 800], true);
+        let dir = tempdir().unwrap();
+        let dest = collect_dest(&dir);
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        download(&fetcher, "p4", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default(), 4)
+            .await
+            .unwrap();
+        let all: Vec<Progress> = std::iter::from_fn(|| rx.try_recv().ok()).collect();
+        let last = all.last().unwrap();
+        assert_eq!(last.status, DownloadStatus::Completed);
+        assert_eq!(last.parts.as_ref().expect("parts attendus").len(), 4);
+        assert_eq!(std::fs::read(&dest).unwrap(), vec![7u8; 800]);
+    }
+
+    /// Une coupure réseau en cours de route laisse un fichier de reprise à jour :
+    /// la tentative suivante repart de là et termine un fichier intact.
+    #[tokio::test]
+    async fn network_failure_saves_resume_state_for_retry() {
+        let data: Vec<u8> = (0..=255u8).cycle().take(800).collect();
+        let dir = tempdir().unwrap();
+        let dest = collect_dest(&dir);
+
+        let mut failing = FakeFetcher::new(data.clone(), true);
+        failing.fail_at = Some(300); // segments 0 (0..199) et 1 (200..399) : 1 coupé à 300
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let err = download(&failing, "rt", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default(), 4)
+            .await
+            .unwrap_err();
+        assert!(err.is_transient(), "coupure réseau attendue, obtenu {err:?}");
+
+        let st = resume::load(&dest).expect("fichier de reprise attendu après l'échec");
+        let done: Vec<u64> = st.segments.iter().map(|(_, _, d)| *d).collect();
+        assert_eq!(done, vec![200, 100, 0, 0]);
+
+        let fetcher = FakeFetcher::new(data.clone(), true);
+        let (tx2, mut rx2) = mpsc::unbounded_channel();
+        let outcome = download(&fetcher, "rt", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx2, &RequestHeaders::default(), 4)
+            .await
+            .unwrap();
+        assert_eq!(outcome, Outcome::Completed);
+        assert_eq!(std::fs::read(&dest).unwrap(), data);
+        let first = std::iter::from_fn(|| rx2.try_recv().ok()).next().unwrap();
+        assert!(first.downloaded_bytes > 300, "la reprise doit partir des 300 octets déjà écrits");
     }
 
     #[tokio::test]
@@ -417,7 +502,7 @@ mod tests {
         handle.pause();
         let fetcher = FakeFetcher::new(data.clone(), true);
         let (tx, _rx) = mpsc::unbounded_channel();
-        let outcome = download(&fetcher, "p1", "http://x/f", &dest, handle, unlimited(), tx, &RequestHeaders::default())
+        let outcome = download(&fetcher, "p1", "http://x/f", &dest, handle, unlimited(), tx, &RequestHeaders::default(), DEFAULT_SEGMENTS)
             .await
             .unwrap();
         assert_eq!(outcome, Outcome::Paused);
@@ -444,7 +529,7 @@ mod tests {
         let handle = DownloadHandle::new();
         handle.pause(); // pause avant le premier chunk => crée le sidecar
         let (tx, _rx) = mpsc::unbounded_channel();
-        let outcome = download(&fetcher, "id4", "http://x/f", &dest, handle, unlimited(), tx, &RequestHeaders::default())
+        let outcome = download(&fetcher, "id4", "http://x/f", &dest, handle, unlimited(), tx, &RequestHeaders::default(), DEFAULT_SEGMENTS)
             .await
             .unwrap();
         assert_eq!(outcome, Outcome::Paused);
@@ -452,7 +537,7 @@ mod tests {
         // 2e run : reprise jusqu'à complétion.
         let fetcher2 = FakeFetcher::new(data.clone(), true);
         let (tx2, _rx2) = mpsc::unbounded_channel();
-        let outcome2 = download(&fetcher2, "id4", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx2, &RequestHeaders::default())
+        let outcome2 = download(&fetcher2, "id4", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx2, &RequestHeaders::default(), DEFAULT_SEGMENTS)
             .await
             .unwrap();
         assert_eq!(outcome2, Outcome::Completed);
@@ -470,7 +555,7 @@ mod tests {
         // First run: download to completion.
         let fetcher = FakeFetcher::new(data.clone(), true);
         let (tx, _rx) = mpsc::unbounded_channel();
-        let outcome = download(&fetcher, "idr", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default())
+        let outcome = download(&fetcher, "idr", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default(), DEFAULT_SEGMENTS)
             .await
             .unwrap();
         assert_eq!(outcome, Outcome::Completed);
@@ -482,7 +567,7 @@ mod tests {
         let fetcher2 = FakeFetcher::new(data.clone(), true);
         let (tx2, _rx2) = mpsc::unbounded_channel();
         let outcome2 =
-            download(&fetcher2, "idr", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx2, &RequestHeaders::default())
+            download(&fetcher2, "idr", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx2, &RequestHeaders::default(), DEFAULT_SEGMENTS)
                 .await
                 .unwrap();
         assert_eq!(outcome2, Outcome::Completed);
@@ -512,7 +597,7 @@ mod tests {
         let dest = dir.path().join("out.bin");
         let (tx, _rx) = mpsc::unbounded_channel();
 
-        download(&fetcher, "t", "http://x/f", &dest, DownloadHandle::new(), limiter, tx, &RequestHeaders::default())
+        download(&fetcher, "t", "http://x/f", &dest, DownloadHandle::new(), limiter, tx, &RequestHeaders::default(), DEFAULT_SEGMENTS)
             .await
             .unwrap();
 
@@ -548,7 +633,7 @@ mod tests {
         let handle = DownloadHandle::new();
         handle.pause();
         let (tx, _rx) = mpsc::unbounded_channel();
-        let outcome = download(&fetcher, "ids", "http://x/f", &dest, handle, unlimited(), tx, &RequestHeaders::default())
+        let outcome = download(&fetcher, "ids", "http://x/f", &dest, handle, unlimited(), tx, &RequestHeaders::default(), DEFAULT_SEGMENTS)
             .await
             .unwrap();
         assert_eq!(outcome, Outcome::Paused);
@@ -562,7 +647,7 @@ mod tests {
         let mut fetcher2 = FakeFetcher::new(data.clone(), true);
         fetcher2.probe_reports_size = false;
         let (tx2, _rx2) = mpsc::unbounded_channel();
-        let outcome2 = download(&fetcher2, "ids", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx2, &RequestHeaders::default())
+        let outcome2 = download(&fetcher2, "ids", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx2, &RequestHeaders::default(), DEFAULT_SEGMENTS)
             .await
             .unwrap();
         assert_eq!(outcome2, Outcome::Completed);

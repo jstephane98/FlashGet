@@ -31,7 +31,7 @@ fn ffmpeg_location() -> Option<String> {
 
 /// Supprime le fichier final, son `.part`, et les fragments intermédiaires de yt-dlp
 /// (formats vidéo/audio séparés avant merge : `<stem>.fNNN.<ext>[.part]`).
-fn cleanup_partials(dest: &std::path::Path) {
+pub(crate) fn cleanup_partials(dest: &std::path::Path) {
     let _ = std::fs::remove_file(dest);
     let _ = std::fs::remove_file(format!("{}.part", dest.to_string_lossy()));
     if let (Some(dir), Some(stem)) = (dest.parent(), dest.file_stem().and_then(|s| s.to_str())) {

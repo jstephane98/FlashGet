@@ -6,6 +6,7 @@ mod link;
 mod prefs;
 mod queue;
 mod remux;
+mod retry;
 mod state;
 mod ytdlp;
 mod youtube;
@@ -36,7 +37,13 @@ pub fn run() {
             app.manage(AppState::new(storage, settings.max_speed_bps));
             bridge::start(app.handle().clone());
             commands::recover_interrupted_recordings(app.handle());
+            let requeued = commands::recover_interrupted_downloads(app.handle());
             queue::start_planner_loop(app.handle().clone());
+            // Reprise automatique : relancer la file une fois les marques du planificateur
+            // rechargées (`start_planner_loop` les charge avant de rendre la main).
+            if requeued > 0 {
+                commands::reevaluate(app.handle());
+            }
 
             // --- System tray ---
             use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -79,13 +86,25 @@ pub fn run() {
                 })
                 .build(app)?;
 
-            // --- Close-to-tray + affichage initial conditionnel ---
+            // --- Fermeture (zone de notification ou sortie) + affichage initial conditionnel ---
             if let Some(win) = app.get_webview_window("main") {
                 let win_for_close = win.clone();
+                let app_for_close = app.handle().clone();
                 win.on_window_event(move |event| {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        api.prevent_close();
-                        let _ = win_for_close.hide();
+                        // Réglage relu à chaque fermeture ; lecture en échec → garder dans la zone.
+                        let to_tray = app_for_close
+                            .state::<AppState>()
+                            .storage
+                            .get_settings()
+                            .map(|s| s.close_to_tray)
+                            .unwrap_or(true);
+                        if to_tray {
+                            api.prevent_close();
+                            let _ = win_for_close.hide();
+                        } else {
+                            app_for_close.exit(0);
+                        }
                     }
                 });
                 let hidden = std::env::args().any(|a| a == "--hidden");

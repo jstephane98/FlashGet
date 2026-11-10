@@ -124,7 +124,7 @@ impl ByteFetcher for ReqwestFetcher {
         if status == reqwest::StatusCode::NOT_FOUND || status == reqwest::StatusCode::GONE {
             return Err(CoreError::NotFound(format!("HTTP {} pour {url}", status.as_u16())));
         }
-        let resp = resp.error_for_status().map_err(|e| CoreError::Network(describe_reqwest_error(&e)))?;
+        let resp = resp.error_for_status().map_err(|e| status_error(&e))?;
 
         let stream = resp
             .bytes_stream()
@@ -144,9 +144,7 @@ impl ByteFetcher for ReqwestFetcher {
             .send()
             .await
             .map_err(|e| CoreError::Network(describe_reqwest_error(&e)))?;
-        let resp = resp
-            .error_for_status()
-            .map_err(|e| CoreError::Network(describe_reqwest_error(&e)))?;
+        let resp = resp.error_for_status().map_err(|e| status_error(&e))?;
         let bytes = resp.bytes().await.map_err(|e| CoreError::Network(describe_reqwest_error(&e)))?;
         Ok(bytes.to_vec())
     }
@@ -187,6 +185,15 @@ pub fn describe_reqwest_error(e: &reqwest::Error) -> String {
         src = s.source();
     }
     format!("{prefix}{}", chain.join(" → "))
+}
+
+/// Erreur d'`error_for_status` : garde le code HTTP pour distinguer 4xx (définitif) de 5xx
+/// (passager). Sans code (cas théorique), c'est une erreur réseau.
+fn status_error(e: &reqwest::Error) -> CoreError {
+    match e.status() {
+        Some(s) => CoreError::Http { status: s.as_u16(), message: describe_reqwest_error(e) },
+        None => CoreError::Network(describe_reqwest_error(e)),
+    }
 }
 
 /// Pose Referer/Cookie/User-Agent sur la requête quand ils sont présents.
