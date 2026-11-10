@@ -32,6 +32,12 @@ export const fr = {
   "prio.high": "Priorité haute",
   "prio.normal": "Priorité normale",
   "prio.low": "Priorité basse",
+  "cat.video": "Vidéo",
+  "cat.document": "Document",
+  "cat.program": "Programme",
+  "cat.archive": "Archive",
+  "cat.music": "Musique",
+  "cat.other": "Autre",
 } as const;
 
 export type MsgKey = keyof typeof fr;

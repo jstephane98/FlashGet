@@ -121,4 +121,24 @@ describe("DownloadCard", () => {
     fireEvent.click(screen.getByText("Priorité haute"));
     expect(onPriority).toHaveBeenCalledWith("high");
   });
+
+  it("un direct affiche une barre pulsée visible", () => {
+    renderCard();
+    const bar = screen.getByTestId("bar-indeterminate");
+    expect(bar.style.width).not.toBe("0%");
+    expect(bar.className).toMatch(/w-1\/3/);
+    expect(bar.className).toMatch(/bg-err/);
+    expect(bar.className).toMatch(/animate-pulse/);
+  });
+
+  it("badge de catégorie en français", () => {
+    renderCard({ status: "downloading", kind: "regular", category: "video", total_bytes: 100 });
+    expect(screen.getByText("Vidéo")).toBeTruthy();
+  });
+
+  it("en pause, les segments restent affichés", () => {
+    renderCard({ status: "paused", kind: "regular", total_bytes: 100 }, { parts: [1, 0.5] });
+    expect(screen.getAllByTestId("segment")).toHaveLength(2);
+    expect(screen.getByText("2 connexions")).toBeTruthy();
+  });
 });

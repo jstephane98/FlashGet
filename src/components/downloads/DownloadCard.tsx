@@ -60,7 +60,8 @@ export function DownloadCard({
   // Terminé = barre pleine, même si la taille totale était inconnue (yt-dlp).
   const measurable = (isSegmented && seg && seg.total > 0) || (d.total_bytes != null && d.total_bytes > 0);
   const pct = d.status === "completed" ? 100 : isSegmented && seg ? segPct : percent(d.downloaded_bytes, d.total_bytes);
-  const indeterminate = !isRecording && d.status === "downloading" && !measurable;
+  // Un direct n'a pas de progression mesurable : barre pulsée visible.
+  const indeterminate = isRecording || (d.status === "downloading" && !measurable);
   const sizeKnown = d.total_bytes != null && d.total_bytes > 0;
 
   const tone: BarTone = isRecording
@@ -71,8 +72,8 @@ export function DownloadCard({
     : d.status === "queued" ? "queued"
     : "active";
 
-  const showParts = d.status === "downloading" && parts && parts.length >= 2 ? parts : null;
-  const badge = d.kind === "hls" ? "HLS" : d.kind === "dash" ? "DASH" : d.kind === "ytdlp" ? "yt-dlp" : d.category;
+  const showParts = (d.status === "downloading" || d.status === "paused") && parts && parts.length >= 2 ? parts : null;
+  const badge = d.kind === "hls" ? "HLS" : d.kind === "dash" ? "DASH" : d.kind === "ytdlp" ? "yt-dlp" : t(`cat.${d.category}` as const);
 
   const stateMeta = isRecording
     ? t("dl.live")
