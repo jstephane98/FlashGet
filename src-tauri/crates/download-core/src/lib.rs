@@ -15,6 +15,7 @@ pub mod live;
 pub mod ytdlp;
 pub mod batch;
 pub mod cookies;
+pub mod planner;
 
 use thiserror::Error;
 
