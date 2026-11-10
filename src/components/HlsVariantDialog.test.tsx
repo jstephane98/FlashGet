@@ -30,6 +30,6 @@ describe("HlsVariantDialog", () => {
     const input = screen.getByLabelText("Nom du fichier");
     fireEvent.change(input, { target: { value: "Mon clip" } });
     fireEvent.click(screen.getByText("Télécharger"));
-    expect(onConfirm).toHaveBeenCalledWith("p1", 0, "Mon clip");
+    expect(onConfirm).toHaveBeenCalledWith("p1", 0, "Mon clip", undefined);
   });
 });
