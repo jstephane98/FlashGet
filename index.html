@@ -1,10 +1,20 @@
 <!doctype html>
-<html lang="en">
+<html lang="fr" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/vite.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Tauri + React + Typescript</title>
+    <title>FlashGet</title>
+    <script>
+      (function () {
+        try {
+          var p = localStorage.getItem("flashget.theme");
+          var t = p === "light" ? "light" : p === "system" ? (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light") : "dark";
+          document.documentElement.dataset.theme = t;
+          document.documentElement.style.colorScheme = t;
+        } catch (e) {}
+      })();
+    </script>
   </head>
 
   <body>

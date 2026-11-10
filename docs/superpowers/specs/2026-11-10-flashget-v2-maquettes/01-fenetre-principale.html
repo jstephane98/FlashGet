@@ -1,0 +1,290 @@
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+
+<style>
+  .fg { font-family: Archivo, system-ui, sans-serif; border-radius: 12px; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,.25); margin: 0 auto 1.25rem; max-width: 1180px; font-size: 13px; line-height: 1.35; }
+  .fg * { box-sizing: border-box; }
+  .fg .mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
+  .fg svg.i { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+  .fg .title { display: flex; align-items: center; height: 36px; padding: 0 0 0 14px; gap: 8px; font-weight: 700; font-size: 12px; }
+  .fg .title .logo { width: 18px; height: 18px; border-radius: 5px; background: linear-gradient(160deg,#fbbf24,#f59e0b); display: grid; place-items: center; color: #3b1d00; }
+  .fg .title .logo svg { width: 12px; height: 12px; stroke-width: 3; }
+  .fg .title .wc { margin-left: auto; display: flex; }
+  .fg .title .wc span { width: 44px; height: 36px; display: grid; place-items: center; opacity: .7; }
+  .fg .body { display: flex; height: 600px; }
+  .fg .side { width: 210px; padding: 14px 10px; display: flex; flex-direction: column; gap: 2px; }
+  .fg .side .grp { font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; margin: 14px 10px 6px; font-weight: 600; }
+  .fg .nav { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; font-weight: 500; }
+  .fg .nav .n { margin-left: auto; font-size: 11px; padding: 1px 7px; border-radius: 99px; }
+  .fg .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .fg .top { display: flex; align-items: center; gap: 10px; padding: 14px 20px; }
+  .fg .top h1 { font-size: 20px; font-weight: 800; margin: 0; letter-spacing: -.01em; }
+  .fg .search { margin-left: auto; display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: 8px; width: 240px; }
+  .fg .btn { display: flex; align-items: center; gap: 7px; padding: 8px 14px; border-radius: 8px; font-weight: 700; white-space: nowrap; }
+  .fg .tabs { display: flex; gap: 4px; padding: 0 20px 12px; }
+  .fg .tab { padding: 6px 12px; border-radius: 7px; font-weight: 600; font-size: 12.5px; }
+  .fg .list { flex: 1; overflow: hidden; padding: 0 20px; display: flex; flex-direction: column; gap: 8px; }
+  .fg .row { display: grid; grid-template-columns: 76px 1fr 210px 120px; gap: 14px; align-items: center; padding: 10px 12px; border-radius: 10px; }
+  .fg .thumb { width: 76px; height: 46px; border-radius: 6px; display: grid; place-items: center; position: relative; overflow: hidden; }
+  .fg .thumb .tag { position: absolute; bottom: 3px; right: 3px; font-size: 9px; padding: 1px 4px; border-radius: 3px; background: rgba(0,0,0,.7); color: #fff; }
+  .fg .name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13.5px; }
+  .fg .meta { display: flex; gap: 8px; align-items: center; margin-top: 4px; font-size: 11.5px; flex-wrap: wrap; }
+  .fg .badge { font-size: 10.5px; padding: 1px 6px; border-radius: 4px; font-weight: 600; }
+  .fg .segs { display: flex; gap: 2px; height: 6px; }
+  .fg .segs i { flex: 1; border-radius: 2px; position: relative; overflow: hidden; }
+  .fg .segs i b { position: absolute; inset: 0; right: auto; border-radius: 2px; }
+  .fg .bar { height: 6px; border-radius: 3px; overflow: hidden; }
+  .fg .bar b { display: block; height: 100%; border-radius: 3px; }
+  .fg .pinfo { display: flex; justify-content: space-between; font-size: 11px; margin-top: 5px; }
+  .fg .acts { display: flex; gap: 4px; justify-content: flex-end; }
+  .fg .acts span { width: 30px; height: 30px; border-radius: 7px; display: grid; place-items: center; }
+  .fg .status { display: flex; align-items: center; gap: 18px; padding: 9px 20px; font-size: 11.5px; }
+  .fg .status .sp { margin-left: auto; }
+  .fg .live { display: inline-flex; align-items: center; gap: 4px; }
+  .fg .live::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #ef4444; }
+
+  /* ---------- A : sombre ---------- */
+  .A { background: #0b1120; color: #e2e8f0; }
+  .A .title { background: #060a16; color: #94a3b8; }
+  .A .side { background: #0f172a; border-right: 1px solid #1e293b; }
+  .A .side .grp { color: #475569; }
+  .A .nav { color: #94a3b8; }
+  .A .nav.on { background: rgba(245,158,11,.12); color: #fbbf24; }
+  .A .nav .n { background: #1e293b; color: #94a3b8; }
+  .A .nav.on .n { background: #f59e0b; color: #3b1d00; }
+  .A .search { background: #111b2e; border: 1px solid #1e293b; color: #64748b; }
+  .A .btn { background: #f59e0b; color: #3b1d00; }
+  .A .btn.ghost { background: #111b2e; color: #e2e8f0; border: 1px solid #1e293b; }
+  .A .tab { color: #64748b; }
+  .A .tab.on { background: #1e293b; color: #e2e8f0; }
+  .A .row { background: #0f172a; border: 1px solid #1a2438; }
+  .A .row.sel { border-color: rgba(245,158,11,.5); }
+  .A .thumb { background: linear-gradient(135deg,#1e293b,#334155); color: #64748b; }
+  .A .meta { color: #64748b; }
+  .A .badge { background: #1e293b; color: #cbd5e1; }
+  .A .badge.vid { background: rgba(56,189,248,.12); color: #7dd3fc; }
+  .A .badge.aud { background: rgba(167,139,250,.14); color: #c4b5fd; }
+  .A .badge.prog { background: rgba(52,211,153,.12); color: #6ee7b7; }
+  .A .badge.err { background: rgba(248,113,113,.14); color: #fca5a5; }
+  .A .segs i { background: #1e293b; }
+  .A .segs i b { background: #f59e0b; }
+  .A .bar { background: #1e293b; }
+  .A .bar b { background: #f59e0b; }
+  .A .bar b.ok { background: #34d399; }
+  .A .pinfo { color: #94a3b8; }
+  .A .pinfo .v { color: #fbbf24; }
+  .A .acts span { color: #94a3b8; background: #111b2e; }
+  .A .status { background: #060a16; color: #64748b; border-top: 1px solid #1e293b; }
+  .A .status .sp { color: #fbbf24; }
+
+  /* ---------- B : clair ---------- */
+  .B { background: #f7f7f5; color: #1c1917; }
+  .B .title { background: #f7f7f5; color: #57534e; border-bottom: 1px solid #e7e5e4; }
+  .B .side { background: #fff; border-right: 1px solid #e7e5e4; }
+  .B .side .grp { color: #a8a29e; }
+  .B .nav { color: #57534e; }
+  .B .nav.on { background: #fef3c7; color: #92400e; }
+  .B .nav .n { background: #f5f5f4; color: #78716c; }
+  .B .nav.on .n { background: #f59e0b; color: #fff; }
+  .B .search { background: #fff; border: 1px solid #e7e5e4; color: #a8a29e; }
+  .B .btn { background: #1c1917; color: #fff; }
+  .B .btn.ghost { background: #fff; color: #1c1917; border: 1px solid #e7e5e4; }
+  .B .tab { color: #78716c; }
+  .B .tab.on { background: #fff; color: #1c1917; box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+  .B .row { background: #fff; border: 1px solid #ecebe8; }
+  .B .row.sel { border-color: #f59e0b; box-shadow: 0 0 0 3px rgba(245,158,11,.15); }
+  .B .thumb { background: linear-gradient(135deg,#e7e5e4,#d6d3d1); color: #a8a29e; }
+  .B .meta { color: #a8a29e; }
+  .B .badge { background: #f5f5f4; color: #57534e; }
+  .B .badge.vid { background: #e0f2fe; color: #0369a1; }
+  .B .badge.aud { background: #ede9fe; color: #6d28d9; }
+  .B .badge.prog { background: #dcfce7; color: #15803d; }
+  .B .badge.err { background: #fee2e2; color: #b91c1c; }
+  .B .segs i { background: #f0efed; }
+  .B .segs i b { background: #f59e0b; }
+  .B .bar { background: #f0efed; }
+  .B .bar b { background: #f59e0b; }
+  .B .bar b.ok { background: #22c55e; }
+  .B .pinfo { color: #78716c; }
+  .B .pinfo .v { color: #b45309; }
+  .B .acts span { color: #78716c; background: #f5f5f4; }
+  .B .status { background: #fff; color: #a8a29e; border-top: 1px solid #e7e5e4; }
+  .B .status .sp { color: #b45309; }
+</style>
+
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-dl" viewBox="0 0 24 24"><path d="M12 3v12m0 0-5-5m5 5 5-5M5 21h14"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-film" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16M3 9h4M3 15h4M17 9h4M17 15h4"/></symbol>
+  <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/></symbol>
+  <symbol id="i-box" viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="m3 8 9 5 9-5M12 13v8"/></symbol>
+  <symbol id="i-app" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M9 5v14M15 5v14"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="m7 4 13 8-13 8z"/></symbol>
+  <symbol id="i-dots" viewBox="0 0 24 24"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-retry" viewBox="0 0 24 24"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></symbol>
+  <symbol id="i-stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="1"/></symbol>
+  <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M12 14 16 9"/><path d="M3.3 19a10 10 0 1 1 17.4 0"/></symbol>
+  <symbol id="i-min" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+  <symbol id="i-sq" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="1"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-paste" viewBox="0 0 24 24"><rect x="8" y="3" width="8" height="4" rx="1"/><path d="M16 5h2a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h2"/></symbol>
+</svg>
+
+<h2>Fenêtre principale : quelle direction visuelle ?</h2>
+<p class="subtitle">Même organisation dans les deux cas (menu à gauche, liste des téléchargements, barre d'état). Seule l'ambiance change. Les contenus sont fictifs.</p>
+
+<!-- ======================= A ======================= -->
+<div class="label">Direction A — « Nuit » : sombre, accent ambre (dans la continuité de l'actuel FlashGet)</div>
+<div class="fg A">
+  <div class="title"><span class="logo"><svg class="i"><use href="#i-dl"/></svg></span>FlashGet<span class="wc"><span><svg class="i"><use href="#i-min"/></svg></span><span><svg class="i"><use href="#i-sq"/></svg></span><span><svg class="i"><use href="#i-x"/></svg></span></span></div>
+  <div class="body">
+    <div class="side">
+      <div class="nav on"><svg class="i"><use href="#i-list"/></svg>Téléchargements<span class="n mono">6</span></div>
+      <div class="nav"><svg class="i"><use href="#i-check"/></svg>Terminés<span class="n mono">128</span></div>
+      <div class="nav"><svg class="i"><use href="#i-clock"/></svg>File d'attente<span class="n mono">1</span></div>
+      <div class="nav"><svg class="i"><use href="#i-cal"/></svg>Planificateur</div>
+      <div class="grp">Catégories</div>
+      <div class="nav"><svg class="i"><use href="#i-film"/></svg>Vidéos</div>
+      <div class="nav"><svg class="i"><use href="#i-music"/></svg>Musique</div>
+      <div class="nav"><svg class="i"><use href="#i-doc"/></svg>Documents</div>
+      <div class="nav"><svg class="i"><use href="#i-app"/></svg>Programmes</div>
+      <div class="nav"><svg class="i"><use href="#i-box"/></svg>Archives</div>
+      <div style="flex:1"></div>
+      <div class="nav"><svg class="i"><use href="#i-gear"/></svg>Paramètres</div>
+    </div>
+    <div class="main">
+      <div class="top">
+        <h1>Téléchargements</h1>
+        <div class="search"><svg class="i"><use href="#i-search"/></svg>Rechercher…</div>
+        <div class="btn ghost"><svg class="i"><use href="#i-pause"/></svg>Tout suspendre</div>
+        <div class="btn"><svg class="i"><use href="#i-plus"/></svg>Ajouter un lien</div>
+      </div>
+      <div class="tabs"><span class="tab on">Tous · 6</span><span class="tab">Actifs · 3</span><span class="tab">En pause · 0</span><span class="tab">Erreurs · 1</span></div>
+      <div class="list">
+        <div class="row sel">
+          <div class="thumb"><svg class="i"><use href="#i-play"/></svg><span class="tag mono">12:48</span></div>
+          <div style="min-width:0"><div class="name">Concert Live — Festival d'été 2026</div><div class="meta"><span class="badge vid">MP4 · 1080p</span><span>youtube.com</span><span>· via yt-dlp</span></div></div>
+          <div><div class="segs"><i><b style="width:100%"></b></i><i><b style="width:88%"></b></i><i><b style="width:71%"></b></i><i><b style="width:64%"></b></i><i><b style="width:58%"></b></i><i><b style="width:49%"></b></i><i><b style="width:40%"></b></i><i><b style="width:22%"></b></i></div><div class="pinfo mono"><span>845 / 1 360 Mo</span><span class="v">8,2 Mo/s · 1 min</span></div></div>
+          <div class="acts"><span><svg class="i"><use href="#i-pause"/></svg></span><span><svg class="i"><use href="#i-folder"/></svg></span><span><svg class="i"><use href="#i-dots"/></svg></span></div>
+        </div>
+        <div class="row">
+          <div class="thumb"><svg class="i"><use href="#i-app"/></svg></div>
+          <div style="min-width:0"><div class="name">ubuntu-26.04-desktop-amd64.iso</div><div class="meta"><span class="badge prog">Programme</span><span>releases.ubuntu.com</span><span>· 16 connexions</span></div></div>
+          <div><div class="segs"><i><b style="width:52%"></b></i><i><b style="width:40%"></b></i><i><b style="width:38%"></b></i><i><b style="width:35%"></b></i><i><b style="width:30%"></b></i><i><b style="width:28%"></b></i><i><b style="width:20%"></b></i><i><b style="width:12%"></b></i></div><div class="pinfo mono"><span>1,9 / 6,1 Go</span><span class="v">4,1 Mo/s · 17 min</span></div></div>
+          <div class="acts"><span><svg class="i"><use href="#i-pause"/></svg></span><span><svg class="i"><use href="#i-folder"/></svg></span><span><svg class="i"><use href="#i-dots"/></svg></span></div>
+        </div>
+        <div class="row">
+          <div class="thumb"><svg class="i"><use href="#i-film"/></svg><span class="tag" style="background:#dc2626">LIVE</span></div>
+          <div style="min-width:0"><div class="name">Cours Rust — Chapitre 4 (direct)</div><div class="meta"><span class="badge vid">HLS · 720p</span><span class="live">Enregistrement en direct</span></div></div>
+          <div><div class="bar"><b style="width:100%;opacity:.35"></b></div><div class="pinfo mono"><span>00:42:17 · 412 Mo</span><span class="v">1,3 Mo/s</span></div></div>
+          <div class="acts"><span><svg class="i"><use href="#i-stop"/></svg></span><span><svg class="i"><use href="#i-folder"/></svg></span><span><svg class="i"><use href="#i-dots"/></svg></span></div>
+        </div>
+        <div class="row">
+          <div class="thumb"><svg class="i"><use href="#i-doc"/></svg></div>
+          <div style="min-width:0"><div class="name">rapport-annuel-2025.pdf</div><div class="meta"><span class="badge">Document</span><span>example.org</span><span>· en file d'attente (n° 1)</span></div></div>
+          <div><div class="bar"><b style="width:0"></b></div><div class="pinfo mono"><span>— / 18,4 Mo</span><span>en attente</span></div></div>
+          <div class="acts"><span><svg class="i"><use href="#i-play"/></svg></span><span><svg class="i"><use href="#i-folder"/></svg></span><span><svg class="i"><use href="#i-dots"/></svg></span></div>
+        </div>
+        <div class="row">
+          <div class="thumb"><svg class="i"><use href="#i-box"/></svg></div>
+          <div style="min-width:0"><div class="name">archive-photos-vacances.zip</div><div class="meta"><span class="badge err">Erreur réseau</span><span>drive.example.com</span><span>· reprise possible</span></div></div>
+          <div><div class="bar"><b style="width:63%;background:#f87171"></b></div><div class="pinfo mono"><span>2,0 / 3,2 Go</span><span style="color:#fca5a5">interrompu</span></div></div>
+          <div class="acts"><span><svg class="i"><use href="#i-retry"/></svg></span><span><svg class="i"><use href="#i-folder"/></svg></span><span><svg class="i"><use href="#i-dots"/></svg></span></div>
+        </div>
+        <div class="row">
+          <div class="thumb"><svg class="i"><use href="#i-music"/></svg></div>
+          <div style="min-width:0"><div class="name">Podcast Tech #142 — L'IA au quotidien</div><div class="meta"><span class="badge aud">MP3 · 320 kb/s</span><span>soundcloud.com</span><span>· terminé il y a 2 min</span></div></div>
+          <div><div class="bar"><b class="ok" style="width:100%"></b></div><div class="pinfo mono"><span>86,2 Mo</span><span style="color:#34d399">terminé</span></div></div>
+          <div class="acts"><span><svg class="i"><use href="#i-play"/></svg></span><span><svg class="i"><use href="#i-folder"/></svg></span><span><svg class="i"><use href="#i-dots"/></svg></span></div>
+        </div>
+      </div>
+      <div class="status mono"><span>3 actifs · 1 en file</span><span>Limite : aucune</span><span>Extension : connectée</span><span class="sp">↓ 13,6 Mo/s</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= B ======================= -->
+<div class="label" style="margin-top:2rem">Direction B — « Jour » : clair et épuré, l'ambre réservé aux éléments importants</div>
+<div class="fg B">
+  <div class="title"><span class="logo"><svg class="i"><use href="#i-dl"/></svg></span>FlashGet<span class="wc"><span><svg class="i"><use href="#i-min"/></svg></span><span><svg class="i"><use href="#i-sq"/></svg></span><span><svg class="i"><use href="#i-x"/></svg></span></span></div>
+  <div class="body">
+    <div class="side">
+      <div class="nav on"><svg class="i"><use href="#i-list"/></svg>Téléchargements<span class="n mono">6</span></div>
+      <div class="nav"><svg class="i"><use href="#i-check"/></svg>Terminés<span class="n mono">128</span></div>
+      <div class="nav"><svg class="i"><use href="#i-clock"/></svg>File d'attente<span class="n mono">1</span></div>
+      <div class="nav"><svg class="i"><use href="#i-cal"/></svg>Planificateur</div>
+      <div class="grp">Catégories</div>
+      <div class="nav"><svg class="i"><use href="#i-film"/></svg>Vidéos</div>
+      <div class="nav"><svg class="i"><use href="#i-music"/></svg>Musique</div>
+      <div class="nav"><svg class="i"><use href="#i-doc"/></svg>Documents</div>
+      <div class="nav"><svg class="i"><use href="#i-app"/></svg>Programmes</div>
+      <div class="nav"><svg class="i"><use href="#i-box"/></svg>Archives</div>
+      <div style="flex:1"></div>
+      <div class="nav"><svg class="i"><use href="#i-gear"/></svg>Paramètres</div>
+    </div>
+    <div class="main">
+      <div class="top">
+        <h1>Téléchargements</h1>
+        <div class="search"><svg class="i"><use href="#i-search"/></svg>Rechercher…</div>
+        <div class="btn ghost"><svg class="i"><use href="#i-pause"/></svg>Tout suspendre</div>
+        <div class="btn"><svg class="i"><use href="#i-plus"/></svg>Ajouter un lien</div>
+      </div>
+      <div class="tabs"><span class="tab on">Tous · 6</span><span class="tab">Actifs · 3</span><span class="tab">En pause · 0</span><span class="tab">Erreurs · 1</span></div>
+      <div class="list">
+        <div class="row sel">
+          <div class="thumb"><svg class="i"><use href="#i-play"/></svg><span class="tag mono">12:48</span></div>
+          <div style="min-width:0"><div class="name">Concert Live — Festival d'été 2026</div><div class="meta"><span class="badge vid">MP4 · 1080p</span><span>youtube.com</span><span>· via yt-dlp</span></div></div>
+          <div><div class="segs"><i><b style="width:100%"></b></i><i><b style="width:88%"></b></i><i><b style="width:71%"></b></i><i><b style="width:64%"></b></i><i><b style="width:58%"></b></i><i><b style="width:49%"></b></i><i><b style="width:40%"></b></i><i><b style="width:22%"></b></i></div><div class="pinfo mono"><span>845 / 1 360 Mo</span><span class="v">8,2 Mo/s · 1 min</span></div></div>
+          <div class="acts"><span><svg class="i"><use href="#i-pause"/></svg></span><span><svg class="i"><use href="#i-folder"/></svg></span><span><svg class="i"><use href="#i-dots"/></svg></span></div>
+        </div>
+        <div class="row">
+          <div class="thumb"><svg class="i"><use href="#i-app"/></svg></div>
+          <div style="min-width:0"><div class="name">ubuntu-26.04-desktop-amd64.iso</div><div class="meta"><span class="badge prog">Programme</span><span>releases.ubuntu.com</span><span>· 16 connexions</span></div></div>
+          <div><div class="segs"><i><b style="width:52%"></b></i><i><b style="width:40%"></b></i><i><b style="width:38%"></b></i><i><b style="width:35%"></b></i><i><b style="width:30%"></b></i><i><b style="width:28%"></b></i><i><b style="width:20%"></b></i><i><b style="width:12%"></b></i></div><div class="pinfo mono"><span>1,9 / 6,1 Go</span><span class="v">4,1 Mo/s · 17 min</span></div></div>
+          <div class="acts"><span><svg class="i"><use href="#i-pause"/></svg></span><span><svg class="i"><use href="#i-folder"/></svg></span><span><svg class="i"><use href="#i-dots"/></svg></span></div>
+        </div>
+        <div class="row">
+          <div class="thumb"><svg class="i"><use href="#i-film"/></svg><span class="tag" style="background:#dc2626">LIVE</span></div>
+          <div style="min-width:0"><div class="name">Cours Rust — Chapitre 4 (direct)</div><div class="meta"><span class="badge vid">HLS · 720p</span><span class="live">Enregistrement en direct</span></div></div>
+          <div><div class="bar"><b style="width:100%;opacity:.35"></b></div><div class="pinfo mono"><span>00:42:17 · 412 Mo</span><span class="v">1,3 Mo/s</span></div></div>
+          <div class="acts"><span><svg class="i"><use href="#i-stop"/></svg></span><span><svg class="i"><use href="#i-folder"/></svg></span><span><svg class="i"><use href="#i-dots"/></svg></span></div>
+        </div>
+        <div class="row">
+          <div class="thumb"><svg class="i"><use href="#i-doc"/></svg></div>
+          <div style="min-width:0"><div class="name">rapport-annuel-2025.pdf</div><div class="meta"><span class="badge">Document</span><span>example.org</span><span>· en file d'attente (n° 1)</span></div></div>
+          <div><div class="bar"><b style="width:0"></b></div><div class="pinfo mono"><span>— / 18,4 Mo</span><span>en attente</span></div></div>
+          <div class="acts"><span><svg class="i"><use href="#i-play"/></svg></span><span><svg class="i"><use href="#i-folder"/></svg></span><span><svg class="i"><use href="#i-dots"/></svg></span></div>
+        </div>
+        <div class="row">
+          <div class="thumb"><svg class="i"><use href="#i-box"/></svg></div>
+          <div style="min-width:0"><div class="name">archive-photos-vacances.zip</div><div class="meta"><span class="badge err">Erreur réseau</span><span>drive.example.com</span><span>· reprise possible</span></div></div>
+          <div><div class="bar"><b style="width:63%;background:#ef4444"></b></div><div class="pinfo mono"><span>2,0 / 3,2 Go</span><span style="color:#b91c1c">interrompu</span></div></div>
+          <div class="acts"><span><svg class="i"><use href="#i-retry"/></svg></span><span><svg class="i"><use href="#i-folder"/></svg></span><span><svg class="i"><use href="#i-dots"/></svg></span></div>
+        </div>
+        <div class="row">
+          <div class="thumb"><svg class="i"><use href="#i-music"/></svg></div>
+          <div style="min-width:0"><div class="name">Podcast Tech #142 — L'IA au quotidien</div><div class="meta"><span class="badge aud">MP3 · 320 kb/s</span><span>soundcloud.com</span><span>· terminé il y a 2 min</span></div></div>
+          <div><div class="bar"><b class="ok" style="width:100%"></b></div><div class="pinfo mono"><span>86,2 Mo</span><span style="color:#15803d">terminé</span></div></div>
+          <div class="acts"><span><svg class="i"><use href="#i-play"/></svg></span><span><svg class="i"><use href="#i-folder"/></svg></span><span><svg class="i"><use href="#i-dots"/></svg></span></div>
+        </div>
+      </div>
+      <div class="status mono"><span>3 actifs · 1 en file</span><span>Limite : aucune</span><span>Extension : connectée</span><span class="sp">↓ 13,6 Mo/s</span></div>
+    </div>
+  </div>
+</div>
+
+<h3 style="margin-top:2rem">Ton choix</h3>
+<div class="options">
+  <div class="option" data-choice="a" onclick="toggleSelect(this)"><div class="letter">A</div><div class="content"><h3>Nuit (sombre)</h3><p>Dans la continuité de l'identité actuelle de FlashGet</p></div></div>
+  <div class="option" data-choice="b" onclick="toggleSelect(this)"><div class="letter">B</div><div class="content"><h3>Jour (clair)</h3><p>Plus lumineux et aéré, l'ambre ne sert qu'aux éléments importants</p></div></div>
+  <div class="option" data-choice="ab" onclick="toggleSelect(this)"><div class="letter">A+B</div><div class="content"><h3>Les deux</h3><p>Thème clair/sombre au choix dans les paramètres (A par défaut)</p></div></div>
+</div>

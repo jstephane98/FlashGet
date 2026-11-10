@@ -303,7 +303,7 @@ async fn run_yt(
         speed_bps: 0,
         status,
         segments_done: None,
-        segments_total: None,
+        segments_total: None, parts: None,
     };
 
     loop {

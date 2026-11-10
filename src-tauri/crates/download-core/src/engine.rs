@@ -140,18 +140,18 @@ pub async fn download<F: ByteFetcher>(
                 file.flush().await?;
                 // No resume::save here: total_bytes==0 for unknown-size streams,
                 // so the saved state would always be rejected on reload anyway.
-                emit(&progress, id, &handle, total, DownloadStatus::Paused);
+                emit(&progress, id, &handle, total, DownloadStatus::Paused, None);
                 return Ok(Outcome::Paused);
             }
             let chunk = chunk?;
             limiter.acquire(chunk.len() as u64).await;
             file.write_all(&chunk).await?;
             handle.downloaded.fetch_add(chunk.len() as u64, Ordering::SeqCst);
-            emit(&progress, id, &handle, total, DownloadStatus::Downloading);
+            emit(&progress, id, &handle, total, DownloadStatus::Downloading, None);
         }
         file.flush().await?;
         resume::clear(dest);
-        emit(&progress, id, &handle, total, DownloadStatus::Completed);
+        emit(&progress, id, &handle, total, DownloadStatus::Completed, None);
         return Ok(Outcome::Completed);
     }
 
@@ -159,7 +159,15 @@ pub async fn download<F: ByteFetcher>(
     // On exécute les futures CONCURREMMENT sans `tokio::spawn` : comme elles sont
     // awaitées dans la même async fn, on peut emprunter `fetcher: &F` directement
     // (pas de borne `'static`, donc pas besoin d'`Arc<F>`).
-    let mut seg_trackers: Vec<(usize, Arc<AtomicU64>)> = Vec::new();
+    // Compteurs (longueur, octets faits) de TOUS les segments, pour Progress.parts.
+    let all_parts: Arc<Vec<(u64, Arc<AtomicU64>)>> = Arc::new(
+        state
+            .segments
+            .iter()
+            .map(|(s, e, d)| (e - s + 1, Arc::new(AtomicU64::new(*d))))
+            .collect(),
+    );
+    let mut seg_trackers: Vec<usize> = Vec::new();
     let mut futs = Vec::new();
 
     for (idx, (start, end, done)) in state.segments.iter().enumerate() {
@@ -173,8 +181,9 @@ pub async fn download<F: ByteFetcher>(
 
         // Progrès par segment (suivi pour mettre à jour le sidecar après le join).
         // Only track segments that will actually run.
-        let seg_progress = Arc::new(AtomicU64::new(seg_done));
-        seg_trackers.push((idx, seg_progress.clone()));
+        let seg_progress = all_parts[idx].1.clone();
+        seg_trackers.push(idx);
+        let parts_owned = all_parts.clone();
 
         let resume_from = seg_start + seg_done;
 
@@ -209,7 +218,7 @@ pub async fn download<F: ByteFetcher>(
                 file.write_all(&chunk).await?;
                 seg_progress.fetch_add(chunk.len() as u64, Ordering::SeqCst);
                 handle.downloaded.fetch_add(chunk.len() as u64, Ordering::SeqCst);
-                emit(&progress, &id_owned, &handle, total, DownloadStatus::Downloading);
+                emit(&progress, &id_owned, &handle, total, DownloadStatus::Downloading, Some(parts_owned.as_slice()));
             }
             file.flush().await?;
             Ok((idx, Outcome::Completed))
@@ -236,8 +245,8 @@ pub async fn download<F: ByteFetcher>(
     }
 
     // Mettre à jour l'état des segments avec la progression observée.
-    for (idx, tracker) in seg_trackers {
-        let done = tracker.load(Ordering::SeqCst);
+    for idx in seg_trackers {
+        let done = all_parts[idx].1.load(Ordering::SeqCst);
         let (s, e, _) = state.segments[idx];
         state.segments[idx] = (s, e, done.min(e - s + 1));
     }
@@ -245,12 +254,12 @@ pub async fn download<F: ByteFetcher>(
     match outcome {
         Outcome::Completed => {
             resume::clear(dest);
-            emit(&progress, id, &handle, total, DownloadStatus::Completed);
+            emit(&progress, id, &handle, total, DownloadStatus::Completed, Some(all_parts.as_slice()));
             Ok(Outcome::Completed)
         }
         Outcome::Paused => {
             resume::save(dest, &state)?;
-            emit(&progress, id, &handle, total, DownloadStatus::Paused);
+            emit(&progress, id, &handle, total, DownloadStatus::Paused, Some(all_parts.as_slice()));
             Ok(Outcome::Paused)
         }
         Outcome::Cancelled => {
@@ -267,7 +276,16 @@ fn emit(
     handle: &DownloadHandle,
     total: u64,
     status: DownloadStatus,
+    parts: Option<&[(u64, Arc<AtomicU64>)]>,
 ) {
+    let parts = parts.filter(|p| p.len() >= 2).map(|p| {
+        p.iter()
+            .map(|(len, done)| {
+                let len = (*len).max(1);
+                (done.load(Ordering::SeqCst).min(len) as f64 / len as f64) as f32
+            })
+            .collect()
+    });
     let _ = tx.send(Progress {
         id: id.to_string(),
         downloaded_bytes: handle.downloaded(),
@@ -276,6 +294,7 @@ fn emit(
         status,
         segments_done: None,
         segments_total: None,
+        parts,
     });
 }
 
@@ -344,6 +363,74 @@ mod tests {
             last = p.downloaded_bytes.max(last);
         }
         assert_eq!(last, 300);
+    }
+
+    async fn run_collect(fetcher: &FakeFetcher, dest: &std::path::Path, handle: DownloadHandle) -> Vec<Progress> {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        download(fetcher, "p1", "http://x/f", dest, handle, unlimited(), tx, &RequestHeaders::default())
+            .await
+            .unwrap();
+        std::iter::from_fn(|| rx.try_recv().ok()).collect()
+    }
+
+    #[tokio::test]
+    async fn parts_reported_per_segment() {
+        let fetcher = FakeFetcher::new(vec![7u8; 800], true);
+        let dir = tempdir().unwrap();
+        let dest = collect_dest(&dir);
+        let all = run_collect(&fetcher, &dest, DownloadHandle::new()).await;
+        let last = all.last().unwrap();
+        assert_eq!(last.status, DownloadStatus::Completed);
+        let parts = last.parts.as_ref().expect("parts attendus");
+        assert_eq!(parts.len(), DEFAULT_SEGMENTS as usize);
+        assert!(parts.iter().all(|f| (*f - 1.0).abs() < f32::EPSILON));
+        assert!(all.iter().filter_map(|p| p.parts.as_ref()).flatten().all(|f| (0.0..=1.0).contains(f)));
+    }
+
+    #[tokio::test]
+    async fn no_parts_for_unknown_size() {
+        // Sans Range : un seul segment.
+        let fetcher = FakeFetcher::new(vec![1u8; 300], false);
+        let dir = tempdir().unwrap();
+        let dest = collect_dest(&dir);
+        let all = run_collect(&fetcher, &dest, DownloadHandle::new()).await;
+        assert!(!all.is_empty());
+        assert!(all.iter().all(|p| p.parts.is_none()));
+
+        // Taille inconnue : flux non segmenté.
+        let mut fetcher = FakeFetcher::new(vec![1u8; 300], true);
+        fetcher.probe_reports_size = false;
+        let dir = tempdir().unwrap();
+        let dest = collect_dest(&dir);
+        let all = run_collect(&fetcher, &dest, DownloadHandle::new()).await;
+        assert!(!all.is_empty());
+        assert!(all.iter().all(|p| p.parts.is_none()));
+    }
+
+    #[tokio::test]
+    async fn parts_reflect_resumed_segments() {
+        let data: Vec<u8> = (0..=255u8).cycle().take(800).collect();
+        let dir = tempdir().unwrap();
+        let dest = collect_dest(&dir);
+
+        let handle = DownloadHandle::new();
+        handle.pause();
+        let fetcher = FakeFetcher::new(data.clone(), true);
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let outcome = download(&fetcher, "p1", "http://x/f", &dest, handle, unlimited(), tx, &RequestHeaders::default())
+            .await
+            .unwrap();
+        assert_eq!(outcome, Outcome::Paused);
+
+        let mut st = resume::load(&dest).unwrap();
+        let (s, e, _) = st.segments[0];
+        st.segments[0] = (s, e, e - s + 1);
+        resume::save(&dest, &st).unwrap();
+
+        let all = run_collect(&fetcher, &dest, DownloadHandle::new()).await;
+        let first = all.iter().find(|p| p.status == DownloadStatus::Downloading).unwrap();
+        let parts = first.parts.as_ref().expect("parts attendus");
+        assert!((parts[0] - 1.0).abs() < f32::EPSILON);
     }
 
     #[tokio::test]

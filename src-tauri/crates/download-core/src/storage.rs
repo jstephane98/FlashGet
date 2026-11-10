@@ -332,6 +332,26 @@ impl Storage {
         Ok(())
     }
 
+    /// Préférence d'interface générique (table `settings`). Absente = None.
+    pub fn get_pref(&self, key: &str) -> Result<Option<String>, CoreError> {
+        let conn = self.conn.lock().unwrap();
+        match conn.query_row("SELECT value FROM settings WHERE key=?1", [key], |r| r.get::<_, String>(0)) {
+            Ok(v) => Ok(Some(v)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(CoreError::Storage(e.to_string())),
+        }
+    }
+
+    pub fn set_pref(&self, key: &str, value: &str) -> Result<(), CoreError> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value=?2",
+            rusqlite::params![key, value],
+        )
+        .map_err(|e| CoreError::Storage(e.to_string()))?;
+        Ok(())
+    }
+
     pub fn get_settings(&self) -> Result<Settings, CoreError> {
         let conn = self.conn.lock().unwrap();
         let read = |key: &str| -> Option<String> {
@@ -463,6 +483,15 @@ fn upsert_bridge_token(conn: &Connection, token: &str) -> Result<(), CoreError> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pref_roundtrip_and_absent() {
+        let s = Storage::open_in_memory().unwrap();
+        assert_eq!(s.get_pref("ui.theme").unwrap(), None);
+        s.set_pref("ui.theme", "light").unwrap();
+        s.set_pref("ui.theme", "system").unwrap();
+        assert_eq!(s.get_pref("ui.theme").unwrap().as_deref(), Some("system"));
+    }
 
     fn sample(id: &str) -> Download {
         Download {

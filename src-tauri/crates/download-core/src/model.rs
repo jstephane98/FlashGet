@@ -135,4 +135,7 @@ pub struct Progress {
     pub segments_done: Option<u32>,
     #[serde(default)]
     pub segments_total: Option<u32>,
+    /// Fraction terminée (0.0..=1.0) de chaque segment HTTP, dans l'ordre. `None` si non segmenté.
+    #[serde(default)]
+    pub parts: Option<Vec<f32>>,
 }

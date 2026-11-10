@@ -8,10 +8,25 @@
 @font-face { font-family: "JetBrains Mono"; font-weight: 500; font-style: normal; font-display: swap; src: url("./assets/fonts/jetbrains-mono-500.woff2") format("woff2"); }
 @font-face { font-family: "JetBrains Mono"; font-weight: 700; font-style: normal; font-display: swap; src: url("./assets/fonts/jetbrains-mono-700.woff2") format("woff2"); }
 
-:root { color-scheme: dark; }
+:root[data-theme="dark"] {
+  --c-deep: 6 10 22; --c-bg: 11 17 32; --c-panel: 15 23 42; --c-field: 17 27 46;
+  --c-surface: 30 41 59; --c-border: 30 41 59; --c-line: 26 36 56;
+  --c-ink: 226 232 240; --c-ink-soft: 148 163 184; --c-ink-mute: 100 116 139;
+  --c-accent: 245 158 11; --c-accent-fg: 251 191 36; --c-cta: 245 158 11; --c-cta-ink: 59 29 0;
+  --c-ok: 52 211 153; --c-err: 248 113 113; --c-okdim: 16 185 129; --c-queued: 71 85 105;
+  --c-accent-soft: 251 191 36; --c-accent-bright: 252 211 77; --c-accent-ink: 59 29 0;
+}
+:root[data-theme="light"] {
+  --c-deep: 247 247 245; --c-bg: 247 247 245; --c-panel: 255 255 255; --c-field: 255 255 255;
+  --c-surface: 245 245 244; --c-border: 231 229 228; --c-line: 236 235 232;
+  --c-ink: 28 25 23; --c-ink-soft: 87 83 78; --c-ink-mute: 168 162 158;
+  --c-accent: 245 158 11; --c-accent-fg: 180 83 9; --c-cta: 28 25 23; --c-cta-ink: 255 255 255;
+  --c-ok: 34 197 94; --c-err: 239 68 68; --c-okdim: 22 163 74; --c-queued: 168 162 158;
+  --c-accent-soft: 251 191 36; --c-accent-bright: 217 119 6; --c-accent-ink: 59 29 0;
+}
 html, body, #root { height: 100%; }
-body { margin: 0; font-family: "Archivo", ui-sans-serif, system-ui, sans-serif; background: #0f172a; color: #e2e8f0; }
+body { margin: 0; font-family: "Archivo", ui-sans-serif, system-ui, sans-serif; background: rgb(var(--c-bg)); color: rgb(var(--c-ink)); }
 
 @layer components {
-  .cta-grad { background-image: linear-gradient(160deg, #fbbf24, #f59e0b); color: #3b1d00; }
+  .cta-grad { background-color: rgb(var(--c-cta)); color: rgb(var(--c-cta-ink)); }
 }

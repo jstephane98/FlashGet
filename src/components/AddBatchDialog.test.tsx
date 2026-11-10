@@ -16,7 +16,7 @@ describe("AddBatchDialog", () => {
     const ta = screen.getByLabelText("Liens à télécharger");
     fireEvent.change(ta, { target: { value: "https://a.com/1.zip\nhttps://a.com/2.zip" } });
     fireEvent.click(screen.getByText("Ajouter"));
-    expect(onAdd).toHaveBeenCalledWith("https://a.com/1.zip\nhttps://a.com/2.zip");
+    expect(onAdd).toHaveBeenCalledWith("https://a.com/1.zip\nhttps://a.com/2.zip", "direct");
   });
 
   it("désactive Ajouter quand le texte est vide", () => {

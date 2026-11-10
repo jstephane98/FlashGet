@@ -131,7 +131,7 @@ pub fn emit_segments(
         speed_bps: 0,
         status,
         segments_done: Some(done),
-        segments_total: Some(total),
+        segments_total: Some(total), parts: None,
     });
 }
 
