@@ -89,11 +89,16 @@ pub async fn download<F: ByteFetcher>(
 
     // Construire (ou recharger) l'état des segments.
     // FIX I1 — trust a valid sidecar even when the fresh probe reports unknown size.
-    let loaded = resume::load(dest);
+    // Sans support des Range, une reprise est impossible : le serveur renverrait le corps
+    // entier (200) pour `bytes=done-end`, écrit à l'offset `done`. On ignore donc toute
+    // progression enregistrée et on repart de 0.
+    let loaded = if probe.supports_ranges { resume::load(dest) } else { None };
+    let mut resuming = false;
     let (mut state, total) = match loaded {
         // trust sidecar when it has a real size and the probe either agrees or is unknown(0)
         Some(s) if s.total_bytes > 0 && (probe_total == 0 || probe_total == s.total_bytes) => {
             let t = s.total_bytes;
+            resuming = true;
             (s, t)
         }
         _ => {
@@ -115,10 +120,13 @@ pub async fn download<F: ByteFetcher>(
     };
 
     // Pré-allouer le fichier de destination à la bonne taille (si connue).
-    // Only preallocate when the file does not already exist — a partial resume
-    // must keep its existing bytes and must not be truncated by set_len.
+    // Une reprise garde les octets existants (pas de set_len) ; un nouveau départ sur un
+    // fichier déjà présent (sidecar ignoré, p. ex. serveur sans Range) le remet à `total`
+    // octets, pour ne jamais laisser de queue d'un essai précédent.
     {
-        let needs_prealloc = total > 0 && !dest.exists();
+        let needs_prealloc = total > 0
+            && (!dest.exists()
+                || (!resuming && std::fs::metadata(dest).map(|m| m.len() != total).unwrap_or(true)));
         let f = std::fs::OpenOptions::new()
             .create(true)
             .write(true)
@@ -249,9 +257,11 @@ pub async fn download<F: ByteFetcher>(
 
     let mut outcome = Outcome::Completed;
     let mut first_err: Option<CoreError> = None;
+    let mut all_errors_transient = true;
     for r in results {
         match r {
             Err(e) => {
+                all_errors_transient &= e.is_transient();
                 if first_err.is_none() {
                     first_err = Some(e);
                 }
@@ -276,15 +286,17 @@ pub async fn download<F: ByteFetcher>(
     }
 
     // Échec d'un segment : une annulation l'emporte (rien à garder) ; sinon on enregistre la
-    // progression pour que la tentative suivante (ou une reprise manuelle) reparte de là.
+    // progression (si c'est sûr) pour que la tentative suivante reparte de là.
     if let Some(err) = first_err {
         if outcome == Outcome::Cancelled || handle.cancel.load(Ordering::SeqCst) {
             resume::clear(dest);
             let _ = std::fs::remove_file(dest);
             return Ok(Outcome::Cancelled);
         }
-        if let Err(se) = resume::save(dest, &state) {
-            eprintln!("engine: sidecar non enregistré après l'échec de {id}: {se}");
+        if save_sidecar_after_error(probe.supports_ranges, all_errors_transient) {
+            if let Err(se) = resume::save(dest, &state) {
+                eprintln!("engine: sidecar non enregistré après l'échec de {id}: {se}");
+            }
         }
         return Err(err);
     }
@@ -306,6 +318,17 @@ pub async fn download<F: ByteFetcher>(
             Ok(Outcome::Cancelled)
         }
     }
+}
+
+/// Après un échec de segment, enregistrer la progression observée ?
+/// - Serveur sans Range : non, la reprise est impossible (on repartira de 0).
+/// - Une erreur non passagère (disque notamment) : non, on garde le sidecar précédent. Une
+///   écriture `write_all` réussie peut n'être que mise en tampon ; son échec ne remonte que
+///   plus tard, et les octets comptés ne sont alors pas fiables.
+/// - Uniquement des erreurs passagères (réseau, HTTP 5xx) : oui. Le segment fautif a vidé
+///   son tampon (`flush`) avant de rendre l'erreur, ses octets comptés sont sur le disque.
+fn save_sidecar_after_error(supports_ranges: bool, all_errors_transient: bool) -> bool {
+    supports_ranges && all_errors_transient
 }
 
 fn emit(
@@ -470,6 +493,86 @@ mod tests {
         assert_eq!(std::fs::read(&dest).unwrap(), data);
         let first = std::iter::from_fn(|| rx2.try_recv().ok()).next().unwrap();
         assert!(first.downloaded_bytes > 300, "la reprise doit partir des 300 octets déjà écrits");
+    }
+
+    /// Serveur sans Range (il renvoie toujours le corps entier) : pas de sidecar après une
+    /// coupure, et un sidecar ancien est ignoré. La tentative suivante repart de 0 et donne
+    /// un fichier d'exactement `total` octets.
+    #[tokio::test]
+    async fn non_range_server_retry_restarts_from_zero() {
+        let data: Vec<u8> = (0..=255u8).cycle().take(800).collect();
+        let dir = tempdir().unwrap();
+        let dest = collect_dest(&dir);
+
+        let mut failing = FakeFetcher::new(data.clone(), false);
+        failing.ignore_ranges = true;
+        failing.fail_at = Some(300);
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let err = download(&failing, "nr", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default(), 4)
+            .await
+            .unwrap_err();
+        assert!(err.is_transient());
+        assert!(resume::load(&dest).is_none(), "aucune reprise possible sans Range : pas de sidecar");
+
+        // Sidecar ancien qui annonce 300 octets faits + fichier trop long (essai précédent).
+        resume::save(&dest, &ResumeState { url: "http://x/f".into(), total_bytes: 800, segments: vec![(0, 799, 300)] }).unwrap();
+        std::fs::write(&dest, vec![0xAAu8; 1100]).unwrap();
+
+        let mut fetcher = FakeFetcher::new(data.clone(), false);
+        fetcher.ignore_ranges = true;
+        let (tx2, _rx2) = mpsc::unbounded_channel();
+        let outcome = download(&fetcher, "nr", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx2, &RequestHeaders::default(), 4)
+            .await
+            .unwrap();
+        assert_eq!(outcome, Outcome::Completed);
+        let written = std::fs::read(&dest).unwrap();
+        assert_eq!(written.len(), 800);
+        assert_eq!(written, data);
+    }
+
+    /// Erreur disque (non passagère) : le sidecar précédent est conservé tel quel, les
+    /// octets comptés pendant l'essai fautif ne sont pas déclarés faits.
+    #[tokio::test]
+    async fn io_error_keeps_previous_sidecar() {
+        let data: Vec<u8> = (0..=255u8).cycle().take(800).collect();
+        let dir = tempdir().unwrap();
+        let dest = collect_dest(&dir);
+
+        let mut net = FakeFetcher::new(data.clone(), true);
+        net.fail_at = Some(300);
+        let (tx, _rx) = mpsc::unbounded_channel();
+        download(&net, "io", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default(), 4)
+            .await
+            .unwrap_err();
+        let before: Vec<u64> = resume::load(&dest).unwrap().segments.iter().map(|(_, _, d)| *d).collect();
+        assert_eq!(before, vec![200, 100, 0, 0]);
+
+        let mut disk = FakeFetcher::new(data.clone(), true);
+        disk.fail_at = Some(500);
+        disk.fail_with_io = true;
+        let (tx2, _rx2) = mpsc::unbounded_channel();
+        let err = download(&disk, "io", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx2, &RequestHeaders::default(), 4)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, CoreError::Io(_)), "obtenu {err:?}");
+        let after: Vec<u64> = resume::load(&dest).unwrap().segments.iter().map(|(_, _, d)| *d).collect();
+        assert_eq!(after, before, "le sidecar ne doit pas être réécrit après une erreur disque");
+
+        let fetcher = FakeFetcher::new(data.clone(), true);
+        let (tx3, _rx3) = mpsc::unbounded_channel();
+        let outcome = download(&fetcher, "io", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx3, &RequestHeaders::default(), 4)
+            .await
+            .unwrap();
+        assert_eq!(outcome, Outcome::Completed);
+        assert_eq!(std::fs::read(&dest).unwrap(), data);
+    }
+
+    #[test]
+    fn sidecar_saved_after_error_only_when_safe() {
+        assert!(save_sidecar_after_error(true, true));
+        assert!(!save_sidecar_after_error(false, true), "sans Range");
+        assert!(!save_sidecar_after_error(true, false), "erreur non passagère (disque)");
+        assert!(!save_sidecar_after_error(false, false));
     }
 
     #[tokio::test]

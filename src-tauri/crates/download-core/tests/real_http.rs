@@ -143,6 +143,27 @@ async fn fetch_range_http_status_maps_to_http_error() {
     }
 }
 
+/// Serveur qui ignore `Range` (toujours 200 + corps entier) : une plage en milieu de
+/// fichier est refusée (le corps ne doit pas être écrit à l'offset) ; une plage depuis 0 passe.
+#[tokio::test(flavor = "multi_thread")]
+async fn fetch_range_rejects_full_body_for_mid_file_range() {
+    use download_core::http::ByteFetcher;
+    use download_core::CoreError;
+    let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+    let port = server.server_addr().to_ip().unwrap().port();
+    std::thread::spawn(move || {
+        for request in server.incoming_requests() {
+            let _ = request.respond(Response::from_data(vec![1u8; 100]).with_status_code(200));
+        }
+    });
+    let fetcher = ReqwestFetcher::new();
+    let url = format!("http://127.0.0.1:{port}/f.bin");
+    let err = fetcher.fetch_range(&url, Some((10, 99)), &RequestHeaders::default()).await.map(|_| ()).unwrap_err();
+    assert!(matches!(err, CoreError::Unsupported), "obtenu {err:?}");
+    assert!(!err.is_transient());
+    assert!(fetcher.fetch_range(&url, Some((0, 99)), &RequestHeaders::default()).await.is_ok());
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn real_http_progress_reports_full_size() {
     let port = start_server();

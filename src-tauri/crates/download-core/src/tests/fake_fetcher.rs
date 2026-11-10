@@ -17,11 +17,25 @@ pub struct FakeFetcher {
     /// Si présent, chaque flux s'interrompt sur une erreur réseau à cet offset absolu
     /// (les octets avant l'offset sont livrés).
     pub fail_at: Option<u64>,
+    /// La coupure à `fail_at` est une erreur disque (`Io`, non passagère) au lieu d'une
+    /// erreur réseau.
+    pub fail_with_io: bool,
+    /// Serveur qui ignore `Range` : chaque requête reçoit le corps entier (comme un 200),
+    /// quelle que soit la plage demandée.
+    pub ignore_ranges: bool,
 }
 
 impl FakeFetcher {
     pub fn new(data: Vec<u8>, supports_ranges: bool) -> Self {
-        Self { data, supports_ranges, chunk_size: 7, probe_reports_size: true, fail_at: None }
+        Self {
+            data,
+            supports_ranges,
+            chunk_size: 7,
+            probe_reports_size: true,
+            fail_at: None,
+            fail_with_io: false,
+            ignore_ranges: false,
+        }
     }
 }
 
@@ -47,6 +61,7 @@ impl ByteFetcher for FakeFetcher {
         range: Option<(u64, u64)>,
         _headers: &RequestHeaders,
     ) -> Result<BoxStream<'static, Result<Bytes, CoreError>>, CoreError> {
+        let range = if self.ignore_ranges { None } else { range };
         let (start, end) = match range {
             Some((start, end)) => (start as usize, (end as usize + 1).min(self.data.len())),
             None => (0, self.data.len()),
@@ -60,7 +75,11 @@ impl ByteFetcher for FakeFetcher {
             .map(|c| Ok(Bytes::copy_from_slice(c)))
             .collect();
         if cut.is_some_and(|c| c < end) {
-            chunks.push(Err(CoreError::Network("connexion interrompue".into())));
+            chunks.push(Err(if self.fail_with_io {
+                CoreError::Io(std::io::Error::other("écriture impossible"))
+            } else {
+                CoreError::Network("connexion interrompue".into())
+            }));
         }
         Ok(stream::iter(chunks).boxed())
     }

@@ -125,6 +125,11 @@ impl ByteFetcher for ReqwestFetcher {
             return Err(CoreError::NotFound(format!("HTTP {} pour {url}", status.as_u16())));
         }
         let resp = resp.error_for_status().map_err(|e| status_error(&e))?;
+        if !range_honoured(range, status.as_u16()) {
+            // Corps entier renvoyé pour une plage en milieu de fichier : l'écrire à l'offset
+            // demandé corromprait le fichier.
+            return Err(CoreError::Unsupported);
+        }
 
         let stream = resp
             .bytes_stream()
@@ -187,6 +192,16 @@ pub fn describe_reqwest_error(e: &reqwest::Error) -> String {
     format!("{prefix}{}", chain.join(" → "))
 }
 
+/// Une plage qui commence après l'octet 0 n'est servie correctement que par un 206 ; un 200
+/// signifie que le serveur ignore `Range` et renvoie le fichier depuis le début.
+/// Une plage depuis 0 (ou aucune plage) accepte n'importe quel succès.
+pub fn range_honoured(range: Option<(u64, u64)>, status: u16) -> bool {
+    match range {
+        Some((start, _)) if start > 0 => status == 206,
+        _ => true,
+    }
+}
+
 /// Erreur d'`error_for_status` : garde le code HTTP pour distinguer 4xx (définitif) de 5xx
 /// (passager). Sans code (cas théorique), c'est une erreur réseau.
 fn status_error(e: &reqwest::Error) -> CoreError {
@@ -247,6 +262,15 @@ mod tests {
         assert_eq!(file_name_from_url("https://x.com/a/.."), None);
         // percent-encoded traversal stays a literal (not decoded) segment — fine
         assert_eq!(file_name_from_url("https://x.com/a/%2e%2e"), Some("%2e%2e".into()));
+    }
+
+    #[test]
+    fn range_must_be_honoured_past_offset_zero() {
+        assert!(range_honoured(Some((100, 199)), 206));
+        assert!(!range_honoured(Some((100, 199)), 200), "200 = corps entier, pas la plage");
+        assert!(range_honoured(Some((0, 199)), 200), "depuis 0, le corps entier convient");
+        assert!(range_honoured(Some((0, 199)), 206));
+        assert!(range_honoured(None, 200));
     }
 
     #[test]
