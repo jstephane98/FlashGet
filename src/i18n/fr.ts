@@ -57,6 +57,12 @@ export const fr = {
   "done.title": "Terminés",
   "done.clear": "Vider la liste",
   "done.empty": "Aucun téléchargement terminé.",
+  "new.timeout": "L'analyse a pris trop de temps. Réessaie.",
+  "new.badUrl": "Colle un lien qui commence par http:// ou https://",
+  "cut.badStart": "Début invalide (ex. 1:30)",
+  "cut.badEnd": "Fin invalide (ex. 2:45)",
+  "cut.endBeforeStart": "La fin doit être après le début",
+  "cut.beyondEnd": "La fin dépasse la durée de la vidéo",
 } as const;
 
 export type MsgKey = keyof typeof fr;
