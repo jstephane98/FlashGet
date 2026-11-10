@@ -10,7 +10,7 @@ use download_core::hls::playlist::MasterPlaylist;
 use download_core::http::ByteFetcher;
 use download_core::hls::select::pick_audio;
 use download_core::model::{Category, Download, DownloadKind, DownloadStatus, Priority, ProbeResult, RequestHeaders};
-use download_core::naming::{ensure_extension, sanitize_title};
+use download_core::naming::{ensure_extension, sanitize_file_name, sanitize_title};
 use download_core::ytdlp::{
     build_media_formats, parse_clock, pick_sub_langs, time_range, FormatKind, JobMode, MediaFormat, MediaInfo, YtdlpFormat,
     YtdlpJob, PREFERRED_SUB_LANGS,
@@ -203,6 +203,23 @@ pub fn check_http_status(status: u16) -> Result<(), String> {
     Ok(())
 }
 
+/// Route `Auto` après la sonde HTTP. Une page HTML va toujours à yt-dlp, même en HTTP
+/// >= 400 (Cloudflare, mur de connexion : yt-dlp + cookies peut réussir) ; le statut n'est
+/// vérifié d'emblée que pour un fichier ou un manifeste.
+pub fn route_after_probe(url: &str, content_type: Option<&str>, status: u16) -> Result<ProbeRoute, String> {
+    let route = classify_probe(url, content_type);
+    if route != ProbeRoute::Page {
+        check_http_status(status)?;
+    }
+    Ok(route)
+}
+
+/// Erreur d'une page dont l'extraction yt-dlp a échoué : le statut HTTP de la sonde s'il
+/// était un échec (>= 400, sauf 416), sinon l'erreur de yt-dlp.
+pub fn page_error(status: u16, ytdlp_err: String) -> String {
+    check_http_status(status).err().unwrap_or(ytdlp_err)
+}
+
 fn inaccessible(detail: impl std::fmt::Display) -> String {
     format!("Lien inaccessible : {detail}")
 }
@@ -321,9 +338,9 @@ async fn resolve(
                 .await
                 .map_err(|_| inaccessible("délai dépassé"))?
                 .map_err(inaccessible)?;
-            check_http_status(probe.status)?;
-            match classify_probe(url, probe.content_type.as_deref()) {
-                ProbeRoute::Page => media_ytdlp(app, url, headers).await,
+            let status = probe.status;
+            match route_after_probe(url, probe.content_type.as_deref(), status)? {
+                ProbeRoute::Page => media_ytdlp(app, url, headers).await.map_err(|e| page_error(status, e)),
                 ProbeRoute::Hls => media_hls(app, url, headers, suggested_name).await,
                 ProbeRoute::Dash => media_dash(app, url, headers, suggested_name).await,
                 ProbeRoute::File => file_link(app, url, headers, suggested_name, probe),
@@ -537,7 +554,7 @@ pub fn plan_download(pending: &PendingLink, req: &ConfirmLink, now_id: String) -
             if req.cut.is_some() {
                 return Err(NO_CUT.into());
             }
-            let mut d = base(url, sanitize_title(Some(&req.file_name)), *category, DownloadKind::Regular);
+            let mut d = base(url, sanitize_file_name(&req.file_name), *category, DownloadKind::Regular);
             d.total_bytes = *total_bytes;
             d.supports_ranges = *supports_ranges;
             Ok(PlannedDownload { download: d, category_for_dir: *category })
@@ -764,6 +781,28 @@ mod tests {
     }
 
     #[test]
+    fn html_page_goes_to_ytdlp_whatever_the_status() {
+        let page = "https://site.example/watch/1";
+        // HTML + 403 (Cloudflare, mur de connexion) : yt-dlp est tenté.
+        assert_eq!(route_after_probe(page, Some("text/html; charset=utf-8"), 403), Ok(ProbeRoute::Page));
+        assert_eq!(route_after_probe(page, Some("text/html"), 200), Ok(ProbeRoute::Page));
+        // Fichier ou manifeste mort : refusé avant toute analyse.
+        assert_eq!(
+            route_after_probe("https://x/a.bin", Some("application/octet-stream"), 404).unwrap_err(),
+            "Lien inaccessible : HTTP 404"
+        );
+        assert_eq!(
+            route_after_probe("https://x/a", Some("application/vnd.apple.mpegurl"), 410).unwrap_err(),
+            "Lien inaccessible : HTTP 410"
+        );
+        assert_eq!(route_after_probe("https://x/a.bin", Some("application/octet-stream"), 416), Ok(ProbeRoute::File));
+        // Échec yt-dlp : le statut HTTP s'il était un échec, sinon l'erreur de yt-dlp.
+        assert_eq!(page_error(403, NO_VIDEO.into()), "Lien inaccessible : HTTP 403");
+        assert_eq!(page_error(200, NO_VIDEO.into()), NO_VIDEO);
+        assert_eq!(page_error(416, "boum".into()), "boum");
+    }
+
+    #[test]
     fn ytdlp_formats_keep_heightless_video() {
         let f = ytdlp_formats(&[yf("0", None, "avc1", "mp4a")]);
         assert_eq!(f[0].format_id, "bestvideo");
@@ -913,6 +952,23 @@ mod tests {
 
         let held = ConfirmLink { start_now: false, ..req(None, "a.iso") };
         assert_eq!(plan_download(&p, &held, "id2".into()).unwrap().download.status, DownloadStatus::Held);
+    }
+
+    #[test]
+    fn confirm_file_long_name_keeps_extension() {
+        let long = format!("{}.iso", "n".repeat(196));
+        assert_eq!(long.chars().count(), 200);
+        let d = plan_download(&file_pending(), &req(None, &long), "id".into()).unwrap().download;
+        assert!(d.file_name.ends_with(".iso"), "{}", d.file_name);
+        assert!(d.file_name.chars().count() <= 120);
+    }
+
+    #[test]
+    fn confirm_media_replaces_other_media_extension() {
+        // Nom saisi « x.mp4 » puis format MP3 : « x.mp3 », jamais « x.mp4.mp3 ».
+        let p = media_pending(MediaSource::Ytdlp);
+        assert_eq!(plan_download(&p, &req(Some(2), "x.mp4"), "id".into()).unwrap().download.file_name, "x.mp3");
+        assert_eq!(plan_download(&p, &req(Some(3), "x.mp4"), "id".into()).unwrap().download.file_name, "x.m4a");
     }
 
     #[test]

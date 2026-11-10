@@ -16,10 +16,34 @@ const RESERVED_NAMES: &[&str] = &[
 /// Contrairement à [`choose_file_name`], cette fonction ne traite jamais `/` ni `\`
 /// comme des séparateurs de chemin : un titre comme `AC/DC` est conservé entier.
 pub fn sanitize_title(raw: Option<&str>) -> String {
-    let raw = match raw {
-        Some(s) => s,
-        None => return DEFAULT_TITLE.to_string(),
-    };
+    match raw {
+        Some(s) => sanitize_capped(s, MAX_TITLE_CHARS),
+        None => DEFAULT_TITLE.to_string(),
+    }
+}
+
+/// Longueur maximale (en caractères) d'un titre ou d'un nom de fichier nettoyé.
+const MAX_TITLE_CHARS: usize = 120;
+
+/// Extensions média qu'un changement de format remplace au lieu de les compléter.
+const MEDIA_EXTENSIONS: &[&str] = &["mp4", "mp3", "m4a", "webm", "opus", "mkv"];
+
+/// Comme [`sanitize_title`] pour un nom de fichier complet : seul le radical est nettoyé
+/// et tronqué, l'extension (dernier `.xxx`, alphanumérique, 16 caractères au plus) est
+/// conservée, de sorte que le total tienne dans la même limite.
+pub fn sanitize_file_name(name: &str) -> String {
+    let name = name.trim();
+    if let Some((stem, ext)) = name.rsplit_once('.') {
+        let ext_ok = !ext.is_empty() && ext.len() <= 16 && ext.chars().all(|c| c.is_ascii_alphanumeric());
+        if ext_ok && !stem.trim().is_empty() {
+            let stem = sanitize_capped(stem, MAX_TITLE_CHARS - ext.len() - 1);
+            return format!("{stem}.{ext}");
+        }
+    }
+    sanitize_title(Some(name))
+}
+
+fn sanitize_capped(raw: &str, cap: usize) -> String {
     // 1. Nettoyage caractère par caractère.
     let cleaned: String = raw
         .chars()
@@ -33,7 +57,7 @@ pub fn sanitize_title(raw: Option<&str>) -> String {
     // 2. Réduire les espaces multiples + trim.
     let collapsed = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
     // 3. Plafonner la longueur (frontières de caractères).
-    let capped: String = collapsed.chars().take(120).collect();
+    let capped: String = collapsed.chars().take(cap).collect();
     // 4. Couper points et espaces de fin (interdits/problématiques sous Windows).
     let trimmed = capped.trim_end_matches(['.', ' ']).to_string();
     if trimmed.is_empty() {
@@ -59,16 +83,22 @@ pub fn choose_file_name(suggested: Option<&str>, probe: Option<&str>) -> String 
 }
 
 /// Ajoute `.ext` au nom, sauf s'il se termine déjà par `.ext` (insensible à la casse).
+/// Une autre extension média connue (`mp4`, `mp3`, `m4a`, `webm`, `opus`, `mkv`) est
+/// remplacée : `x.mp4` en MP3 → `x.mp3`.
 ///
-/// Ne tronque PAS un nom contenant des points :
+/// Ne tronque PAS un nom contenant d'autres points :
 /// un titre comme `Partie 2.5` conserve son point (→ `Partie 2.5.mp4`).
 pub fn ensure_extension(name: &str, ext: &str) -> String {
-    let suffix = format!(".{}", ext.to_ascii_lowercase());
-    if name.to_ascii_lowercase().ends_with(&suffix) {
-        name.to_string()
-    } else {
-        format!("{name}.{ext}")
+    let lower = name.to_ascii_lowercase();
+    if lower.ends_with(&format!(".{}", ext.to_ascii_lowercase())) {
+        return name.to_string();
     }
+    let stem = MEDIA_EXTENSIONS
+        .iter()
+        .find(|m| lower.ends_with(&format!(".{m}")) && name.len() > m.len() + 1)
+        .map(|m| &name[..name.len() - m.len() - 1])
+        .unwrap_or(name);
+    format!("{stem}.{ext}")
 }
 
 /// Dernier segment de chemin (séparateurs `/` ou `\`), espaces retirés.
@@ -171,6 +201,36 @@ mod tests {
     fn ensure_extension_keeps_existing_case_insensitive() {
         assert_eq!(ensure_extension("clip.mp4", "mp4"), "clip.mp4");
         assert_eq!(ensure_extension("clip.MP4", "mp4"), "clip.MP4");
+    }
+
+    #[test]
+    fn ensure_extension_replaces_other_media_extension() {
+        assert_eq!(ensure_extension("x.mp4", "mp3"), "x.mp3");
+        assert_eq!(ensure_extension("Mon clip.MP4", "m4a"), "Mon clip.m4a");
+        assert_eq!(ensure_extension("a.webm", "mp4"), "a.mp4");
+        assert_eq!(ensure_extension("a.mkv", "mp4"), "a.mp4");
+        // Extension non média : complétée, pas remplacée.
+        assert_eq!(ensure_extension("notes.txt", "mp3"), "notes.txt.mp3");
+    }
+
+    #[test]
+    fn sanitize_file_name_keeps_extension_when_truncating() {
+        let long = format!("{}.iso", "a".repeat(196));
+        assert_eq!(long.chars().count(), 200);
+        let out = sanitize_file_name(&long);
+        assert!(out.ends_with(".iso"), "{out}");
+        assert_eq!(out.chars().count(), 120);
+        assert_eq!(out, format!("{}.iso", "a".repeat(116)));
+    }
+
+    #[test]
+    fn sanitize_file_name_short_names() {
+        assert_eq!(sanitize_file_name("a.iso"), "a.iso");
+        assert_eq!(sanitize_file_name("a:b?.zip"), "ab.zip");
+        assert_eq!(sanitize_file_name("CON.txt"), "_CON.txt");
+        assert_eq!(sanitize_file_name("sans extension"), "sans extension");
+        assert_eq!(sanitize_file_name(".bashrc"), ".bashrc");
+        assert_eq!(sanitize_file_name(""), "video");
     }
 
     #[test]

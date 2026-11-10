@@ -36,10 +36,20 @@ export function useLinkProbe() {
     setState({ status: "error", url, message });
   }, []);
 
+  /** Délai maximal d'une analyse ; ignoré si une autre action l'a remplacée entre-temps. */
+  const armTimeout = useCallback((mine: number, url: string) => {
+    timer.current = setTimeout(() => {
+      if (token.current !== mine) return;
+      fail(url, t("new.timeout"));
+    }, TIMEOUT_MS);
+  }, [fail]);
+
+  /** Analyse lancée par l'extension (résultat via `load` / `fail`) : même délai qu'`analyze`. */
   const showProbing = useCallback((url: string) => {
-    supersede();
+    const mine = supersede();
     setState({ status: "probing", url });
-  }, []);
+    armTimeout(mine, url);
+  }, [armTimeout]);
 
   const load = useCallback((probe: LinkProbe) => {
     supersede();
@@ -59,10 +69,7 @@ export function useLinkProbe() {
     }
     const mine = supersede();
     setState({ status: "probing", url: u });
-    timer.current = setTimeout(() => {
-      if (token.current !== mine) return;
-      fail(u, t("new.timeout"));
-    }, TIMEOUT_MS);
+    armTimeout(mine, u);
     api.probeLink(u).then(
       (probe) => {
         if (token.current !== mine) return;
@@ -75,7 +82,7 @@ export function useLinkProbe() {
         setState({ status: "error", url: u, message: typeof err === "string" ? err : String(err?.message ?? err) });
       },
     );
-  }, [fail]);
+  }, [fail, armTimeout]);
 
   return { state, analyze, showProbing, load, fail, reset };
 }

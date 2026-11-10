@@ -22,7 +22,8 @@ export function outputExtension(f: MediaFormat): string {
   return ".mp4";
 }
 
-const KNOWN_EXT = /\.(mp4|mp3|m4a|webm|opus)$/i;
+/** Mêmes extensions média que `ensure_extension` côté Rust. */
+const KNOWN_EXT = /\.(mp4|mp3|m4a|webm|opus|mkv)$/i;
 
 export function withExtension(stem: string, ext: string): string {
   return stem.replace(KNOWN_EXT, "") + ext;

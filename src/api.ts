@@ -115,10 +115,6 @@ export function onProgress(cb: (p: Progress) => void): Promise<UnlistenFn> {
   return listen<Progress>("download://progress", (e) => cb(e.payload));
 }
 
-export function onDownloadAdded(cb: (d: Download) => void): Promise<UnlistenFn> {
-  return listen<Download>("download://added", (e) => cb(e.payload));
-}
-
 export function setPriority(id: string, priority: Priority): Promise<void> {
   return invoke("set_priority", { id, priority });
 }

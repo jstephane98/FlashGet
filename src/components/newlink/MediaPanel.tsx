@@ -61,17 +61,29 @@ export function MediaPanel({ probe, busy, error, onConfirm }: Props) {
 
   const format = formats.find((f) => f.index === formatIndex);
   const dir = dirEdit ?? (kind === "audio" ? probe.music_dir : probe.video_dir);
-  const fileName = nameEdit ?? withExtension(probe.file_name, format ? outputExtension(format) : ".mp4");
+  const ext = format ? outputExtension(format) : ".mp4";
+  // Le radical saisi est gardé, l'extension suit toujours le format (envoyé à Rust ainsi).
+  const stem = nameEdit ?? probe.file_name;
+  const fileName = stem.trim() === "" ? "" : withExtension(stem, ext);
+  // Affiché : la saisie brute pendant la frappe (pas de saut de curseur) ; réécrite à
+  // chaque changement de format par `selectFormat`.
+  const shownName = nameEdit ?? fileName;
   const cutError = cutOn ? validateCut(start, end, info.duration_s) : null;
   const subsOn = subtitles && kind !== "audio";
   const subsAvailable = info.subtitle_langs.length > 0;
   const disabled = busy || cutError !== null || fileName.trim() === "";
   const size = format?.est_size != null ? formatBytes(format.est_size) : null;
 
+  function selectFormat(index: number) {
+    setFormatIndex(index);
+    const f = formats.find((x) => x.index === index);
+    if (f) setNameEdit((n) => (n === null || n.trim() === "" ? n : withExtension(n, outputExtension(f))));
+  }
+
   function pickKind(k: FormatKind) {
     setKind(k);
     const f = defaultFormat(formats, k);
-    if (f) setFormatIndex(f.index);
+    if (f) selectFormat(f.index);
   }
 
   function confirm(startNow: boolean) {
@@ -151,8 +163,8 @@ export function MediaPanel({ probe, busy, error, onConfirm }: Props) {
             </button>
           ))}
         </div>
-        <FormatList formats={formatsOf(formats, kind)} selected={formatIndex} onSelect={setFormatIndex} />
-        <DestinationFields dir={dir} fileName={fileName} onDir={setDirEdit} onFileName={setNameEdit} />
+        <FormatList formats={formatsOf(formats, kind)} selected={formatIndex} onSelect={selectFormat} />
+        <DestinationFields dir={dir} fileName={shownName} onDir={setDirEdit} onFileName={setNameEdit} />
         {error && <div role="alert" className="text-xs text-err">{error}</div>}
         <div className="flex justify-end gap-2">
           <button type="button" disabled={disabled} onClick={() => confirm(false)}

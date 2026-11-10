@@ -60,8 +60,6 @@ export default function App() {
       );
       if (p.status === "completed" || p.status === "paused" || p.status === "error") refresh();
     });
-    // Un download créé hors UI (capture par l'extension via le bridge) : rafraîchir la liste.
-    const unAdded = api.onDownloadAdded(() => refresh());
     // Liens envoyés par l'extension : la page Nouveau s'ouvre, préremplie ; rien ne démarre
     // avant confirmation. La fenêtre est déjà mise au premier plan côté Rust.
     const showExternal = (e: ExternalPayload) => {
@@ -74,7 +72,7 @@ export default function App() {
     const unProbed = api.onLinkProbed((probe) => showExternal({ kind: "probed", probe }));
     const unLinkErr = api.onLinkError(({ url, message }) => showExternal({ kind: "error", url, message }));
     return () => {
-      un.then((f) => f()); unAdded.then((f) => f());
+      un.then((f) => f());
       unProbing.then((f) => f()); unProbed.then((f) => f()); unLinkErr.then((f) => f());
     };
   }, []);

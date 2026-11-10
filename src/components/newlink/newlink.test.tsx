@@ -89,11 +89,29 @@ describe("newlink", () => {
     expect(screen.queryByText("Découper un extrait")).toBeNull();
   });
 
-  it("MediaPanel : nom modifié à la main conservé au changement de format", () => {
-    render(<MediaPanel probe={media()} busy={false} onConfirm={vi.fn()} />);
+  it("MediaPanel : nom modifié à la main conservé au changement de format, extension suivant le format", () => {
+    const onConfirm = vi.fn();
+    render(<MediaPanel probe={media()} busy={false} onConfirm={onConfirm} />);
+    const field = () => (screen.getByLabelText("Nom du fichier") as HTMLInputElement).value;
     fireEvent.change(screen.getByLabelText("Nom du fichier"), { target: { value: "mon.mp4" } });
     fireEvent.click(screen.getByText("Audio seul"));
-    expect((screen.getByLabelText("Nom du fichier") as HTMLInputElement).value).toBe("mon.mp4");
+    expect(field()).toBe("mon.m4a");
+    fireEvent.click(screen.getByText("MP3"));
+    expect(field()).toBe("mon.mp3");
+    fireEvent.click(screen.getByRole("button", { name: /^Télécharger/ }));
+    expect(onConfirm.mock.calls[0][0].fileName).toBe("mon.mp3");
+  });
+
+  it("MediaPanel : nom saisi sans extension envoyé avec celle du format", () => {
+    const onConfirm = vi.fn();
+    render(<MediaPanel probe={media()} busy={false} onConfirm={onConfirm} />);
+    fireEvent.change(screen.getByLabelText("Nom du fichier"), { target: { value: "mon" } });
+    expect((screen.getByLabelText("Nom du fichier") as HTMLInputElement).value).toBe("mon");
+    fireEvent.click(screen.getByRole("button", { name: /^Télécharger/ }));
+    expect(onConfirm.mock.calls[0][0].fileName).toBe("mon.mp4");
+    // Nom vidé : pas de confirmation possible (pas de « .mp4 » seul).
+    fireEvent.change(screen.getByLabelText("Nom du fichier"), { target: { value: "  " } });
+    expect((screen.getByRole("button", { name: /^Télécharger/ }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("MediaPanel : sous-titres désactivés sur Audio seul et non envoyés", () => {

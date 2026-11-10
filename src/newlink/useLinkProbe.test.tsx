@@ -91,4 +91,26 @@ describe("useLinkProbe", () => {
     act(() => { result.current.reset(); });
     expect(result.current.state.status).toBe("idle");
   });
+  it("showProbing : délai dépassé si l'extension ne répond jamais", () => {
+    const { result } = renderHook(() => useLinkProbe());
+    act(() => { result.current.showProbing("https://a/x"); });
+    act(() => { vi.advanceTimersByTime(89_999); });
+    expect(result.current.state.status).toBe("probing");
+    act(() => { vi.advanceTimersByTime(1); });
+    expect(result.current.state).toEqual({ status: "error", url: "https://a/x", message: "L'analyse a pris trop de temps. Réessaie." });
+  });
+  it("showProbing : un résultat arrivé à temps annule le délai", () => {
+    const { result } = renderHook(() => useLinkProbe());
+    act(() => { result.current.showProbing("https://a/E"); });
+    act(() => { vi.advanceTimersByTime(30_000); });
+    act(() => { result.current.load(file("https://a/E")); });
+    act(() => { vi.advanceTimersByTime(90_000); });
+    expect(result.current.state.status).toBe("ready");
+    // Une nouvelle capture remplace la précédente et repart de zéro.
+    act(() => { result.current.showProbing("https://a/F"); });
+    act(() => { vi.advanceTimersByTime(60_000); });
+    act(() => { result.current.showProbing("https://a/G"); });
+    act(() => { vi.advanceTimersByTime(60_000); });
+    expect(result.current.state).toEqual({ status: "probing", url: "https://a/G" });
+  });
 });

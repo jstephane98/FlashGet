@@ -375,12 +375,23 @@ pub struct YtdlpJob {
 /// Langues de sous-titres préférées par défaut.
 pub const PREFERRED_SUB_LANGS: &[&str] = &["fr", "en"];
 
-/// Lit `Download.media_selection` (compatible avec les anciennes lignes sans `mode`).
+/// Lit `Download.media_selection` (compatible avec les anciennes lignes sans `mode`, et
+/// les très anciennes qui ne stockaient que l'identifiant de format : `137`, `bestaudio`
+/// ou `"137"`).
 pub fn job_from_selection(json: Option<&str>) -> YtdlpJob {
     let default = || YtdlpJob { format_id: "bestvideo".into(), mode: JobMode::Av, time_range: None, subs: None, convert_mp3: false };
-    let Some(raw) = json else { return default() };
-    let Ok(v) = serde_json::from_str::<serde_json::Value>(raw) else { return default() };
-    let Ok(mut job) = serde_json::from_value::<YtdlpJob>(v.clone()) else { return default() };
+    let Some(raw) = json.map(str::trim).filter(|r| !r.is_empty()) else { return default() };
+    let v = serde_json::from_str::<serde_json::Value>(raw).unwrap_or_else(|_| serde_json::Value::String(raw.to_string()));
+    let bare = |id: String| YtdlpJob { format_id: id, ..default() };
+    let mut job = match &v {
+        serde_json::Value::Object(_) => match serde_json::from_value::<YtdlpJob>(v.clone()) {
+            Ok(job) => job,
+            Err(_) => return default(),
+        },
+        serde_json::Value::String(s) if !s.trim().is_empty() => bare(s.trim().to_string()),
+        serde_json::Value::Number(n) => bare(n.to_string()),
+        _ => return default(),
+    };
     if v.get("mode").is_none() && job.format_id == "bestaudio" {
         job.mode = JobMode::Audio;
         job.convert_mp3 = true;
@@ -403,7 +414,8 @@ pub fn job_args(job: &YtdlpJob) -> Vec<String> {
             push(&["--merge-output-format", "mp4"]);
         }
         JobMode::Video => push(&["-f", id, "--remux-video", "mp4"]),
-        JobMode::Audio if job.convert_mp3 => push(&["-f", "bestaudio", "-x", "--audio-format", "mp3", "--audio-quality", "0"]),
+        // `/best` : certains sites n'offrent que des formats combinés (pas d'audio seul).
+        JobMode::Audio if job.convert_mp3 => push(&["-f", "bestaudio/best", "-x", "--audio-format", "mp3", "--audio-quality", "0"]),
         JobMode::Audio => push(&["-f", id]),
     }
     if let Some(subs) = job.subs.as_ref().filter(|s| !s.is_empty()) {
@@ -695,7 +707,22 @@ mod tests {
     }
     #[test] fn args_mp3() {
         let j = YtdlpJob { format_id: "bestaudio".into(), mode: JobMode::Audio, time_range: None, subs: Some(vec![]), convert_mp3: true };
-        assert_eq!(job_args(&j), ["-f","bestaudio","-x","--audio-format","mp3","--audio-quality","0"]);
+        assert_eq!(job_args(&j), ["-f","bestaudio/best","-x","--audio-format","mp3","--audio-quality","0"]);
+    }
+    #[test] fn legacy_bare_format_id_selection() {
+        // Nombre JSON nu.
+        let j = job_from_selection(Some("137"));
+        assert_eq!((j.format_id.as_str(), j.mode, j.convert_mp3), ("137", JobMode::Av, false));
+        // Chaîne non JSON.
+        let j = job_from_selection(Some("bestaudio"));
+        assert_eq!((j.format_id.as_str(), j.mode, j.convert_mp3), ("bestaudio", JobMode::Audio, true));
+        // Chaîne JSON.
+        let j = job_from_selection(Some(r#""137""#));
+        assert_eq!((j.format_id.as_str(), j.mode, j.convert_mp3), ("137", JobMode::Av, false));
+        let j = job_from_selection(Some(r#""bestaudio""#));
+        assert_eq!((j.mode, j.convert_mp3), (JobMode::Audio, true));
+        // Vide : meilleure qualité.
+        assert_eq!(job_from_selection(Some("  ")).format_id, "bestvideo");
     }
     #[test] fn args_native_audio() {
         let j = YtdlpJob { format_id: "140".into(), mode: JobMode::Audio, time_range: None, subs: None, convert_mp3: false };
