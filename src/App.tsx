@@ -10,6 +10,9 @@ import { Sidebar } from "./components/shell/Sidebar";
 import { StatusBar } from "./components/shell/StatusBar";
 import { DownloadsPage, type CardActions } from "./pages/DownloadsPage";
 import { CompletedPage } from "./pages/CompletedPage";
+import { QueuePage } from "./pages/QueuePage";
+import { SchedulerPage } from "./pages/SchedulerPage";
+import { EndOfQueueDialog } from "./components/EndOfQueueDialog";
 import { NewPage, type ExternalEvent } from "./pages/NewPage";
 import { SettingsDialog } from "./components/SettingsDialog";
 
@@ -33,6 +36,10 @@ export default function App() {
   const [segs, setSegs] = useState<Record<string, { done: number; total: number }>>({});
   const [maxSpeedBps, setMaxSpeedBps] = useState(0);
   const [bridgeListening, setBridgeListening] = useState(false);
+  const [maxConcurrent, setMaxConcurrent] = useState(3);
+  const [schedule, setSchedule] = useState<api.Schedule | null>(null);
+  const [queuePaused, setQueuePaused] = useState(false);
+  const [endAction, setEndAction] = useState<api.EndAction | null>(null);
 
   async function refresh() {
     setDownloads(await api.listDownloads());
@@ -40,7 +47,7 @@ export default function App() {
 
   // Données de la barre d'état : limite de vitesse et état du pont extension.
   function refreshStatusInfo() {
-    api.getSettings().then((s) => setMaxSpeedBps(s.max_speed_bps)).catch(() => {});
+    api.getSettings().then((s) => { setMaxSpeedBps(s.max_speed_bps); setMaxConcurrent(s.max_concurrent); }).catch(() => {});
     api.getBridgeInfo().then((b) => setBridgeListening(b.listening)).catch(() => {});
   }
 
@@ -74,12 +81,28 @@ export default function App() {
     // Liens envoyés par l'extension. La fenêtre est déjà mise au premier plan côté Rust.
     const unProbing = api.onLinkProbing(({ url }) => showExternal({ kind: "probing", url }));
     const unProbed = api.onLinkProbed((probe) => showExternal({ kind: "probed", probe }));
+    const unFinished = api.onQueueFinished(({ action }) => setEndAction(action));
     const unLinkErr = api.onLinkError(({ url, message }) => showExternal({ kind: "error", url, message }));
     return () => {
       un.then((f) => f());
-      unProbing.then((f) => f()); unProbed.then((f) => f()); unLinkErr.then((f) => f());
+      unProbing.then((f) => f()); unProbed.then((f) => f()); unLinkErr.then((f) => f()); unFinished.then((f) => f());
     };
   }, []);
+
+  function refreshQueueInfo() {
+    api.getQueuePaused().then(setQueuePaused).catch(() => {});
+    api.getSchedule().then(setSchedule).catch(() => {});
+  }
+
+  // Relit la planification et l'état de la file en arrivant sur la page File d'attente.
+  useEffect(() => {
+    if (page === "queue") refreshQueueInfo();
+  }, [page]);
+
+  function runEnd() {
+    setEndAction(null);
+    api.runEndAction().catch((e) => setError(String(e)));
+  }
 
   async function withRefresh(fn: () => Promise<void>) {
     try { await fn(); } catch (e) { setError(String(e)); }
@@ -151,7 +174,7 @@ export default function App() {
       <div className="flex flex-1 min-h-0">
         <Sidebar
           active={page}
-          counts={{ downloads: stats.pending, completed: stats.completed }}
+          counts={{ downloads: stats.pending, completed: stats.completed, queue: stats.queued }}
           onNavigate={go}
         />
         <main className="flex-1 flex flex-col min-w-0">
@@ -170,6 +193,16 @@ export default function App() {
           <div className="flex-1 min-h-0">
             {page === "new" ? (
               <NewPage external={external} startInBatch={startInBatch} onDone={handleNewDone} />
+            ) : page === "queue" ? (
+              <QueuePage
+                downloads={downloads}
+                maxConcurrent={maxConcurrent}
+                schedule={schedule}
+                paused={queuePaused}
+                onChanged={() => { refresh().catch(() => {}); refreshQueueInfo(); }}
+              />
+            ) : page === "scheduler" ? (
+              <SchedulerPage heldCount={downloads.filter((d) => d.status === "held").length} />
             ) : page === "completed" ? (
               <CompletedPage
                 downloads={downloads}
@@ -203,6 +236,9 @@ export default function App() {
           />
         </main>
       </div>
+      {endAction && (
+        <EndOfQueueDialog action={endAction} onCancel={() => setEndAction(null)} onRun={runEnd} />
+      )}
       <SettingsDialog open={settingsOpen} onClose={() => { setSettingsOpen(false); refreshStatusInfo(); }} />
     </div>
   );

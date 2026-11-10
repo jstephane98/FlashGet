@@ -4,11 +4,10 @@ import { Sidebar } from "./Sidebar";
 import { StatusBar } from "./StatusBar";
 
 describe("Sidebar", () => {
-  it("le menu suit l'ordre du spec et masque les pages non prêtes", () => {
+  it("le menu suit l'ordre du spec", () => {
     render(<Sidebar active="downloads" counts={{}} onNavigate={() => {}} />);
     const labels = screen.getAllByRole("button").map((b) => b.textContent);
-    expect(labels).toEqual(["Nouveau", "Téléchargements", "Terminés", "Paramètres"]);
-    expect(screen.queryByText("File d'attente")).toBeNull();
+    expect(labels).toEqual(["Nouveau", "Téléchargements", "Terminés", "File d'attente", "Planificateur", "Paramètres"]);
   });
 
   it("cliquer une entrée appelle onNavigate", () => {
