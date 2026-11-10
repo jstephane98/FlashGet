@@ -47,7 +47,7 @@ export function timelineSegments(s: Schedule): { left: number; width: number }[]
   return [
     { left: pct(start), width: pct(1440 - start) },
     { left: 0, width: pct(end) },
-  ];
+  ].filter((seg) => seg.width > 0);
 }
 
 export function nextStartLabel(s: Schedule, now: Date): string | null {
@@ -59,8 +59,9 @@ export function nextStartLabel(s: Schedule, now: Date): string | null {
   const time = s.start;
   const delta = days * 1440 + start - minute;
   const tonight =
-    (days === 0 && (start >= 18 * 60 || start < 6 * 60)) || (days === 1 && start < 6 * 60 && delta < 1440);
+    (days === 0 && (start >= 20 * 60 || start < 6 * 60)) || (days === 1 && start < 6 * 60 && delta < 1440);
   if (tonight) return t("sch.tonight", { time });
+  if (days === 0) return t("sch.today", { time });
   if (days === 1) return t("sch.tomorrow", { time });
   return t("sch.onDay", { day: t(`day.${(weekday + days) % 7}` as MsgKey), time });
 }

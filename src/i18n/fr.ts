@@ -132,6 +132,7 @@ export const fr = {
   "catp.program": "Programmes · {n}",
   "catp.archive": "Archives · {n}",
   "catp.other": "Autres · {n}",
+  "sch.today": "aujourd'hui à {time}",
   "sch.tonight": "cette nuit à {time}",
   "sch.tomorrow": "demain à {time}",
   "sch.onDay": "{day} à {time}",

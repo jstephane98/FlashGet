@@ -22,6 +22,7 @@ export function applyDrop(
   from: number,
   to: number,
 ): { order: string[]; moved: string; priority: Priority } {
+  if (from === to) return { order: items.map((d) => d.id), moved: items[from].id, priority: items[from].priority };
   const next = items.slice();
   const [m] = next.splice(from, 1);
   next.splice(to, 0, m);

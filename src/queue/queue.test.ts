@@ -49,9 +49,13 @@ describe("applyDrop", () => {
     expect(applyDrop(items, 3, 2)).toEqual({ order: ["a", "b", "d", "c"], moved: "d", priority: "high" });
     expect(applyDrop(items, 3, 1).priority).toBe("high");
   });
+  it("dépôt sur place ne change rien", () => {
+    const r = applyDrop([dl("a", { priority: "high" }), dl("b", { priority: "normal" })], 0, 0);
+    expect(r).toEqual({ order: ["a", "b"], moved: "a", priority: "high" });
+  });
   it("arrivée en tête prend la priorité du suivant", () => {
-    const r = applyDrop([dl("a", { priority: "normal" }), dl("b", { priority: "low" })], 0, 0);
-    expect(r.priority).toBe("low");
+    const r = applyDrop([dl("a", { priority: "high" }), dl("b", { priority: "normal" }), dl("c", { priority: "low" })], 2, 0);
+    expect(r).toEqual({ order: ["c", "a", "b"], moved: "c", priority: "high" });
     const r2 = applyDrop([dl("a", { priority: "low" }), dl("b", { priority: "normal" })], 1, 0);
     expect(r2).toEqual({ order: ["b", "a"], moved: "b", priority: "low" });
   });
@@ -102,12 +106,17 @@ describe("schedule", () => {
     expect(two[0].left).toBeCloseTo(91.67, 1);
     expect(two[0].width).toBeCloseTo(8.33, 1);
     expect(two[1]).toEqual({ left: 0, width: 25 });
+    expect(timelineSegments(sched({ start: "22:00", end: "00:00" }))).toHaveLength(1);
   });
   it("nextStartLabel", () => {
     // lundi 9 novembre 2026, 23:00
     expect(nextStartLabel(sched(), new Date(2026, 10, 9, 23, 0))).toBe("cette nuit à 02:00");
     // lundi 01:00 -> même nuit
     expect(nextStartLabel(sched(), new Date(2026, 10, 9, 1, 0))).toBe("cette nuit à 02:00");
+    const mon = (h: number, m = 0) => new Date(2026, 10, 9, h, m);
+    expect(nextStartLabel(sched({ start: "10:00", end: "12:00" }), mon(8))).toBe("aujourd'hui à 10:00");
+    expect(nextStartLabel(sched({ start: "18:30", end: "20:00" }), mon(8))).toBe("aujourd'hui à 18:30");
+    expect(nextStartLabel(sched({ start: "22:00", end: "23:00" }), mon(19))).toBe("cette nuit à 22:00");
     // vendredi 23:00 -> lundi
     expect(nextStartLabel(sched(), new Date(2026, 10, 13, 23, 0))).toBe("lundi à 02:00");
     // lundi 10:00, début 20:00 un mardi -> demain
