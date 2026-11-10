@@ -12,10 +12,14 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "FlashGet",
-        "width": 800,
-        "height": 600,
-        "visible": true
+        "decorations": false,
+        "width": 1200,
+        "height": 780,
+        "minWidth": 960,
+        "minHeight": 640,
+        "visible": false
       }
     ],
     "security": {
