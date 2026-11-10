@@ -73,6 +73,10 @@ pub struct PendingLink {
     pub hls: Option<MasterPlaylist>,
     pub dash: Option<Mpd>,
     pub created: Instant,
+    /// Préférences avec lesquelles les formats ont été construits (ligne de conversion
+    /// affichée) : la confirmation les reprend telles quelles, même si les réglages ont
+    /// changé entre-temps. Valeurs par défaut hors yt-dlp.
+    pub media_prefs: MediaPrefs,
 }
 
 /// Indice sur la nature du lien (le `kind` d'une capture de l'extension).
@@ -387,6 +391,7 @@ fn file_link(
         hls: None,
         dash: None,
         created: Instant::now(),
+        media_prefs: MediaPrefs::default(),
     })
 }
 
@@ -425,6 +430,7 @@ async fn media_hls(app: &AppHandle, url: &str, headers: RequestHeaders, suggeste
         hls: Some(master),
         dash: None,
         created: Instant::now(),
+        media_prefs: MediaPrefs::default(),
     })
 }
 
@@ -438,6 +444,7 @@ async fn media_dash(app: &AppHandle, url: &str, headers: RequestHeaders, suggest
         hls: None,
         dash: Some(mpd),
         created: Instant::now(),
+        media_prefs: MediaPrefs::default(),
     })
 }
 
@@ -457,6 +464,7 @@ async fn media_ytdlp(app: &AppHandle, url: &str, headers: RequestHeaders) -> Res
         hls: None,
         dash: None,
         created: Instant::now(),
+        media_prefs: prefs,
     })
 }
 
@@ -518,11 +526,11 @@ fn cut_range(cut: &TimeCut, duration_s: Option<u64>) -> Result<String, String> {
     Ok(time_range(start, end))
 }
 
-/// Extension imposée par le format : celle du format de conversion des réglages, extension
-/// native pour un audio natif (`m4a` à défaut de conteneur connu), `.mp4` sinon.
-fn format_extension(f: &MediaFormat, settings: &Settings) -> String {
+/// Extension imposée par le format : celle du format de conversion de l'analyse (`prefs`),
+/// extension native pour un audio natif (`m4a` à défaut de conteneur connu), `.mp4` sinon.
+fn format_extension(f: &MediaFormat, prefs: &MediaPrefs) -> String {
     match f.kind {
-        FormatKind::Audio if f.format_id == CONVERT_FORMAT_ID => audio_format_ext(settings.audio_format).into(),
+        FormatKind::Audio if f.format_id == CONVERT_FORMAT_ID => audio_format_ext(prefs.audio_format).into(),
         FormatKind::Audio => f
             .container
             .as_deref()
@@ -534,8 +542,9 @@ fn format_extension(f: &MediaFormat, settings: &Settings) -> String {
 }
 
 /// Transforme une sonde et les choix de l'utilisateur en `Download` (fonction pure :
-/// ni disque, ni état). `dest_path` reste vide. `settings` : format de conversion audio
-/// et langues de sous-titres.
+/// ni disque, ni état). `dest_path` reste vide. La conversion audio suit
+/// `pending.media_prefs` (ce que l'utilisateur a vu) ; `settings` ne sert qu'aux langues de
+/// sous-titres.
 pub fn plan_download(pending: &PendingLink, req: &ConfirmLink, now_id: String, settings: &Settings) -> Result<PlannedDownload, String> {
     let headers = &pending.headers;
     let status = if req.start_now { DownloadStatus::Queued } else { DownloadStatus::Held };
@@ -582,7 +591,7 @@ pub fn plan_download(pending: &PendingLink, req: &ConfirmLink, now_id: String, s
                 .ok_or_else(|| NO_FORMAT.to_string())?;
             let audio = fmt.kind == FormatKind::Audio;
             let category = if audio { Category::Music } else { Category::Video };
-            let file_name = ensure_extension(&sanitize_title(Some(&req.file_name)), &format_extension(fmt, settings));
+            let file_name = ensure_extension(&sanitize_title(Some(&req.file_name)), &format_extension(fmt, &pending.media_prefs));
             let mut d = base(url, file_name, category, DownloadKind::Ytdlp);
             d.thumbnail_url = info.thumbnail.clone();
             d.duration_s = info.duration_s;
@@ -607,8 +616,8 @@ pub fn plan_download(pending: &PendingLink, req: &ConfirmLink, now_id: String, s
                         time_range,
                         subs,
                         convert_mp3: convert,
-                        audio_format: convert.then(|| audio_format_ext(settings.audio_format).to_string()),
-                        audio_kbps: convert.then_some(settings.audio_kbps),
+                        audio_format: convert.then(|| audio_format_ext(pending.media_prefs.audio_format).to_string()),
+                        audio_kbps: convert.then_some(pending.media_prefs.audio_kbps),
                     };
                     d.media_selection = Some(serde_json::to_string(&job).map_err(|e| e.to_string())?);
                 }
@@ -895,7 +904,7 @@ mod tests {
     }
 
     fn pending(probe: LinkProbe) -> PendingLink {
-        PendingLink { probe, headers: hdrs(), hls: None, dash: None, created: Instant::now() }
+        PendingLink { probe, headers: hdrs(), hls: None, dash: None, created: Instant::now(), media_prefs: MediaPrefs::default() }
     }
 
     fn file_pending() -> PendingLink {
@@ -1141,8 +1150,11 @@ mod tests {
 
     #[test]
     fn plan_convert_uses_settings() {
-        let p = media_pending(MediaSource::Ytdlp);
-        let s = Settings { audio_format: AudioFormat::Opus, audio_kbps: 192, ..Settings::default() };
+        // Préférences de l'analyse (ce que l'utilisateur a vu) : Opus 192.
+        let mut p = media_pending(MediaSource::Ytdlp);
+        p.media_prefs = MediaPrefs { audio_format: AudioFormat::Opus, audio_kbps: 192, ..MediaPrefs::default() };
+        // Réglages changés entre l'analyse et la confirmation : sans effet sur la conversion.
+        let s = Settings { audio_format: AudioFormat::M4a, audio_kbps: 320, ..Settings::default() };
         let planned = plan_download(&p, &req(Some(2), "Chanson.mp4"), "id".into(), &s).unwrap();
         let job = job_of(&planned);
         assert_eq!(planned.download.file_name, "Chanson.opus");

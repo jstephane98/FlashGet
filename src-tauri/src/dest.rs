@@ -41,11 +41,24 @@ pub fn taken_paths(app: &AppHandle) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Clé de comparaison de chemins à la manière de Windows (application Windows) :
+/// séparateurs unifiés, casse ignorée. « Clip.mp4 » et « clip.mp4 » désignent le même
+/// fichier, comme pour `exists()` / `is_file()` sur le disque.
+fn path_key(p: &Path) -> String {
+    p.to_string_lossy().replace('/', "\\").to_lowercase()
+}
+
+/// `p` est déjà visé par un téléchargement enregistré (comparaison insensible à la casse).
+fn is_planned(p: &Path, taken: &[String]) -> bool {
+    let key = path_key(p);
+    taken.iter().any(|t| path_key(Path::new(t)) == key)
+}
+
 /// `name` s'il est libre (ni sur disque ni dans `taken`), sinon `"{stem} ({n}){.ext}"`, n >= 2.
 pub fn unique_file_name(dir: &Path, name: &str, taken: &[String]) -> String {
     let is_free = |n: &str| {
         let p = dir.join(n);
-        !p.exists() && !taken.iter().any(|t| Path::new(t) == p.as_path())
+        !p.exists() && !is_planned(&p, taken)
     };
     if is_free(name) {
         return name.to_string();
@@ -85,7 +98,7 @@ pub fn resolve_conflict(dir: &Path, name: &str, taken: &[String], policy: Confli
         return ConflictResolution::Use(unique);
     }
     let path = dir.join(name);
-    let planned = taken.iter().any(|t| Path::new(t) == path.as_path());
+    let planned = is_planned(&path, taken);
     if policy == ConflictPolicy::Overwrite && exists_on_disk && !planned {
         ConflictResolution::ReplaceExisting(path)
     } else {
@@ -194,6 +207,15 @@ mod tests {
         assert_eq!(resolve_conflict(dir, "a.mp4", &taken, Overwrite, true), ConflictResolution::Rename("a (2).mp4".into()));
         let taken = vec![dir.join("b.mp4").to_string_lossy().to_string()];
         assert_eq!(resolve_conflict(dir, "b.mp4", &taken, Overwrite, false), ConflictResolution::Rename("b (2).mp4".into()));
+        // Même chemin à la casse près (Windows) : prévu par un autre téléchargement → renommer,
+        // jamais remplacer (sinon son fichier partiel partirait à la Corbeille).
+        std::fs::write(dir.join("Clip.mp4"), b"x").unwrap();
+        let taken = vec![dir.join("Clip.mp4").to_string_lossy().to_string()];
+        let r = resolve_conflict(dir, "clip.mp4", &taken, Overwrite, true);
+        assert!(matches!(r, ConflictResolution::Rename(_)), "{r:?}");
+        // Prévu mais pas encore sur le disque, casse et séparateurs différents : renommer aussi.
+        let taken = vec![format!("{}/PART.MP4", dir.to_string_lossy().replace('\\', "/"))];
+        assert_eq!(resolve_conflict(dir, "part.mp4", &taken, Overwrite, false), ConflictResolution::Rename("part (2).mp4".into()));
         // Un dossier du même nom n'est jamais remplacé.
         std::fs::create_dir(dir.join("c.mp4")).unwrap();
         assert_eq!(resolve_conflict(dir, "c.mp4", &[], Overwrite, false), ConflictResolution::Rename("c (2).mp4".into()));
@@ -224,6 +246,13 @@ mod tests {
         std::fs::write(&old, b"x").unwrap();
         let p = settle_conflict(dir, "a.mp4", &[], ConflictPolicy::Rename, |_| panic!("corbeille"));
         assert_eq!(p, Placement { file_name: "a (2).mp4".into(), replace_failed: false });
+    }
+
+    #[test]
+    fn unique_file_name_ignores_case_of_planned_paths() {
+        let d = tempfile::tempdir().unwrap();
+        let taken = vec![d.path().join("Clip.MP4").to_string_lossy().to_string()];
+        assert_eq!(unique_file_name(d.path(), "clip.mp4", &taken), "clip (2).mp4");
     }
 
     #[test]
