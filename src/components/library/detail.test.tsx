@@ -111,7 +111,27 @@ describe("DetailPanel", () => {
   });
 });
 
+describe("DetailPanel : échec d'autorisation", () => {
+  it("allowPlayback rejeté : lecture impossible, Ouvrir actif, pas de introuvable", async () => {
+    getFileInfo.mockResolvedValue({ exists: true, size: 2097152, playable: "video" });
+    allowPlayback.mockRejectedValue(new Error("nope"));
+    render(<DetailPanel d={mk()} {...cbs()} />);
+    expect(await screen.findByText(/Lecture impossible ici/)).toBeTruthy();
+    expect(screen.queryByText(/Fichier introuvable/)).toBeNull();
+    expect(screen.getByText("2,0 Mo")).toBeTruthy();
+    expect((screen.getByRole("button", { name: /Ouvrir/ }) as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
 describe("DeleteDialog", () => {
+  it("occupé : Échap et fond ne ferment pas", () => {
+    const onCancel = vi.fn();
+    const { container } = render(<DeleteDialog name="x" busy={true} error={null} onRemove={vi.fn()} onDeleteFile={vi.fn()} onCancel={onCancel} />);
+    fireEvent.keyDown(window, { key: "Escape" });
+    fireEvent.click(container.firstElementChild!);
+    expect(onCancel).not.toHaveBeenCalled();
+  });
+
   it("trois boutons, erreur affichée, Échap annule", () => {
     const onRemove = vi.fn(), onDeleteFile = vi.fn(), onCancel = vi.fn();
     render(<DeleteDialog name="film.mp4" busy={false} error="Accès refusé" onRemove={onRemove} onDeleteFile={onDeleteFile} onCancel={onCancel} />);

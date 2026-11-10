@@ -34,17 +34,23 @@ export function DetailPanel({ d, onOpenFile, onOpenFolder, onCopyLink, onRedownl
     setPlayer(null);
     setPlayError(false);
     (async () => {
+      let fi: api.FileInfo;
       try {
-        const fi = await api.getFileInfo(d.id);
-        if (stale) return;
-        setInfo(fi);
-        if (fi.exists && fi.playable) {
+        fi = await api.getFileInfo(d.id);
+      } catch {
+        if (!stale) setInfo({ exists: false, size: 0, playable: null });
+        return;
+      }
+      if (stale) return;
+      setInfo(fi);
+      if (fi.exists && fi.playable) {
+        try {
           const path = await api.allowPlayback(d.id);
           if (stale) return;
           setPlayer({ kind: fi.playable, src: convertFileSrc(path) });
+        } catch {
+          if (!stale) setPlayError(true);
         }
-      } catch {
-        if (!stale) setInfo({ exists: false, size: 0, playable: null });
       }
     })();
     return () => { stale = true; };
@@ -89,9 +95,9 @@ export function DetailPanel({ d, onOpenFile, onOpenFolder, onCopyLink, onRedownl
         <h2 className="font-bold text-ink text-sm line-clamp-2 break-words" title={d.file_name}>{d.file_name}</h2>
         <dl className="grid grid-cols-[64px_1fr] gap-x-3 gap-y-1.5 text-xs">
           {formatLabel(d) && row(t("lib.format"), formatLabel(d))}
-          {row(t("lib.size"), size != null && size > 0 ? formatBytes(size) : "—")}
-          {d.duration_s != null && row(t("lib.duration"), formatElapsed(d.duration_s))}
-          {d.completed_at != null && row(t("lib.finished"), `${formatDay(d.completed_at)}${dur != null ? ` · ${formatElapsed(dur)}` : ""}`)}
+          {row(t("lib.size"), size != null && size > 0 ? formatBytes(size) : "—", "font-mono")}
+          {d.duration_s != null && row(t("lib.duration"), formatElapsed(d.duration_s), "font-mono")}
+          {d.completed_at != null && row(t("lib.finished"), `${formatDay(d.completed_at)}${dur != null ? ` · ${formatElapsed(dur)}` : ""}`, "font-mono")}
           {row(t("lib.folder"), <span title={folderOf(d.dest_path)} className="block truncate font-mono text-[11px]" style={{ direction: "rtl", textAlign: "left" }}>{folderOf(d.dest_path)}</span>)}
           {row(t("lib.source"), <span title={d.url} className="block truncate text-accent-fg">{d.url}</span>)}
         </dl>
