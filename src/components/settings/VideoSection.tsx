@@ -11,8 +11,8 @@ const FORMATS: { value: AudioFormat; label: string }[] = [
   { value: "m4a", label: "M4A" },
   { value: "opus", label: "Opus" },
 ];
-// 320 kb/s est le débit maximal proposé.
-const KBPS = [320, 256, 192, 128];
+// 0 = qualité VBR la plus haute de yt-dlp (--audio-quality 0).
+const KBPS = [0, 320, 256, 192, 128];
 const LANGS = ["fr", "en", "es", "de", "it", "pt", "ar", "ja"];
 
 export function VideoSection({ settings, save, error }: { settings: Settings; save(p: Partial<Settings>): void; error?: string; rev?: number }) {
@@ -93,7 +93,7 @@ export function VideoSection({ settings, save, error }: { settings: Settings; sa
           <Select label={t("set.audioKbps")} value={String(settings.audio_kbps)}
             options={kbps.map((k) => ({
               value: String(k),
-              label: k === 320 ? `${t("set.kbpsMax")} (${t("set.kbpsUnit", { n: k })})` : t("set.kbpsUnit", { n: k }),
+              label: k === 0 ? t("set.kbpsMax") : t("set.kbpsUnit", { n: k }),
             }))}
             onChange={(v) => save({ audio_kbps: Number(v) })} />
         </SettingRow>

@@ -205,7 +205,6 @@ export const fr = {
   "set.nav.notifications": "Notifications",
   "set.nav.updates": "Mises à jour",
   "set.nav.about": "À propos",
-  "set.soon": "Cette section arrive bientôt.",
   "set.general.desc": "Apparence et comportement au démarrage.",
   "set.general.appearance": "Apparence",
   "set.general.startup": "Démarrage",

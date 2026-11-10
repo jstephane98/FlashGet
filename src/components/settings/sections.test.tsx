@@ -54,6 +54,19 @@ describe("VideoSection", () => {
     expect(save).toHaveBeenCalledWith({ audio_kbps: 256 });
   });
 
+  it("Maximum (0) est sélectionné par défaut et enregistre 0", () => {
+    const { rerender } = render(<VideoSection {...props} settings={{ ...S, audio_kbps: 0 }} />);
+    const sel = screen.getByLabelText("Débit audio") as HTMLSelectElement;
+    expect(sel.value).toBe("0");
+    expect(sel.options[sel.selectedIndex].text).toBe("Maximum");
+    expect(sel.options).toHaveLength(5);
+    fireEvent.change(sel, { target: { value: "256" } });
+    expect(save).toHaveBeenCalledWith({ audio_kbps: 256 });
+    rerender(<VideoSection {...props} settings={{ ...S, audio_kbps: 256 }} />);
+    fireEvent.change(screen.getByLabelText("Débit audio"), { target: { value: "0" } });
+    expect(save).toHaveBeenCalledWith({ audio_kbps: 0 });
+  });
+
   it("décocher la dernière langue n'enregistre rien", () => {
     render(<VideoSection {...props} />);
     fireEvent.click(screen.getByRole("checkbox", { name: "Français" }));
