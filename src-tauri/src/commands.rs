@@ -104,6 +104,14 @@ pub struct AddBatchArgs {
     pub dest_dir: String,
     #[serde(default)]
     pub mode: Option<String>,
+    /// `true` = les téléchargements du lot sont créés `Held` (ajoutés sans démarrer).
+    #[serde(default)]
+    pub hold: bool,
+}
+
+/// Statut initial d'un téléchargement ajouté : `Held` (en attente) ou `Queued`.
+fn initial_status(hold: bool) -> DownloadStatus {
+    if hold { DownloadStatus::Held } else { DownloadStatus::Queued }
 }
 
 #[derive(serde::Serialize)]
@@ -114,14 +122,15 @@ pub struct BatchSummary {
     pub failed: usize,
 }
 
-/// Crée un `Download` en file SANS sonder l'URL (le moteur sondera au démarrage).
-/// Le nom vient de l'URL ; taille/segments inconnus. Ne ré-évalue PAS la file
+/// Crée un `Download` (`Queued`, ou `Held` si `hold`) SANS sonder l'URL (le moteur sondera
+/// au démarrage). Le nom vient de l'URL ; taille/segments inconnus. Ne ré-évalue PAS la file
 /// (l'appelant le fait une seule fois après le lot).
 pub(crate) async fn add_url_no_probe(
     app: &AppHandle,
     url: &str,
     dest_dir: &str,
     headers: RequestHeaders,
+    hold: bool,
 ) -> Result<Download, String> {
     let file_name = download_core::naming::choose_file_name(
         None,
@@ -144,7 +153,7 @@ pub(crate) async fn add_url_no_probe(
         dest_path: dest_path.to_string_lossy().to_string(),
         total_bytes: None,
         downloaded_bytes: 0,
-        status: DownloadStatus::Queued,
+        status: initial_status(hold),
         supports_ranges: false,
         error: None,
         priority: Priority::Normal,
@@ -166,8 +175,8 @@ pub(crate) async fn add_url_no_probe(
     Ok(download)
 }
 
-/// Crée un téléchargement yt-dlp (vidéo meilleure qualité ou audio MP3) en file.
-async fn add_ytdlp_queued(app: &AppHandle, url: &str, title: &str, audio: bool, dest_dir: Option<&str>) -> Result<Download, String> {
+/// Crée un téléchargement yt-dlp (vidéo meilleure qualité ou audio MP3), `Queued` ou `Held` si `hold`.
+async fn add_ytdlp_queued(app: &AppHandle, url: &str, title: &str, audio: bool, dest_dir: Option<&str>, hold: bool) -> Result<Download, String> {
     let stem = download_core::naming::sanitize_title(Some(title));
     let stem = if stem.trim().is_empty() { "video".to_string() } else { stem };
     let ext = if audio { "mp3" } else { "mp4" };
@@ -192,7 +201,7 @@ async fn add_ytdlp_queued(app: &AppHandle, url: &str, title: &str, audio: bool, 
         dest_path: dest_path.to_string_lossy().to_string(),
         total_bytes: None,
         downloaded_bytes: 0,
-        status: DownloadStatus::Queued,
+        status: initial_status(hold),
         supports_ranges: false,
         error: None,
         priority: Priority::Normal,
@@ -211,7 +220,8 @@ async fn add_ytdlp_queued(app: &AppHandle, url: &str, title: &str, audio: bool, 
 }
 
 /// Ajoute en lot : parse le texte (une URL par ligne), crée chaque téléchargement
-/// en `Queued` sans sonder, puis ré-évalue la file une seule fois. Une ligne en échec
+/// en `Queued` sans sonder, puis ré-évalue la file une seule fois. Avec `hold`, tout
+/// est créé `Held` et la file n'est pas ré-évaluée. Une ligne en échec
 /// (ex. dossier inaccessible) n'interrompt pas les suivantes.
 /// `mode` : `None`/`"direct"` = fichiers directs ; `"video"` ou `"audio"` = via yt-dlp
 /// (les playlists sont développées en une entrée par vidéo).
@@ -226,7 +236,7 @@ pub async fn add_batch_downloads(app: AppHandle, args: AddBatchArgs) -> Result<B
             match crate::ytdlp::list_entries(&app, url).await {
                 Ok(entries) => {
                     for (u, t) in entries {
-                        match add_ytdlp_queued(&app, &u, &t, mode == "audio", Some(&args.dest_dir)).await {
+                        match add_ytdlp_queued(&app, &u, &t, mode == "audio", Some(&args.dest_dir), args.hold).await {
                             Ok(_) => added += 1,
                             Err(e) => {
                                 eprintln!("batch: échec ajout {u}: {e}");
@@ -242,7 +252,7 @@ pub async fn add_batch_downloads(app: AppHandle, args: AddBatchArgs) -> Result<B
             }
             continue;
         }
-        match add_url_no_probe(&app, url, &args.dest_dir, RequestHeaders::default()).await {
+        match add_url_no_probe(&app, url, &args.dest_dir, RequestHeaders::default(), args.hold).await {
             Ok(_) => added += 1,
             Err(e) => {
                 eprintln!("batch: échec ajout {url}: {e}");
@@ -250,7 +260,9 @@ pub async fn add_batch_downloads(app: AppHandle, args: AddBatchArgs) -> Result<B
             }
         }
     }
-    reevaluate(&app);
+    if !args.hold {
+        reevaluate(&app);
+    }
     Ok(BatchSummary {
         added,
         skipped_invalid: parsed.skipped_invalid,
@@ -820,6 +832,21 @@ fn folder_target(dest: &std::path::Path) -> FolderTarget {
 }
 
 #[cfg(test)]
+mod batch_hold_tests {
+    use super::*;
+
+    #[test]
+    fn batch_hold_flag_defaults_off_and_sets_held() {
+        let a: AddBatchArgs = serde_json::from_value(serde_json::json!({ "text": "x", "dest_dir": "" })).unwrap();
+        assert!(!a.hold);
+        let a: AddBatchArgs = serde_json::from_value(serde_json::json!({ "text": "x", "dest_dir": "", "hold": true })).unwrap();
+        assert!(a.hold);
+        assert_eq!(initial_status(true), DownloadStatus::Held);
+        assert_eq!(initial_status(false), DownloadStatus::Queued);
+    }
+}
+
+#[cfg(test)]
 mod folder_target_tests {
     use super::*;
 
@@ -845,7 +872,7 @@ mod folder_target_tests {
 
 /// Ré-évalue la file : démarre les `Queued` élus selon la limite + priorités.
 /// Atomique vis-à-vis de la map `handles` (verrou tenu pendant pick + launch).
-fn reevaluate(app: &AppHandle) {
+pub(crate) fn reevaluate(app: &AppHandle) {
     let state = app.state::<AppState>();
     let settings = match state.storage.get_settings() {
         Ok(s) => s,

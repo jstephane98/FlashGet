@@ -119,6 +119,7 @@ pub fn run() {
             commands::get_autostart,
             commands::set_autostart,
             link::probe_link,
+            link::confirm_link,
             youtube::youtube_login,
             youtube::youtube_status,
             youtube::youtube_logout,

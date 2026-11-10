@@ -8,9 +8,14 @@ use crate::state::AppState;
 use download_core::dash::mpd::Mpd;
 use download_core::hls::playlist::MasterPlaylist;
 use download_core::http::ByteFetcher;
-use download_core::model::{Category, ProbeResult, RequestHeaders};
-use download_core::ytdlp::{build_media_formats, FormatKind, MediaFormat, MediaInfo, YtdlpFormat};
-use serde::Serialize;
+use download_core::hls::select::pick_audio;
+use download_core::model::{Category, Download, DownloadKind, DownloadStatus, Priority, ProbeResult, RequestHeaders};
+use download_core::naming::{ensure_extension, sanitize_title};
+use download_core::ytdlp::{
+    build_media_formats, parse_clock, pick_sub_langs, time_range, FormatKind, JobMode, MediaFormat, MediaInfo, YtdlpFormat,
+    YtdlpJob, PREFERRED_SUB_LANGS,
+};
+use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -62,7 +67,6 @@ impl LinkProbe {
 
 /// Sonde en attente de confirmation. `hls` / `dash` gardent le manifeste parsé pour
 /// reconstruire le téléchargement sans nouvel aller-retour réseau.
-#[allow(dead_code)] // `headers`, `hls`, `dash` : lus par `confirm_link` (Task 6).
 pub struct PendingLink {
     pub probe: LinkProbe,
     pub headers: RequestHeaders,
@@ -428,6 +432,218 @@ async fn media_ytdlp(app: &AppHandle, url: &str, headers: RequestHeaders) -> Res
     })
 }
 
+// --- Confirmation ---
+
+/// Sonde inconnue, déjà confirmée ou expirée.
+pub const EXPIRED: &str = "Analyse expirée, relance l'analyse.";
+const NO_FORMAT: &str = "Format introuvable";
+const BAD_CUT: &str = "Découpe invalide";
+const NO_CUT: &str = "Découpe non disponible pour ce flux";
+
+/// Découpe demandée (`"1:30"`, `"90"`, `"01:02:03"`) ; `end` absent ou vide = jusqu'à la fin.
+#[derive(Deserialize, Debug)]
+pub struct TimeCut {
+    pub start: String,
+    pub end: Option<String>,
+}
+
+/// Choix de l'utilisateur sur la page Nouveau pour une sonde.
+#[derive(Deserialize, Debug)]
+pub struct ConfirmLink {
+    pub probe_id: String,
+    /// Obligatoire pour un média (indice dans `formats`).
+    pub format_index: Option<u32>,
+    pub subtitles: bool,
+    /// yt-dlp seulement.
+    pub cut: Option<TimeCut>,
+    pub dest_dir: Option<String>,
+    /// AVEC l'extension, telle qu'affichée à l'utilisateur.
+    pub file_name: String,
+    /// `false` = `Held`.
+    pub start_now: bool,
+}
+
+/// Téléchargement prêt à enregistrer, sauf `dest_path` (résolu par `confirm_link`
+/// dans le dossier de `category_for_dir`).
+#[derive(Debug)]
+pub struct PlannedDownload {
+    pub download: Download,
+    pub category_for_dir: Category,
+}
+
+/// Section yt-dlp `*début-fin` d'une découpe, validée contre la durée connue.
+fn cut_range(cut: &TimeCut, duration_s: Option<u64>) -> Result<String, String> {
+    let bad = || BAD_CUT.to_string();
+    let start = parse_clock(&cut.start).ok_or_else(bad)?;
+    let end = match cut.end.as_deref().map(str::trim).filter(|e| !e.is_empty()) {
+        Some(e) => Some(parse_clock(e).ok_or_else(bad)?),
+        None => None,
+    };
+    if end.is_some_and(|e| e <= start) {
+        return Err(bad());
+    }
+    if let Some(d) = duration_s {
+        if start >= d || end.is_some_and(|e| e > d) {
+            return Err(bad());
+        }
+    }
+    Ok(time_range(start, end))
+}
+
+/// Extension imposée par le format : `.mp3` (conversion), extension native pour un audio
+/// natif (`m4a` à défaut de conteneur connu), `.mp4` sinon.
+fn format_extension(f: &MediaFormat) -> String {
+    match f.kind {
+        FormatKind::Audio if f.format_id == "mp3" => "mp3".into(),
+        FormatKind::Audio => f
+            .container
+            .as_deref()
+            .map(|c| c.trim().to_ascii_lowercase())
+            .filter(|c| !c.is_empty())
+            .unwrap_or_else(|| "m4a".into()),
+        _ => "mp4".into(),
+    }
+}
+
+/// Transforme une sonde et les choix de l'utilisateur en `Download` (fonction pure :
+/// ni disque, ni état). `dest_path` reste vide.
+pub fn plan_download(pending: &PendingLink, req: &ConfirmLink, now_id: String) -> Result<PlannedDownload, String> {
+    let headers = &pending.headers;
+    let status = if req.start_now { DownloadStatus::Queued } else { DownloadStatus::Held };
+    let base = |url: &str, file_name: String, category: Category, kind: DownloadKind| Download {
+        id: now_id.clone(),
+        url: url.to_string(),
+        file_name,
+        dest_path: String::new(),
+        total_bytes: None,
+        downloaded_bytes: 0,
+        status,
+        supports_ranges: false,
+        error: None,
+        priority: Priority::Normal,
+        category,
+        referrer: headers.referrer.clone(),
+        cookie: headers.cookie.clone(),
+        user_agent: headers.user_agent.clone(),
+        kind,
+        audio_url: None,
+        media_selection: None,
+        thumbnail_url: None,
+        duration_s: None,
+    };
+
+    match &pending.probe {
+        LinkProbe::File { url, total_bytes, supports_ranges, category, .. } => {
+            if req.cut.is_some() {
+                return Err(NO_CUT.into());
+            }
+            let mut d = base(url, sanitize_title(Some(&req.file_name)), *category, DownloadKind::Regular);
+            d.total_bytes = *total_bytes;
+            d.supports_ranges = *supports_ranges;
+            Ok(PlannedDownload { download: d, category_for_dir: *category })
+        }
+        LinkProbe::Media { url, source, info, formats, .. } => {
+            let fmt = req
+                .format_index
+                .and_then(|i| formats.get(i as usize))
+                .ok_or_else(|| NO_FORMAT.to_string())?;
+            let audio = fmt.kind == FormatKind::Audio;
+            let category = if audio { Category::Music } else { Category::Video };
+            let file_name = ensure_extension(&sanitize_title(Some(&req.file_name)), &format_extension(fmt));
+            let mut d = base(url, file_name, category, DownloadKind::Ytdlp);
+            d.thumbnail_url = info.thumbnail.clone();
+            d.duration_s = info.duration_s;
+            match source {
+                MediaSource::Ytdlp => {
+                    let mp3 = audio && fmt.format_id == "mp3";
+                    let mode = match fmt.kind {
+                        FormatKind::Av => JobMode::Av,
+                        FormatKind::Video => JobMode::Video,
+                        FormatKind::Audio => JobMode::Audio,
+                    };
+                    // Sous-titres : incrustés dans une vidéo seulement (jamais pour l'audio).
+                    let subs = if req.subtitles && !audio {
+                        Some(pick_sub_langs(&info.subtitle_langs, PREFERRED_SUB_LANGS)).filter(|l| !l.is_empty())
+                    } else {
+                        None
+                    };
+                    let time_range = req.cut.as_ref().map(|c| cut_range(c, info.duration_s)).transpose()?;
+                    let job = YtdlpJob {
+                        format_id: if mp3 { "bestaudio".into() } else { fmt.format_id.clone() },
+                        mode,
+                        time_range,
+                        subs,
+                        convert_mp3: mp3,
+                    };
+                    d.media_selection = Some(serde_json::to_string(&job).map_err(|e| e.to_string())?);
+                }
+                MediaSource::Hls => {
+                    if req.cut.is_some() {
+                        return Err(NO_CUT.into());
+                    }
+                    // `format_id` = indice de la variante dans la playlist maître (`variant_formats`).
+                    let master = pending.hls.as_ref().ok_or_else(|| NO_FORMAT.to_string())?;
+                    let variant = fmt
+                        .format_id
+                        .parse::<usize>()
+                        .ok()
+                        .and_then(|i| master.variants.get(i))
+                        .ok_or_else(|| NO_FORMAT.to_string())?;
+                    d.kind = DownloadKind::Hls;
+                    d.url = variant.uri.clone();
+                    d.audio_url = pick_audio(master, variant).and_then(|a| a.uri.clone());
+                }
+                MediaSource::Dash => {
+                    if req.cut.is_some() {
+                        return Err(NO_CUT.into());
+                    }
+                    // `format_id` = indice de la variante vidéo DASH ; `url` = le MPD source.
+                    let video: u32 = fmt.format_id.parse().map_err(|_| NO_FORMAT.to_string())?;
+                    if let Some(mpd) = &pending.dash {
+                        if !download_core::dash::select::video_variants(mpd).iter().any(|(_, v)| v.index == video) {
+                            return Err(NO_FORMAT.into());
+                        }
+                    }
+                    d.kind = DownloadKind::Dash;
+                    d.media_selection = Some(serde_json::json!({ "video": video, "audio": serde_json::Value::Null }).to_string());
+                }
+            }
+            Ok(PlannedDownload { download: d, category_for_dir: category })
+        }
+    }
+}
+
+/// Confirme une sonde : crée le téléchargement (`Queued` ou `Held`), le persiste, retire
+/// la sonde, puis relance la file si `start_now`.
+#[tauri::command]
+pub async fn confirm_link(app: AppHandle, req: ConfirmLink) -> Result<Download, String> {
+    let PlannedDownload { mut download, category_for_dir } = {
+        let state = app.state::<AppState>();
+        let map = state.pending_links.lock().unwrap();
+        let pending = map
+            .get(&req.probe_id)
+            .filter(|p| p.created.elapsed() < PENDING_TTL)
+            .ok_or_else(|| EXPIRED.to_string())?;
+        plan_download(pending, &req, uuid::Uuid::new_v4().to_string())?
+    };
+    let dir = crate::dest::dest_dir_for(&app, req.dest_dir.as_deref(), category_for_dir)?;
+    download.file_name = crate::dest::unique_file_name(&dir, &download.file_name, &crate::dest::taken_paths(&app));
+    let dest_path = dir.join(&download.file_name);
+    if dest_path.parent() != Some(dir.as_path()) {
+        return Err("nom de fichier invalide".into());
+    }
+    download.dest_path = dest_path.to_string_lossy().to_string();
+    {
+        let state = app.state::<AppState>();
+        state.storage.upsert(&download).map_err(|e| e.to_string())?;
+        state.pending_links.lock().unwrap().remove(&req.probe_id);
+    }
+    if req.start_now {
+        commands::reevaluate(&app);
+    }
+    Ok(download)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -588,6 +804,268 @@ mod tests {
             hint_for_kind(Some("smart"), Some("https://x/m.mpd".into()), Some("dash".into())),
             ProbeHint::Smart { fallback_url: Some("https://x/m.mpd".into()), fallback_kind: Some("dash".into()) }
         );
+    }
+
+    // --- confirm_link / plan_download ---
+
+    fn mf(index: u32, kind: FormatKind, id: &str, container: Option<&str>) -> MediaFormat {
+        MediaFormat {
+            index,
+            kind,
+            format_id: id.into(),
+            height: None,
+            label: id.into(),
+            container: container.map(String::from),
+            codecs: None,
+            fps: None,
+            est_size: None,
+            recommended: false,
+        }
+    }
+
+    fn hdrs() -> RequestHeaders {
+        RequestHeaders { referrer: Some("https://ref/".into()), cookie: Some("c=1".into()), user_agent: Some("UA".into()) }
+    }
+
+    fn pending(probe: LinkProbe) -> PendingLink {
+        PendingLink { probe, headers: hdrs(), hls: None, dash: None, created: Instant::now() }
+    }
+
+    fn file_pending() -> PendingLink {
+        pending(LinkProbe::File {
+            probe_id: "f1".into(),
+            url: "https://x/a.iso".into(),
+            file_name: "a.iso".into(),
+            total_bytes: Some(1234),
+            supports_ranges: true,
+            category: Category::Program,
+            default_dir: "D:/Dl".into(),
+        })
+    }
+
+    fn yt_info() -> MediaInfo {
+        MediaInfo {
+            title: "Clip".into(),
+            thumbnail: Some("https://i/t.jpg".into()),
+            duration_s: Some(768),
+            subtitle_langs: vec!["en".into(), "fr".into()],
+            can_cut: true,
+            ..Default::default()
+        }
+    }
+
+    fn media_pending(source: MediaSource) -> PendingLink {
+        pending(LinkProbe::Media {
+            probe_id: "m1".into(),
+            url: "https://www.youtube.com/watch?v=x".into(),
+            source,
+            info: yt_info(),
+            formats: vec![
+                mf(0, FormatKind::Av, "137", Some("MP4")),
+                mf(1, FormatKind::Video, "137", Some("MP4")),
+                mf(2, FormatKind::Audio, "mp3", Some("MP3")),
+                mf(3, FormatKind::Audio, "140", Some("M4A")),
+            ],
+            file_name: "Clip".into(),
+            video_dir: "D:/V".into(),
+            music_dir: "D:/M".into(),
+        })
+    }
+
+    fn req(format_index: Option<u32>, file_name: &str) -> ConfirmLink {
+        ConfirmLink {
+            probe_id: "m1".into(),
+            format_index,
+            subtitles: false,
+            cut: None,
+            dest_dir: None,
+            file_name: file_name.into(),
+            start_now: true,
+        }
+    }
+
+    fn job_of(p: &PlannedDownload) -> YtdlpJob {
+        serde_json::from_str(p.download.media_selection.as_deref().unwrap()).unwrap()
+    }
+
+    fn cut(start: &str, end: Option<&str>) -> Option<TimeCut> {
+        Some(TimeCut { start: start.into(), end: end.map(String::from) })
+    }
+
+    #[test]
+    fn confirm_file_queued_or_held() {
+        let p = file_pending();
+        let r = req(None, "a.iso");
+        let planned = plan_download(&p, &r, "id1".into()).unwrap();
+        let d = &planned.download;
+        assert_eq!(d.id, "id1");
+        assert_eq!(d.status, DownloadStatus::Queued);
+        assert_eq!(d.kind, DownloadKind::Regular);
+        assert_eq!(d.url, "https://x/a.iso");
+        assert_eq!(d.file_name, "a.iso");
+        assert_eq!(d.total_bytes, Some(1234));
+        assert!(d.supports_ranges);
+        assert_eq!(d.category, Category::Program);
+        assert_eq!(planned.category_for_dir, Category::Program);
+        assert_eq!(d.referrer.as_deref(), Some("https://ref/"));
+        assert_eq!(d.cookie.as_deref(), Some("c=1"));
+        assert_eq!(d.user_agent.as_deref(), Some("UA"));
+
+        let held = ConfirmLink { start_now: false, ..req(None, "a.iso") };
+        assert_eq!(plan_download(&p, &held, "id2".into()).unwrap().download.status, DownloadStatus::Held);
+    }
+
+    #[test]
+    fn confirm_av_builds_job() {
+        let p = media_pending(MediaSource::Ytdlp);
+        let r = ConfirmLink { subtitles: true, ..req(Some(0), "Mon clip") };
+        let planned = plan_download(&p, &r, "id".into()).unwrap();
+        let job = job_of(&planned);
+        assert_eq!(job.format_id, "137");
+        assert_eq!(job.mode, JobMode::Av);
+        assert_eq!(job.subs, Some(vec!["fr".to_string(), "en".to_string()]));
+        assert!(!job.convert_mp3);
+        assert_eq!(job.time_range, None);
+        assert_eq!(planned.download.kind, DownloadKind::Ytdlp);
+        assert_eq!(planned.download.url, "https://www.youtube.com/watch?v=x");
+        assert_eq!(planned.download.category, Category::Video);
+        assert_eq!(planned.category_for_dir, Category::Video);
+        assert_eq!(planned.download.file_name, "Mon clip.mp4");
+
+        // Vidéo seule : mode Video, toujours .mp4.
+        let v = plan_download(&p, &req(Some(1), "Mon clip.mp4"), "id".into()).unwrap();
+        assert_eq!(job_of(&v).mode, JobMode::Video);
+        assert_eq!(job_of(&v).subs, None);
+        assert_eq!(v.download.file_name, "Mon clip.mp4");
+    }
+
+    #[test]
+    fn confirm_audio_mp3_is_music() {
+        let p = media_pending(MediaSource::Ytdlp);
+        let planned = plan_download(&p, &req(Some(2), "Chanson"), "id".into()).unwrap();
+        let job = job_of(&planned);
+        assert_eq!(job.format_id, "bestaudio");
+        assert_eq!(job.mode, JobMode::Audio);
+        assert!(job.convert_mp3);
+        assert_eq!(planned.download.category, Category::Music);
+        assert_eq!(planned.category_for_dir, Category::Music);
+        assert_eq!(planned.download.file_name, "Chanson.mp3");
+    }
+
+    #[test]
+    fn confirm_native_audio_keeps_ext() {
+        let p = media_pending(MediaSource::Ytdlp);
+        let planned = plan_download(&p, &req(Some(3), "Chanson"), "id".into()).unwrap();
+        let job = job_of(&planned);
+        assert_eq!(job.format_id, "140");
+        assert_eq!(job.mode, JobMode::Audio);
+        assert!(!job.convert_mp3);
+        assert_eq!(planned.download.file_name, "Chanson.m4a");
+        assert_eq!(planned.category_for_dir, Category::Music);
+    }
+
+    #[test]
+    fn confirm_audio_ignores_subtitles() {
+        let p = media_pending(MediaSource::Ytdlp);
+        for idx in [2, 3] {
+            let r = ConfirmLink { subtitles: true, ..req(Some(idx), "Chanson") };
+            assert_eq!(job_of(&plan_download(&p, &r, "id".into()).unwrap()).subs, None);
+        }
+    }
+
+    #[test]
+    fn confirm_cut_valid_and_invalid() {
+        let p = media_pending(MediaSource::Ytdlp);
+        let ok = ConfirmLink { cut: cut("1:30", Some("2:45")), ..req(Some(0), "c") };
+        assert_eq!(job_of(&plan_download(&p, &ok, "id".into()).unwrap()).time_range.as_deref(), Some("*90-165"));
+        // Sans fin (ou fin vide) : jusqu'au bout.
+        let open = ConfirmLink { cut: cut("1:30", None), ..req(Some(0), "c") };
+        assert_eq!(job_of(&plan_download(&p, &open, "id".into()).unwrap()).time_range.as_deref(), Some("*90-inf"));
+        let blank = ConfirmLink { cut: cut("1:30", Some("  ")), ..req(Some(0), "c") };
+        assert_eq!(job_of(&plan_download(&p, &blank, "id".into()).unwrap()).time_range.as_deref(), Some("*90-inf"));
+
+        for c in [cut("1:30", Some("0:10")), cut("1:30", Some("1:30")), cut("1:30", Some("20:00")), cut("abc", None), cut("0:10", Some("x"))] {
+            let r = ConfirmLink { cut: c, ..req(Some(0), "c") };
+            assert_eq!(plan_download(&p, &r, "id".into()).unwrap_err(), "Découpe invalide");
+        }
+
+        let mut hls = media_pending(MediaSource::Hls);
+        hls.hls = Some(MasterPlaylist {
+            variants: vec![download_core::hls::playlist::Variant { uri: "https://x/v0.m3u8".into(), bandwidth: 1, resolution: None, audio_group: None }],
+            audio: vec![],
+        });
+        let r = ConfirmLink { cut: cut("1:30", Some("2:45")), ..req(Some(0), "c") };
+        assert_eq!(plan_download(&hls, &r, "id".into()).unwrap_err(), "Découpe non disponible pour ce flux");
+        let r = ConfirmLink { cut: cut("1:30", Some("2:45")), ..req(Some(0), "c") };
+        assert_eq!(plan_download(&media_pending(MediaSource::Dash), &r, "id".into()).unwrap_err(), "Découpe non disponible pour ce flux");
+    }
+
+    #[test]
+    fn confirm_media_requires_format() {
+        let p = media_pending(MediaSource::Ytdlp);
+        assert_eq!(plan_download(&p, &req(None, "c"), "id".into()).unwrap_err(), "Format introuvable");
+        assert_eq!(plan_download(&p, &req(Some(99), "c"), "id".into()).unwrap_err(), "Format introuvable");
+    }
+
+    #[test]
+    fn confirm_copies_thumbnail_and_duration() {
+        let p = media_pending(MediaSource::Ytdlp);
+        let d = plan_download(&p, &req(Some(0), "c"), "id".into()).unwrap().download;
+        assert_eq!(d.thumbnail_url.as_deref(), Some("https://i/t.jpg"));
+        assert_eq!(d.duration_s, Some(768));
+        assert_eq!(d.referrer.as_deref(), Some("https://ref/"));
+    }
+
+    #[test]
+    fn confirm_hls_uses_variant_and_audio() {
+        use download_core::hls::playlist::{AudioRendition, Variant};
+        let mut p = media_pending(MediaSource::Hls);
+        if let LinkProbe::Media { formats, .. } = &mut p.probe {
+            *formats = vec![mf(0, FormatKind::Av, "0", Some("MP4")), mf(1, FormatKind::Av, "1", Some("MP4"))];
+        }
+        p.hls = Some(MasterPlaylist {
+            variants: vec![
+                Variant { uri: "https://x/v0.m3u8".into(), bandwidth: 1, resolution: None, audio_group: None },
+                Variant { uri: "https://x/v1.m3u8".into(), bandwidth: 2, resolution: None, audio_group: Some("aud".into()) },
+            ],
+            audio: vec![AudioRendition { group_id: "aud".into(), name: "fr".into(), uri: Some("https://x/a.m3u8".into()), default: true, autoselect: true }],
+        });
+        let r = ConfirmLink { subtitles: true, ..req(Some(1), "Flux") };
+        let planned = plan_download(&p, &r, "id".into()).unwrap();
+        let d = planned.download;
+        assert_eq!(d.kind, DownloadKind::Hls);
+        assert_eq!(d.url, "https://x/v1.m3u8");
+        assert_eq!(d.audio_url.as_deref(), Some("https://x/a.m3u8"));
+        assert_eq!(d.media_selection, None);
+        assert_eq!(d.file_name, "Flux.mp4");
+        assert_eq!(planned.category_for_dir, Category::Video);
+    }
+
+    #[test]
+    fn confirm_dash_selects_video_index() {
+        let mut p = media_pending(MediaSource::Dash);
+        if let LinkProbe::Media { formats, url, .. } = &mut p.probe {
+            *formats = vec![mf(0, FormatKind::Av, "4", Some("MP4"))];
+            *url = "https://x/manifest.mpd".into();
+        }
+        let d = plan_download(&p, &req(Some(0), "Flux"), "id".into()).unwrap().download;
+        assert_eq!(d.kind, DownloadKind::Dash);
+        assert_eq!(d.url, "https://x/manifest.mpd");
+        let sel: serde_json::Value = serde_json::from_str(d.media_selection.as_deref().unwrap()).unwrap();
+        assert_eq!(sel, serde_json::json!({ "video": 4, "audio": null }));
+    }
+
+    #[test]
+    fn confirm_request_deserializes() {
+        let r: ConfirmLink = serde_json::from_value(serde_json::json!({
+            "probe_id": "p", "format_index": 2, "subtitles": true,
+            "cut": { "start": "0:10", "end": null }, "dest_dir": null,
+            "file_name": "a.mp4", "start_now": false
+        }))
+        .unwrap();
+        assert_eq!(r.format_index, Some(2));
+        assert_eq!(r.cut.unwrap().start, "0:10");
+        assert!(!r.start_now);
     }
 
     #[test]
