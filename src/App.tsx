@@ -207,7 +207,7 @@ export default function App() {
     let completed = 0, active = 0, queued = 0, totalSpeed = 0;
     for (const d of downloads) {
       if (d.status === "completed") completed++;
-      else if (d.status === "queued") queued++;
+      else if (d.status === "queued" || d.status === "held") queued++;
       else if (d.status === "downloading" || d.status === "recording") {
         active++;
         totalSpeed += speeds[d.id] ?? 0;

@@ -31,6 +31,13 @@ describe("tabs", () => {
     expect(visibleDownloads(list, "all", "").map((d) => d.status)).not.toContain("completed");
     expect(visibleDownloads(list, "all", "CLIP").map((d) => d.file_name)).toEqual(["Clip A.mp4", "clip b.mp4"]);
   });
+  it("un held est compté dans all, pas dans active", () => {
+    const h = mk("h", "held", "h.mp4");
+    expect(inTab(h, "all")).toBe(true);
+    expect(inTab(h, "active")).toBe(false);
+    expect(inTab(h, "paused")).toBe(false);
+    expect(tabCounts([h])).toEqual({ all: 1, active: 0, paused: 0, error: 0 });
+  });
   it("positions de file", () => {
     expect(queuePositions([q("a", "low"), q("b", "high"), q("c", "normal")])).toEqual({ b: 1, c: 2, a: 3 });
   });

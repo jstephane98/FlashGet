@@ -2,6 +2,84 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { Download, Progress, Priority, Settings, Category, CategoryDirs, BridgeInfo } from "./types";
 
+export type FormatKind = "av" | "video" | "audio";
+
+export interface MediaFormat {
+  index: number;
+  kind: FormatKind;
+  format_id: string;
+  height: number | null;
+  label: string;
+  container: string | null;
+  codecs: string | null;
+  fps: number | null;
+  est_size: number | null;
+  recommended: boolean;
+}
+
+export interface MediaInfo {
+  title: string;
+  uploader: string | null;
+  thumbnail: string | null;
+  duration_s: number | null;
+  upload_date: string | null;
+  subtitle_langs: string[];
+  can_cut: boolean;
+}
+
+export type LinkProbe =
+  | {
+      type: "file";
+      probe_id: string;
+      url: string;
+      file_name: string;
+      total_bytes: number | null;
+      supports_ranges: boolean;
+      category: Category;
+      default_dir: string;
+    }
+  | {
+      type: "media";
+      probe_id: string;
+      url: string;
+      source: "hls" | "dash" | "ytdlp";
+      info: MediaInfo;
+      formats: MediaFormat[];
+      file_name: string;
+      video_dir: string;
+      music_dir: string;
+    };
+
+export interface ConfirmLink {
+  probe_id: string;
+  format_index: number | null;
+  subtitles: boolean;
+  cut: { start: string; end: string | null } | null;
+  dest_dir: string | null;
+  file_name: string;
+  start_now: boolean;
+}
+
+export function probeLink(url: string): Promise<LinkProbe> {
+  return invoke<LinkProbe>("probe_link", { url });
+}
+
+export function confirmLink(req: ConfirmLink): Promise<Download> {
+  return invoke<Download>("confirm_link", { req });
+}
+
+export function onLinkProbing(cb: (e: { url: string }) => void): Promise<UnlistenFn> {
+  return listen<{ url: string }>("link://probing", (e) => cb(e.payload));
+}
+
+export function onLinkProbed(cb: (p: LinkProbe) => void): Promise<UnlistenFn> {
+  return listen<LinkProbe>("link://probed", (e) => cb(e.payload));
+}
+
+export function onLinkError(cb: (e: { url: string; message: string }) => void): Promise<UnlistenFn> {
+  return listen<{ url: string; message: string }>("link://error", (e) => cb(e.payload));
+}
+
 export interface HlsVariant {
   index: number;
   resolution: string | null;
@@ -46,8 +124,8 @@ export interface BatchSummary {
   failed: number;
 }
 
-export function addBatchDownloads(text: string, destDir: string, mode: string = "direct"): Promise<BatchSummary> {
-  return invoke<BatchSummary>("add_batch_downloads", { args: { text, dest_dir: destDir, mode } });
+export function addBatchDownloads(text: string, destDir: string, mode: string = "direct", hold = false): Promise<BatchSummary> {
+  return invoke<BatchSummary>("add_batch_downloads", { args: { text, dest_dir: destDir, mode, hold } });
 }
 
 export function listDownloads(): Promise<Download[]> {

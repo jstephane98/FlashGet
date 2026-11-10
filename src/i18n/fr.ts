@@ -18,6 +18,7 @@ export const fr = {
   "dl.connections": "{n} connexions",
   "dl.live": "Enregistrement en direct",
   "dl.waiting": "en attente",
+  "dl.held": "en attente de la file",
   "dl.paused": "en pause",
   "dl.interrupted": "interrompu",
   "dl.done": "terminé",
