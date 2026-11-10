@@ -124,6 +124,7 @@ export const fr = {
   "lib.deleteFile": "Supprimer aussi le fichier",
   "lib.cancel": "Annuler",
   "lib.copied": "Lien copié",
+  "lib.closeDetail": "Fermer le détail",
   "catp.video": "Vidéos · {n}",
   "catp.music": "Musique · {n}",
   "catp.document": "Documents · {n}",

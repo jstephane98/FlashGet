@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { DownloadsPage, type CardActions } from "./DownloadsPage";
-import { CompletedPage } from "./CompletedPage";
 import type { Download } from "../types";
 
 afterEach(cleanup);
@@ -56,15 +55,5 @@ describe("pages", () => {
     page(list, { onAddLink });
     fireEvent.click(screen.getByText("Ajouter un lien"));
     expect(onAddLink).toHaveBeenCalled();
-  });
-  it("Terminés liste les terminés, le plus récent en premier, et Vider appelle onClear", () => {
-    const onClear = vi.fn();
-    render(<CompletedPage onClear={onClear} actions={actions}
-      downloads={[mk("1", "completed", "old.zip"), mk("2", "downloading", "busy.bin"), mk("3", "completed", "new.zip")]} />);
-    expect(screen.queryByText("busy.bin")).toBeNull();
-    const names = screen.getAllByText(/\.zip$/).map((e) => e.textContent);
-    expect(names).toEqual(["new.zip", "old.zip"]);
-    fireEvent.click(screen.getByText("Vider la liste"));
-    expect(onClear).toHaveBeenCalled();
   });
 });

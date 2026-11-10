@@ -12,6 +12,7 @@ export type ExternalEvent = { seq: number } & (
   | { kind: "probing"; url: string }
   | { kind: "probed"; probe: LinkProbe }
   | { kind: "error"; url: string; message: string }
+  | { kind: "analyze"; url: string }
 );
 
 const secondaryBtn =
@@ -48,11 +49,14 @@ export function NewPage({
     } else if (external.kind === "probed") {
       setUrl(external.probe.url);
       load(external.probe);
+    } else if (external.kind === "analyze") {
+      setUrl(external.url);
+      analyze(external.url);
     } else {
       setUrl(external.url);
       fail(external.url, external.message);
     }
-  }, [external, showProbing, load, fail]);
+  }, [external, showProbing, load, fail, analyze]);
 
   function start(value: string) {
     setConfirmError(null);

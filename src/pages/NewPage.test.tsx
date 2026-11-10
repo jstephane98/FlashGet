@@ -100,6 +100,15 @@ describe("NewPage", () => {
     expect(api.probeLink).not.toHaveBeenCalled();
   });
 
+  it("external analyze remplit le champ et lance l'analyse", async () => {
+    vi.mocked(api.probeLink).mockResolvedValue(probe);
+    const { rerender, onDone } = setup();
+    rerender(<NewPage external={{ seq: 1, kind: "analyze", url: URL1 }} startInBatch={false} onDone={onDone} />);
+    await screen.findByText("Concert Live");
+    expect(vi.mocked(api.probeLink).mock.calls[0][0]).toBe(URL1);
+    expect((screen.getByPlaceholderText("Colle un lien (vidéo, page, fichier)…") as HTMLInputElement).value).toBe(URL1);
+  });
+
   it("événement externe probing puis error", async () => {
     const { rerender, onDone } = setup();
     rerender(<NewPage external={{ seq: 1, kind: "probing", url: URL1 }} startInBatch={false} onDone={onDone} />);
