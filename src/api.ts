@@ -221,3 +221,46 @@ export function allowPlayback(id: string): Promise<string> {
 export function deleteDownload(id: string, deleteFile: boolean): Promise<void> {
   return invoke("delete_download", { id, deleteFile });
 }
+
+export type AtEnd = "pause" | "continue";
+export type EndAction = "none" | "quit" | "sleep" | "hibernate" | "shutdown";
+export interface Schedule {
+  enabled: boolean;
+  start: string;
+  end: string;
+  /** Index 0 = lundi. */
+  days: boolean[];
+  limit_bps: number | null;
+  at_end: AtEnd;
+}
+
+export function reorderQueue(ids: string[]): Promise<void> {
+  return invoke("reorder_queue", { ids });
+}
+export function startQueue(): Promise<void> {
+  return invoke("start_queue");
+}
+export function pauseQueue(): Promise<void> {
+  return invoke("pause_queue");
+}
+export function getQueuePaused(): Promise<boolean> {
+  return invoke<boolean>("get_queue_paused");
+}
+export function getSchedule(): Promise<Schedule> {
+  return invoke<Schedule>("get_schedule");
+}
+export function setSchedule(s: Schedule): Promise<void> {
+  return invoke("set_schedule", { s });
+}
+export function getEndAction(): Promise<EndAction> {
+  return invoke<EndAction>("get_end_action");
+}
+export function setEndAction(a: EndAction): Promise<void> {
+  return invoke("set_end_action", { a });
+}
+export function runEndAction(): Promise<void> {
+  return invoke("run_end_action");
+}
+export function onQueueFinished(cb: (e: { action: EndAction }) => void): Promise<UnlistenFn> {
+  return listen<{ action: EndAction }>("queue://finished", (e) => cb(e.payload));
+}

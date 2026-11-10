@@ -132,6 +132,16 @@ export const fr = {
   "catp.program": "Programmes · {n}",
   "catp.archive": "Archives · {n}",
   "catp.other": "Autres · {n}",
+  "sch.tonight": "cette nuit à {time}",
+  "sch.tomorrow": "demain à {time}",
+  "sch.onDay": "{day} à {time}",
+  "day.0": "lundi",
+  "day.1": "mardi",
+  "day.2": "mercredi",
+  "day.3": "jeudi",
+  "day.4": "vendredi",
+  "day.5": "samedi",
+  "day.6": "dimanche",
 } as const;
 
 export type MsgKey = keyof typeof fr;
