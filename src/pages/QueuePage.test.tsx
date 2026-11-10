@@ -129,4 +129,12 @@ describe("QueuePage", () => {
     fireEvent.click(screen.getByRole("button", { name: /Tout démarrer maintenant/ }));
     expect((await screen.findByRole("alert")).textContent).toContain("boom");
   });
+
+  it("reorderQueue échoue : erreur affichée et onChanged appelé", async () => {
+    vi.mocked(api.reorderQueue).mockRejectedValue("nope");
+    const props = setup(three());
+    fireEvent.click(screen.getAllByRole("button", { name: "Monter" })[1]);
+    expect((await screen.findByRole("alert")).textContent).toContain("nope");
+    expect(props.onChanged).toHaveBeenCalled();
+  });
 });

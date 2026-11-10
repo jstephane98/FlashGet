@@ -37,11 +37,11 @@ export function QueuePage({
     setError(null);
     try {
       await action();
-      onChanged();
     } catch (e) {
       setError(String(e));
     } finally {
       setBusy(false);
+      onChanged();
     }
   }
 
@@ -74,7 +74,7 @@ export function QueuePage({
               </span>
             )}
           </div>
-          <p className="text-[12.5px] text-ink-soft">
+          <p className="text-[12.5px] text-ink-soft font-mono">
             {t("q.summary", {
               n: summary.count,
               size: summary.bytes == null ? "—" : formatBytes(summary.bytes),
@@ -98,7 +98,7 @@ export function QueuePage({
       </div>
 
       {error && (
-        <div role="alert" className="text-[12.5px] text-red-500">
+        <div role="alert" className="text-[12.5px] text-err">
           {error}
         </div>
       )}
@@ -140,7 +140,7 @@ export function QueuePage({
                 }`}
               >
                 <GripVertical size={16} className="text-ink-mute cursor-grab shrink-0" />
-                <span className="w-6 h-6 rounded-full bg-surface text-ink-soft text-[12px] font-semibold inline-flex items-center justify-center shrink-0">
+                <span className="w-6 h-6 rounded-full bg-surface text-ink-soft text-[12px] font-mono font-semibold inline-flex items-center justify-center shrink-0">
                   {i + 1}
                 </span>
                 <Thumb d={d} className="w-14 h-9 shrink-0" />
@@ -154,7 +154,7 @@ export function QueuePage({
                   </span>
                 )}
                 <select
-                  aria-label={t(`prio.${d.priority}` as const)}
+                  aria-label={t("q.priority")}
                   value={d.priority}
                   disabled={busy}
                   onChange={(e) => void run(() => api.setPriority(d.id, e.target.value as Priority))}
@@ -166,7 +166,7 @@ export function QueuePage({
                     </option>
                   ))}
                 </select>
-                <span className="w-16 text-right text-[12px] text-ink-soft tabular-nums">
+                <span className="w-16 text-right text-[12px] text-ink-soft font-mono tabular-nums">
                   {d.total_bytes == null ? "—" : formatBytes(d.total_bytes)}
                 </span>
                 <button type="button" aria-label={t("q.up")} title={t("q.up")} className={iconBtn}

@@ -149,6 +149,7 @@ export const fr = {
   "q.startAll": "Tout démarrer maintenant",
   "q.pausedBadge": "File suspendue",
   "q.scheduled": "programmé à {time}",
+  "q.priority": "Priorité",
   "q.up": "Monter",
   "q.down": "Descendre",
   "q.remove": "Retirer",
