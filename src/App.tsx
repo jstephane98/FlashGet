@@ -3,58 +3,34 @@ import "./index.css";
 import { X } from "lucide-react";
 import type { Download, Priority } from "./types";
 import * as api from "./api";
-import type { MediaVariantsEvent } from "./api";
 import type { PageId } from "./navigation";
 import { TitleBar } from "./components/shell/TitleBar";
 import { Sidebar } from "./components/shell/Sidebar";
 import { StatusBar } from "./components/shell/StatusBar";
 import { DownloadsPage, type CardActions } from "./pages/DownloadsPage";
 import { CompletedPage } from "./pages/CompletedPage";
-import { AddUrlDialog } from "./components/AddUrlDialog";
-import { AddBatchDialog, type BatchMode } from "./components/AddBatchDialog";
+import { NewPage, type ExternalEvent } from "./pages/NewPage";
 import { SettingsDialog } from "./components/SettingsDialog";
-import { HlsVariantDialog } from "./components/HlsVariantDialog";
-import { ProbingOverlay } from "./components/ProbingOverlay";
 
-const DEST_DIR = "";
+type ExternalPayload =
+  | { kind: "probing"; url: string }
+  | { kind: "probed"; probe: api.LinkProbe }
+  | { kind: "error"; url: string; message: string };
 
 export default function App() {
   const [page, setPage] = useState<PageId>("downloads");
   const [downloads, setDownloads] = useState<Download[]>([]);
   const [speeds, setSpeeds] = useState<Record<string, number>>({});
   const [parts, setParts] = useState<Record<string, number[] | null>>({});
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [batchOpen, setBatchOpen] = useState(false);
   const [info, setInfo] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [mediaEvent, setMediaEvent] = useState<MediaVariantsEvent | null>(null);
-  const [adding, setAdding] = useState(false);
-  const [addError, setAddError] = useState<string | null>(null);
-  const addingRef = useRef(false);
-  const probeTimeoutRef = useRef<number | null>(null);
-  const [extProbing, setExtProbing] = useState(false);
-  const extProbeTimeoutRef = useRef<number | null>(null);
+  const [external, setExternal] = useState<ExternalEvent | null>(null);
+  const [startInBatch, setStartInBatch] = useState(false);
+  const extSeq = useRef(0);
   const [segs, setSegs] = useState<Record<string, { done: number; total: number }>>({});
   const [maxSpeedBps, setMaxSpeedBps] = useState(0);
   const [bridgeListening, setBridgeListening] = useState(false);
-
-  function stopProbing() {
-    setAdding(false);
-    addingRef.current = false;
-    if (probeTimeoutRef.current != null) {
-      clearTimeout(probeTimeoutRef.current);
-      probeTimeoutRef.current = null;
-    }
-  }
-
-  function stopExtProbing() {
-    setExtProbing(false);
-    if (extProbeTimeoutRef.current != null) {
-      clearTimeout(extProbeTimeoutRef.current);
-      extProbeTimeoutRef.current = null;
-    }
-  }
 
   async function refresh() {
     setDownloads(await api.listDownloads());
@@ -86,110 +62,48 @@ export default function App() {
     });
     // Un download créé hors UI (capture par l'extension via le bridge) : rafraîchir la liste.
     const unAdded = api.onDownloadAdded(() => refresh());
-    const unProbing = api.onMediaProbing(() => {
-      setExtProbing(true);
-      if (extProbeTimeoutRef.current != null) clearTimeout(extProbeTimeoutRef.current);
-      extProbeTimeoutRef.current = window.setTimeout(() => {
-        setExtProbing(false);
-        extProbeTimeoutRef.current = null;
-        setError("Délai dépassé — la recherche des formats n'a pas abouti.");
-      }, 60000);
-    });
-    const unMedia = api.onMediaVariants((e) => {
-      stopExtProbing();
-      stopProbing();
-      setAddError(null);
-      setDialogOpen(false);   // ferme AddUrlDialog (sans effet si déjà fermée — cas extension)
-      setMediaEvent(e);       // ouvre HlsVariantDialog, déjà rempli
-    });
-    const unMediaErr = api.onMediaError((e) => {
-      stopExtProbing();
-      const fromDialog = addingRef.current;  // lire AVANT stopProbing (qui le remet à false)
-      stopProbing();
-      if (fromDialog) setAddError(`Vidéo : ${e.message}`);
-      else setError(`Vidéo : ${e.message}`);
-    });
+    // Liens envoyés par l'extension : la page Nouveau s'ouvre, préremplie ; rien ne démarre
+    // avant confirmation. La fenêtre est déjà mise au premier plan côté Rust.
+    const showExternal = (e: ExternalPayload) => {
+      extSeq.current += 1;
+      setExternal({ ...e, seq: extSeq.current });
+      setStartInBatch(false);
+      setPage("new");
+    };
+    const unProbing = api.onLinkProbing(({ url }) => showExternal({ kind: "probing", url }));
+    const unProbed = api.onLinkProbed((probe) => showExternal({ kind: "probed", probe }));
+    const unLinkErr = api.onLinkError(({ url, message }) => showExternal({ kind: "error", url, message }));
     return () => {
-      un.then((f) => f()); unAdded.then((f) => f()); unMedia.then((f) => f()); unMediaErr.then((f) => f()); unProbing.then((f) => f());
-      if (probeTimeoutRef.current != null) clearTimeout(probeTimeoutRef.current);
-      if (extProbeTimeoutRef.current != null) clearTimeout(extProbeTimeoutRef.current);
+      un.then((f) => f()); unAdded.then((f) => f());
+      unProbing.then((f) => f()); unProbed.then((f) => f()); unLinkErr.then((f) => f());
     };
   }, []);
-
-  async function handleHlsConfirm(probeId: string, variantIndex: number, fileName: string, timeRange?: string) {
-    setMediaEvent(null);
-    try {
-      await api.addMediaDownload(probeId, variantIndex, fileName, timeRange);
-      refresh();
-    } catch (e) {
-      setError(`Impossible de démarrer la vidéo : ${String(e)}`);
-    }
-  }
-
-  async function handleAdd(url: string) {
-    stopProbing(); // annule tout timer/sonde précédent avant de ré-armer
-    // La boîte reste ouverte : spinner pendant la sonde.
-    setAdding(true);
-    addingRef.current = true;
-    setAddError(null);
-    setError(null);
-    setInfo(null);
-    try {
-      await api.addDownload(url, DEST_DIR);
-      // Fichier normal : la sonde a réussi sans variantes → on ferme et on rafraîchit.
-      stopProbing();
-      setDialogOpen(false);
-      await refresh();
-    } catch (e) {
-      const msg = String(e);
-      if (msg.includes("__media_pending__")) {
-        // Sonde média en tâche de fond : le spinner continue jusqu'à media://variants
-        // ou media://error. Filet de sécurité : timeout 60 s.
-        probeTimeoutRef.current = window.setTimeout(() => {
-          stopProbing();
-          setAddError("Délai dépassé — réessaie.");
-        }, 60000);
-      } else {
-        stopProbing();
-        setAddError(`Impossible d'ajouter ce lien : ${msg}`);
-      }
-    }
-  }
-
-  async function handleAddBatch(text: string, mode: BatchMode) {
-    setBatchOpen(false);
-    setError(null);
-    setInfo(mode === "direct" ? null : "Lecture des liens/playlists en cours…");
-    try {
-      const s = await api.addBatchDownloads(text, DEST_DIR, mode);
-      await refresh();
-      const parts = [`${s.added} ajouté(s)`];
-      if (s.skipped_duplicate) parts.push(`${s.skipped_duplicate} doublon(s)`);
-      if (s.skipped_invalid) parts.push(`${s.skipped_invalid} ignoré(s)`);
-      if (s.failed) parts.push(`${s.failed} échec(s)`);
-      setInfo(parts.join(" · "));
-    } catch (e) {
-      setError(`Échec de l'ajout en lot : ${String(e)}`);
-    }
-  }
 
   async function withRefresh(fn: () => Promise<void>) {
     try { await fn(); } catch (e) { setError(String(e)); }
     await refresh();
   }
 
-  function openAddDialog() {
-    stopProbing();
-    setAddError(null);
-    setDialogOpen(true);
+  function openNew(batch: boolean) {
+    // Un événement extension déjà traité ne doit pas être rejoué au remontage de la page.
+    setExternal(null);
+    setStartInBatch(batch);
+    setPage("new");
   }
 
-  // « Nouveau » et « Réglages » ouvrent encore les boîtes existantes (pages en phases 2 et 5) :
-  // elles ne changent pas la page courante.
+  // « Réglages » ouvre encore la boîte existante (page en phase 5) : elle ne change pas la page courante.
   function go(id: PageId) {
-    if (id === "new") openAddDialog();
+    if (id === "new") openNew(false);
     else if (id === "settings") setSettingsOpen(true);
     else setPage(id);
+  }
+
+  function handleNewDone(msg?: string) {
+    setExternal(null);
+    setStartInBatch(false);
+    setPage("downloads");
+    refresh();
+    if (msg) setInfo(msg);
   }
 
   const actions: CardActions = {
@@ -239,7 +153,9 @@ export default function App() {
             </div>
           )}
           <div className="flex-1 min-h-0">
-            {page === "completed" ? (
+            {page === "new" ? (
+              <NewPage external={external} startInBatch={startInBatch} onDone={handleNewDone} />
+            ) : page === "completed" ? (
               <CompletedPage
                 downloads={downloads}
                 onClear={() => withRefresh(api.clearCompleted)}
@@ -251,8 +167,8 @@ export default function App() {
                 speeds={speeds}
                 parts={parts}
                 segments={segs}
-                onAddLink={openAddDialog}
-                onAddBatch={() => setBatchOpen(true)}
+                onAddLink={() => openNew(false)}
+                onAddBatch={() => openNew(true)}
                 onPauseAll={() => withRefresh(api.pauseAll)}
                 onResumeAll={() => withRefresh(api.resumeAll)}
                 actions={actions}
@@ -268,17 +184,7 @@ export default function App() {
           />
         </main>
       </div>
-      <AddUrlDialog
-        open={dialogOpen}
-        busy={adding}
-        error={addError}
-        onClose={() => { stopProbing(); setAddError(null); setDialogOpen(false); }}
-        onAdd={handleAdd}
-      />
-      <AddBatchDialog open={batchOpen} onClose={() => setBatchOpen(false)} onAdd={handleAddBatch} />
       <SettingsDialog open={settingsOpen} onClose={() => { setSettingsOpen(false); refreshStatusInfo(); }} />
-      <HlsVariantDialog event={mediaEvent} onClose={() => setMediaEvent(null)} onConfirm={handleHlsConfirm} />
-      <ProbingOverlay open={extProbing} onClose={stopExtProbing} />
     </div>
   );
 }

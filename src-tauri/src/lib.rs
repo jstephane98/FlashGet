@@ -95,9 +95,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            commands::add_download,
             commands::add_batch_downloads,
-            commands::add_media_download,
             commands::list_downloads,
             commands::start_download,
             commands::pause_download,

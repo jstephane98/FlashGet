@@ -80,43 +80,6 @@ export function onLinkError(cb: (e: { url: string; message: string }) => void): 
   return listen<{ url: string; message: string }>("link://error", (e) => cb(e.payload));
 }
 
-export interface HlsVariant {
-  index: number;
-  resolution: string | null;
-  bandwidth: number;
-  est_size: number | null;
-}
-
-export interface MediaVariantsEvent {
-  probe_id: string;
-  file_name: string;
-  variants: HlsVariant[];
-}
-
-export function onMediaVariants(cb: (e: MediaVariantsEvent) => void): Promise<UnlistenFn> {
-  return listen<MediaVariantsEvent>("media://variants", (e) => cb(e.payload));
-}
-
-export interface MediaErrorEvent {
-  message: string;
-}
-
-export function onMediaError(cb: (e: MediaErrorEvent) => void): Promise<UnlistenFn> {
-  return listen<MediaErrorEvent>("media://error", (e) => cb(e.payload));
-}
-
-export function onMediaProbing(cb: () => void): Promise<UnlistenFn> {
-  return listen("media://probing", () => cb());
-}
-
-export function addMediaDownload(probeId: string, variantIndex: number, fileName: string, timeRange?: string): Promise<Download> {
-  return invoke<Download>("add_media_download", { probeId, variantIndex, fileName, timeRange });
-}
-
-export function addDownload(url: string, destDir: string): Promise<Download> {
-  return invoke<Download>("add_download", { args: { url, dest_dir: destDir } });
-}
-
 export interface BatchSummary {
   added: number;
   skipped_invalid: number;

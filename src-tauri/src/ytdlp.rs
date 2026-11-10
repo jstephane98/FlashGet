@@ -108,18 +108,7 @@ fn header_args(headers: &RequestHeaders) -> Vec<String> {
     a
 }
 
-/// Sonde les formats d'une URL via `yt-dlp -J`. Renvoie (titre, formats).
-/// Pour YouTube : essaie d'abord SANS cookies de compte (les cookies cassent l'extraction
-/// quand YouTube force SABR/PO-token) ; en cas d'échec, réessaie AVEC.
-pub async fn probe_formats(
-    app: &AppHandle,
-    url: &str,
-    headers: &RequestHeaders,
-) -> Result<(String, Vec<download_core::ytdlp::YtdlpFormat>), String> {
-    probe_with(app, url, headers, |json| download_core::ytdlp::parse_formats(json).map_err(|e| e.to_string())).await
-}
-
-/// Comme `probe_formats`, mais parse la sortie via `parse_info` : métadonnées détaillées
+/// Sonde une URL via `yt-dlp -J` et parse la sortie via `parse_info` : métadonnées détaillées
 /// (`MediaInfo`) + formats bruts. Même processus, mêmes en-têtes, même repli cookies YouTube.
 pub async fn probe_info(
     app: &AppHandle,

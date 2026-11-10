@@ -22,7 +22,7 @@ use tauri::{AppHandle, Emitter, Manager};
 /// Message affiché quand une page ne contient aucune vidéo exploitable.
 pub const NO_VIDEO: &str = "Aucune vidéo trouvée sur cette page.";
 
-/// Durée de vie d'une sonde jamais confirmée (même règle que `pending_media`).
+/// Durée de vie d'une sonde jamais confirmée.
 const PENDING_TTL: Duration = Duration::from_secs(30 * 60);
 
 #[derive(Serialize, Clone, Debug)]

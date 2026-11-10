@@ -1,6 +1,6 @@
 //! Logique pure pour l'extracteur yt-dlp (sidecar piloté côté Tauri).
-//! Parse la sortie `yt-dlp -J`, sélectionne les variantes, construit l'argument
-//! `-f`, et parse les lignes de progression. Aucune dépendance Tauri/process.
+//! Parse la sortie `yt-dlp -J`, construit les formats proposés et les arguments
+//! de téléchargement, et parse les lignes de progression. Aucune dépendance Tauri/process.
 
 use crate::CoreError;
 use serde::{Deserialize, Serialize};
@@ -98,16 +98,6 @@ pub fn pick_name(title: &str, uploader: Option<&str>, id: Option<&str>) -> Strin
         (None, Some(id)) => id.to_string(),
         (None, None) => String::new(),
     }
-}
-
-/// Parse la sortie JSON de `yt-dlp -J` : titre + liste des formats.
-pub fn parse_formats(json: &str) -> Result<(String, Vec<YtdlpFormat>), CoreError> {
-    let info: RawInfo = serde_json::from_str(json)
-        .map_err(|e| CoreError::Media(format!("sortie yt-dlp illisible: {e}")))?;
-    let title = info.title.unwrap_or_default();
-    let name = pick_name(&title, info.uploader.as_deref(), info.id.as_deref());
-    let formats = info.formats.into_iter().map(YtdlpFormat::from).collect();
-    Ok((name, formats))
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -358,62 +348,6 @@ pub fn parse_progress(line: &str) -> Option<(u64, Option<u64>)> {
     Some((downloaded, total))
 }
 
-/// Variante neutre côté cœur (mappée vers `MediaVariant` par la couche Tauri).
-#[derive(Debug, Clone, PartialEq)]
-pub struct YtdlpVariant {
-    pub resolution: Option<String>,
-    pub bandwidth: u64,
-    pub est_size: Option<u64>,
-}
-
-/// Variantes sélectionnables : formats porteurs de vidéo (vcodec présent et != "none"),
-/// dédupliqués par hauteur, triés par hauteur décroissante. Renvoie le format_id
-/// associé à chaque variante (à mémoriser pour le téléchargement).
-pub fn select_variants(formats: &[YtdlpFormat]) -> Vec<(String, YtdlpVariant)> {
-    let mut seen_heights: Vec<u32> = Vec::new();
-    let mut out: Vec<(String, YtdlpVariant)> = Vec::new();
-
-    let mut video: Vec<&YtdlpFormat> = formats
-        .iter()
-        .filter(|f| f.vcodec.as_deref().map(|c| c != "none").unwrap_or(false))
-        .collect();
-    video.sort_by(|a, b| b.height.unwrap_or(0).cmp(&a.height.unwrap_or(0)));
-
-    for f in video {
-        // Les formats sans hauteur connue ne sont pas dédupliqués (on les garde tous).
-        if let Some(h) = f.height {
-            if seen_heights.contains(&h) {
-                continue;
-            }
-            seen_heights.push(h);
-        }
-        let resolution = match (f.width, f.height) {
-            (Some(w), Some(h)) => Some(format!("{w}x{h}")),
-            (None, Some(h)) => Some(format!("{h}p")),
-            _ => None,
-        };
-        // tbr est en kbps ; un tbr négatif/NaN (métadonnée corrompue) devient 0.
-        let bandwidth = f.tbr.map(|t| (t.max(0.0) * 1000.0) as u64).unwrap_or(0);
-        out.push((
-            f.format_id.clone(),
-            YtdlpVariant { resolution, bandwidth, est_size: f.filesize },
-        ));
-    }
-    out.push((
-        "bestaudio".to_string(),
-        YtdlpVariant { resolution: Some("Audio uniquement".to_string()), bandwidth: 0, est_size: None },
-    ));
-    out
-}
-
-/// Argument `-f` : fusionne l'audio si le format est vidéo-seul, avec repli.
-pub fn build_format_arg(format_id: &str) -> String {
-    if format_id == "bestaudio" {
-        return "bestaudio".to_string();
-    }
-    format!("{format_id}+bestaudio/{format_id}/best")
-}
-
 /// Mode de téléchargement d'une tâche yt-dlp.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
@@ -539,9 +473,9 @@ mod tests {
     }"#;
 
     #[test]
-    fn parse_formats_extracts_title_and_formats() {
-        let (title, formats) = parse_formats(SAMPLE).unwrap();
-        assert_eq!(title, "Ma vidéo");
+    fn parse_info_reads_formats_and_filesize_approx() {
+        let (info, formats) = parse_info(SAMPLE).unwrap();
+        assert_eq!(info.title, "Ma vidéo");
         assert_eq!(formats.len(), 3);
         assert_eq!(formats[0].format_id, "18");
         assert_eq!(formats[0].height, Some(360));
@@ -550,41 +484,10 @@ mod tests {
     }
 
     #[test]
-    fn parse_formats_handles_missing_title_and_bad_json() {
-        let (title, _) = parse_formats(r#"{"formats":[]}"#).unwrap();
-        assert_eq!(title, "");
-        assert!(parse_formats("pas du json").is_err());
-    }
-
-    #[test]
-    fn select_variants_keeps_video_dedups_sorts() {
-        let (_t, formats) = parse_formats(SAMPLE).unwrap();
-        let v = select_variants(&formats);
-        assert_eq!(v.len(), 3);
-        assert_eq!(v[0].0, "137");
-        assert_eq!(v[0].1.resolution.as_deref(), Some("1920x1080"));
-        assert_eq!(v[0].1.bandwidth, 4_000_000);
-        assert_eq!(v[0].1.est_size, Some(5000));
-        assert_eq!(v[1].0, "18");
-        assert_eq!(v[2].0, "bestaudio");
-    }
-
-    #[test]
-    fn select_variants_dedups_same_height() {
-        let (_t, mut formats) = parse_formats(SAMPLE).unwrap();
-        formats.push(YtdlpFormat {
-            format_id: "299".into(), height: Some(1080), width: Some(1920),
-            ext: Some("mp4".into()), vcodec: Some("avc1".into()), acodec: Some("none".into()),
-            filesize: Some(6000), tbr: Some(4500.0), fps: None, abr: None,
-        });
-        let v = select_variants(&formats);
-        let n_1080 = v.iter().filter(|(_, mv)| mv.resolution.as_deref() == Some("1920x1080")).count();
-        assert_eq!(n_1080, 1);
-    }
-
-    #[test]
-    fn build_format_arg_merges_audio() {
-        assert_eq!(build_format_arg("137"), "137+bestaudio/137/best");
+    fn parse_info_handles_missing_title_and_bad_json() {
+        let (info, _) = parse_info(r#"{"formats":[]}"#).unwrap();
+        assert_eq!(info.title, "");
+        assert!(parse_info("pas du json").is_err());
     }
 
     #[test]
@@ -605,24 +508,10 @@ mod tests {
     }
 
     #[test]
-    fn parse_formats_tolerates_absent_formats_key() {
-        let (title, formats) = parse_formats(r#"{"title":"x"}"#).unwrap();
-        assert_eq!(title, "x");
+    fn parse_info_tolerates_absent_formats_key() {
+        let (info, formats) = parse_info(r#"{"title":"x"}"#).unwrap();
+        assert_eq!(info.title, "x");
         assert_eq!(formats.len(), 0);
-    }
-
-    #[test]
-    fn select_variants_keeps_heightless_video_with_no_resolution() {
-        let formats = vec![YtdlpFormat {
-            format_id: "0".into(), height: None, width: None,
-            ext: Some("mp4".into()), vcodec: Some("avc1".into()), acodec: Some("none".into()),
-            filesize: None, tbr: None, fps: None, abr: None,
-        }];
-        let v = select_variants(&formats);
-        assert_eq!(v.len(), 2);
-        assert_eq!(v[0].1.resolution, None);
-        assert_eq!(v[0].1.bandwidth, 0);
-        assert_eq!(v[1].0, "bestaudio");
     }
 
     const INFO_SAMPLE: &str = r#"{
@@ -776,7 +665,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_formats_uses_uploader_id_when_no_title() {
+    fn parse_info_uses_uploader_id_when_no_title() {
         let json = r#"{
             "id": "987",
             "uploader": "Ma Page FB",
@@ -784,8 +673,8 @@ mod tests {
                 {"format_id":"hd","height":720,"width":1280,"ext":"mp4","vcodec":"avc1","acodec":"mp4a","filesize":1000,"tbr":900.0}
             ]
         }"#;
-        let (name, formats) = parse_formats(json).unwrap();
-        assert_eq!(name, "Ma Page FB - 987");
+        let (info, formats) = parse_info(json).unwrap();
+        assert_eq!(info.title, "Ma Page FB - 987");
         assert_eq!(formats.len(), 1);
     }
 
