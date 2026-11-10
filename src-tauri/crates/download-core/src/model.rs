@@ -95,6 +95,9 @@ pub struct Download {
     pub started_at: Option<i64>,
     #[serde(default)]
     pub completed_at: Option<i64>,
+    /// Rang dans la file (départage à priorité égale). None = pas encore classé.
+    #[serde(default)]
+    pub queue_rank: Option<i64>,
 }
 
 /// En-têtes HTTP optionnels transmis par le navigateur pour un téléchargement capturé.

@@ -83,6 +83,7 @@ pub(crate) async fn add_url_no_probe(
         created_at: None,
         started_at: None,
         completed_at: None,
+        queue_rank: None,
     };
 
     {
@@ -134,6 +135,7 @@ async fn add_ytdlp_queued(app: &AppHandle, url: &str, title: &str, audio: bool, 
         created_at: None,
         started_at: None,
         completed_at: None,
+        queue_rank: None,
     };
     app.state::<AppState>().storage.upsert(&download).map_err(|e| e.to_string())?;
     Ok(download)
@@ -308,7 +310,7 @@ pub fn start_download(app: AppHandle, id: String) -> Result<(), String> {
         state.storage.update_state(&id, d.downloaded_bytes, DownloadStatus::Queued)
             .map_err(|e| e.to_string())?;
     }
-    reevaluate(&app);
+    reevaluate_with(&app, Some(&id));
     Ok(())
 }
 
@@ -513,6 +515,12 @@ mod folder_target_tests {
 /// Ré-évalue la file : démarre les `Queued` élus selon la limite + priorités.
 /// Atomique vis-à-vis de la map `handles` (verrou tenu pendant pick + launch).
 pub(crate) fn reevaluate(app: &AppHandle) {
+    reevaluate_with(app, None);
+}
+
+/// Comme `reevaluate`, mais `forced` (démarrage manuel) passe devant la file,
+/// même suspendue.
+pub(crate) fn reevaluate_with(app: &AppHandle, forced: Option<&str>) {
     let state = app.state::<AppState>();
     let settings = match state.storage.get_settings() {
         Ok(s) => s,
@@ -522,7 +530,8 @@ pub(crate) fn reevaluate(app: &AppHandle) {
         Ok(d) => d,
         Err(e) => { eprintln!("reevaluate: list failed: {e}"); return; }
     };
-    let to_start = pick_to_start(&downloads, settings.max_concurrent);
+    let paused = state.storage.queue_paused().unwrap_or(false);
+    let to_start = pick_to_start(&downloads, settings.max_concurrent, paused, forced);
     if to_start.is_empty() {
         return;
     }

@@ -550,6 +550,7 @@ pub fn plan_download(pending: &PendingLink, req: &ConfirmLink, now_id: String) -
         created_at: None,
         started_at: None,
         completed_at: None,
+        queue_rank: None,
     };
 
     match &pending.probe {

@@ -45,6 +45,7 @@ export interface Download {
   created_at?: number | null;
   started_at?: number | null;
   completed_at?: number | null;
+  queue_rank?: number | null;
 }
 
 export interface Settings {

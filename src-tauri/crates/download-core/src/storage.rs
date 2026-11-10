@@ -72,6 +72,8 @@ impl Storage {
         let _ = conn.execute("ALTER TABLE downloads ADD COLUMN created_at INTEGER", []);
         let _ = conn.execute("ALTER TABLE downloads ADD COLUMN started_at INTEGER", []);
         let _ = conn.execute("ALTER TABLE downloads ADD COLUMN completed_at INTEGER", []);
+        // Rang dans la file (départage à priorité égale), nullable pour les anciennes lignes.
+        let _ = conn.execute("ALTER TABLE downloads ADD COLUMN queue_rank INTEGER", []);
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
         )
@@ -82,14 +84,15 @@ impl Storage {
     pub fn upsert(&self, d: &Download) -> Result<(), CoreError> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO downloads (id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority, category, referrer, cookie, user_agent, kind, audio_url, media_selection, thumbnail_url, duration_s, created_at, started_at, completed_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, COALESCE(?20, ?23), ?21, ?22)
+            "INSERT INTO downloads (id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority, category, referrer, cookie, user_agent, kind, audio_url, media_selection, thumbnail_url, duration_s, created_at, started_at, completed_at, queue_rank)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, COALESCE(?20, ?23), ?21, ?22, COALESCE(?24, (SELECT COALESCE(MAX(queue_rank), 0) + 1 FROM downloads)))
              ON CONFLICT(id) DO UPDATE SET
                 url=?2, file_name=?3, dest_path=?4, total_bytes=?5,
                 downloaded_bytes=?6, status=?7, supports_ranges=?8, error=?9, priority=?10, category=?11,
                 referrer=?12, cookie=?13, user_agent=?14, kind=?15, audio_url=?16, media_selection=?17, thumbnail_url=?18, duration_s=?19,
                 created_at=COALESCE(created_at, ?20, ?23),
-                started_at=COALESCE(?21, started_at), completed_at=COALESCE(?22, completed_at)",
+                started_at=COALESCE(?21, started_at), completed_at=COALESCE(?22, completed_at),
+                queue_rank=COALESCE(queue_rank, ?24, (SELECT COALESCE(MAX(queue_rank), 0) + 1 FROM downloads))",
             rusqlite::params![
                 d.id, d.url, d.file_name, d.dest_path,
                 d.total_bytes.map(|v| v as i64),
@@ -111,6 +114,7 @@ impl Storage {
                 d.started_at,
                 d.completed_at,
                 now_secs(),
+                d.queue_rank,
             ],
         )
         .map_err(|e| CoreError::Storage(e.to_string()))?;
@@ -120,7 +124,7 @@ impl Storage {
     pub fn list(&self) -> Result<Vec<Download>, CoreError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn
-            .prepare("SELECT id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority, category, referrer, cookie, user_agent, kind, audio_url, media_selection, thumbnail_url, duration_s, created_at, started_at, completed_at FROM downloads ORDER BY rowid")
+            .prepare("SELECT id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority, category, referrer, cookie, user_agent, kind, audio_url, media_selection, thumbnail_url, duration_s, created_at, started_at, completed_at, queue_rank FROM downloads ORDER BY rowid")
             .map_err(|e| CoreError::Storage(e.to_string()))?;
         let rows = stmt
             .query_map([], |row| {
@@ -147,6 +151,7 @@ impl Storage {
                     created_at: row.get(19)?,
                     started_at: row.get(20)?,
                     completed_at: row.get(21)?,
+                    queue_rank: row.get(22)?,
                 })
             })
             .map_err(|e| CoreError::Storage(e.to_string()))?;
@@ -212,7 +217,7 @@ impl Storage {
     pub fn get_by_id(&self, id: &str) -> Result<Option<Download>, CoreError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn
-            .prepare("SELECT id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority, category, referrer, cookie, user_agent, kind, audio_url, media_selection, thumbnail_url, duration_s, created_at, started_at, completed_at FROM downloads WHERE id=?1")
+            .prepare("SELECT id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority, category, referrer, cookie, user_agent, kind, audio_url, media_selection, thumbnail_url, duration_s, created_at, started_at, completed_at, queue_rank FROM downloads WHERE id=?1")
             .map_err(|e| CoreError::Storage(e.to_string()))?;
         let mut rows = stmt
             .query_map([id], |row| {
@@ -239,6 +244,7 @@ impl Storage {
                     created_at: row.get(19)?,
                     started_at: row.get(20)?,
                     completed_at: row.get(21)?,
+                    queue_rank: row.get(22)?,
                 })
             })
             .map_err(|e| CoreError::Storage(e.to_string()))?;
@@ -384,6 +390,29 @@ impl Storage {
         )
         .map_err(|e| CoreError::Storage(e.to_string()))?;
         Ok(())
+    }
+
+    /// Renumérote la file : `queue_rank = 1..=n` dans l'ordre reçu, en une transaction.
+    pub fn set_queue_order(&self, ids: &[String]) -> Result<(), CoreError> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction().map_err(|e| CoreError::Storage(e.to_string()))?;
+        for (i, id) in ids.iter().enumerate() {
+            tx.execute(
+                "UPDATE downloads SET queue_rank=?1 WHERE id=?2",
+                rusqlite::params![(i + 1) as i64, id],
+            )
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        }
+        tx.commit().map_err(|e| CoreError::Storage(e.to_string()))
+    }
+
+    /// File suspendue (clé `queue.paused`) ; absente = faux.
+    pub fn queue_paused(&self) -> Result<bool, CoreError> {
+        Ok(self.get_pref("queue.paused")?.as_deref() == Some("1"))
+    }
+
+    pub fn set_queue_paused(&self, v: bool) -> Result<(), CoreError> {
+        self.set_pref("queue.paused", if v { "1" } else { "0" })
     }
 
     pub fn get_settings(&self) -> Result<Settings, CoreError> {
@@ -553,9 +582,46 @@ mod tests {
             created_at: None,
             started_at: None,
             completed_at: None,
+            queue_rank: None,
         }
     }
 
+
+    #[test]
+    fn new_rows_get_increasing_queue_rank() {
+        let s = Storage::open_in_memory().unwrap();
+        for id in ["a", "b", "c"] {
+            s.upsert(&sample(id)).unwrap();
+        }
+        let rank = |id: &str| s.get_by_id(id).unwrap().unwrap().queue_rank;
+        assert_eq!((rank("a"), rank("b"), rank("c")), (Some(1), Some(2), Some(3)));
+        s.upsert(&sample("b")).unwrap();
+        assert_eq!(rank("b"), Some(2));
+    }
+
+    #[test]
+    fn set_queue_order_renumbers() {
+        let s = Storage::open_in_memory().unwrap();
+        for id in ["a", "b", "c"] {
+            s.upsert(&sample(id)).unwrap();
+        }
+        s.set_queue_order(&["c".to_string(), "a".to_string(), "b".to_string()]).unwrap();
+        let rank = |id: &str| s.get_by_id(id).unwrap().unwrap().queue_rank;
+        assert_eq!((rank("c"), rank("a"), rank("b")), (Some(1), Some(2), Some(3)));
+        // un upsert ultérieur n'écrase pas le rang
+        s.upsert(&sample("a")).unwrap();
+        assert_eq!(rank("a"), Some(2));
+    }
+
+    #[test]
+    fn queue_paused_roundtrip() {
+        let s = Storage::open_in_memory().unwrap();
+        assert!(!s.queue_paused().unwrap());
+        s.set_queue_paused(true).unwrap();
+        assert!(s.queue_paused().unwrap());
+        s.set_queue_paused(false).unwrap();
+        assert!(!s.queue_paused().unwrap());
+    }
 
     #[test]
     fn upsert_sets_created_at_once() {

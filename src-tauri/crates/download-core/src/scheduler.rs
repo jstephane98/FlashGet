@@ -1,10 +1,17 @@
 use crate::model::{Download, DownloadStatus, Priority};
 
 /// Étant donné l'ensemble des téléchargements et la limite de simultanés,
-/// renvoie les ids des téléchargements `Queued` à démarrer, choisis par
-/// priorité décroissante puis par ordre d'arrivée (l'ordre du slice).
+/// renvoie les ids des téléchargements `Queued` à démarrer, triés par
+/// (priorité décroissante, rang de file, ordre du slice).
+/// `forced` (démarrage manuel) passe en premier s'il est `Queued` ; si la file
+/// est suspendue (`paused`), seul `forced` peut démarrer.
 /// Idempotent : ne renvoie jamais un id déjà `Downloading` / `Recording` / `Paused` / terminé.
-pub fn pick_to_start(downloads: &[Download], max_concurrent: u32) -> Vec<String> {
+pub fn pick_to_start(
+    downloads: &[Download],
+    max_concurrent: u32,
+    paused: bool,
+    forced: Option<&str>,
+) -> Vec<String> {
     let active = downloads
         .iter()
         .filter(|d| matches!(d.status, DownloadStatus::Downloading | DownloadStatus::Recording))
@@ -13,13 +20,24 @@ pub fn pick_to_start(downloads: &[Download], max_concurrent: u32) -> Vec<String>
     if slots == 0 {
         return Vec::new();
     }
+    let forced_id = forced.filter(|f| {
+        downloads.iter().any(|d| d.id == *f && d.status == DownloadStatus::Queued)
+    });
+    if paused {
+        return forced_id.map(|f| vec![f.to_string()]).unwrap_or_default();
+    }
     let mut queued: Vec<&Download> = downloads
         .iter()
-        .filter(|d| d.status == DownloadStatus::Queued)
+        .filter(|d| d.status == DownloadStatus::Queued && Some(d.id.as_str()) != forced_id)
         .collect();
-    // Tri STABLE par rang de priorité : conserve l'ordre d'arrivée à priorité égale.
-    queued.sort_by_key(|d| priority_rank(d.priority));
-    queued.into_iter().take(slots as usize).map(|d| d.id.clone()).collect()
+    // Tri STABLE : la position d'origine départage les égalités complètes.
+    queued.sort_by_key(|d| (priority_rank(d.priority), d.queue_rank.unwrap_or(i64::MAX)));
+    forced_id
+        .map(|f| f.to_string())
+        .into_iter()
+        .chain(queued.into_iter().map(|d| d.id.clone()))
+        .take(slots as usize)
+        .collect()
 }
 
 fn priority_rank(p: Priority) -> u8 {
@@ -59,6 +77,7 @@ mod tests {
             created_at: None,
             started_at: None,
             completed_at: None,
+            queue_rank: None,
         }
     }
 
@@ -69,7 +88,7 @@ mod tests {
             dl("b", DownloadStatus::Queued, Priority::Normal),
             dl("c", DownloadStatus::Queued, Priority::Normal),
         ];
-        assert_eq!(pick_to_start(&items, 2), vec!["a", "b"]);
+        assert_eq!(pick_to_start(&items, 2, false, None), vec!["a", "b"]);
     }
 
     #[test]
@@ -80,7 +99,7 @@ mod tests {
             dl("b", DownloadStatus::Queued, Priority::Normal),
         ];
         // 1 actif, limite 2 => 1 slot libre => démarre seulement "a".
-        assert_eq!(pick_to_start(&items, 2), vec!["a"]);
+        assert_eq!(pick_to_start(&items, 2, false, None), vec!["a"]);
     }
 
     #[test]
@@ -92,7 +111,7 @@ mod tests {
             dl("d", DownloadStatus::Queued, Priority::High),
         ];
         // High d'abord (b avant d, FIFO), puis Normal (c), puis Low (a).
-        assert_eq!(pick_to_start(&items, 3), vec!["b", "d", "c"]);
+        assert_eq!(pick_to_start(&items, 3, false, None), vec!["b", "d", "c"]);
     }
 
     #[test]
@@ -103,7 +122,7 @@ mod tests {
             dl("err", DownloadStatus::Error, Priority::High),
             dl("a", DownloadStatus::Queued, Priority::Normal),
         ];
-        assert_eq!(pick_to_start(&items, 5), vec!["a"]);
+        assert_eq!(pick_to_start(&items, 5, false, None), vec!["a"]);
     }
 
     #[test]
@@ -113,7 +132,7 @@ mod tests {
             dl("rec", DownloadStatus::Recording, Priority::Normal),
             dl("q", DownloadStatus::Queued, Priority::Normal),
         ];
-        assert!(pick_to_start(&downloads, 1).is_empty());
+        assert!(pick_to_start(&downloads, 1, false, None).is_empty());
     }
 
     #[test]
@@ -122,7 +141,44 @@ mod tests {
             dl("h", DownloadStatus::Held, Priority::High),
             dl("q", DownloadStatus::Queued, Priority::Normal),
         ];
-        assert_eq!(pick_to_start(&items, 3), vec!["q"]);
+        assert_eq!(pick_to_start(&items, 3, false, None), vec!["q"]);
+    }
+
+    fn ranked(id: &str, priority: Priority, rank: i64) -> Download {
+        let mut d = dl(id, DownloadStatus::Queued, priority);
+        d.queue_rank = Some(rank);
+        d
+    }
+
+    #[test]
+    fn rank_breaks_ties_within_priority() {
+        let items = vec![
+            ranked("n5", Priority::Normal, 5),
+            ranked("n2", Priority::Normal, 2),
+            ranked("h9", Priority::High, 9),
+        ];
+        assert_eq!(pick_to_start(&items, 3, false, None), vec!["h9", "n2", "n5"]);
+    }
+
+    #[test]
+    fn pick_respects_paused_except_forced() {
+        let items = vec![
+            dl("x", DownloadStatus::Queued, Priority::Normal),
+            dl("y", DownloadStatus::Queued, Priority::Normal),
+            dl("h", DownloadStatus::Held, Priority::Normal),
+        ];
+        assert!(pick_to_start(&items, 3, true, None).is_empty());
+        assert_eq!(pick_to_start(&items, 3, true, Some("x")), vec!["x"]);
+        assert!(pick_to_start(&items, 3, true, Some("h")).is_empty());
+    }
+
+    #[test]
+    fn forced_goes_first_when_not_paused() {
+        let items = vec![
+            dl("a", DownloadStatus::Queued, Priority::High),
+            dl("f", DownloadStatus::Queued, Priority::Low),
+        ];
+        assert_eq!(pick_to_start(&items, 1, false, Some("f")), vec!["f"]);
     }
 
     #[test]
@@ -132,6 +188,6 @@ mod tests {
             dl("y", DownloadStatus::Downloading, Priority::Normal),
             dl("a", DownloadStatus::Queued, Priority::High),
         ];
-        assert_eq!(pick_to_start(&items, 2), Vec::<String>::new());
+        assert_eq!(pick_to_start(&items, 2, false, None), Vec::<String>::new());
     }
 }
