@@ -143,6 +143,17 @@ export const fr = {
   "day.4": "vendredi",
   "day.5": "samedi",
   "day.6": "dimanche",
+  "q.title": "File d'attente",
+  "q.summary": "{n} en attente · {size} · démarrent dès qu'une place se libère ({max} simultanés max)",
+  "q.pause": "Suspendre la file",
+  "q.startAll": "Tout démarrer maintenant",
+  "q.pausedBadge": "File suspendue",
+  "q.scheduled": "programmé à {time}",
+  "q.up": "Monter",
+  "q.down": "Descendre",
+  "q.remove": "Retirer",
+  "q.removeConfirm": "Retirer cet élément de la file ?",
+  "q.empty": "La file est vide.",
 } as const;
 
 export type MsgKey = keyof typeof fr;
