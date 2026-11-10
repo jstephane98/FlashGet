@@ -58,6 +58,8 @@ impl Storage {
         );
         let _ = conn.execute("ALTER TABLE downloads ADD COLUMN audio_url TEXT", []);
         let _ = conn.execute("ALTER TABLE downloads ADD COLUMN media_selection TEXT", []);
+        let _ = conn.execute("ALTER TABLE downloads ADD COLUMN thumbnail_url TEXT", []);
+        let _ = conn.execute("ALTER TABLE downloads ADD COLUMN duration_s INTEGER", []);
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
         )
@@ -68,12 +70,12 @@ impl Storage {
     pub fn upsert(&self, d: &Download) -> Result<(), CoreError> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO downloads (id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority, category, referrer, cookie, user_agent, kind, audio_url, media_selection)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+            "INSERT INTO downloads (id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority, category, referrer, cookie, user_agent, kind, audio_url, media_selection, thumbnail_url, duration_s)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
              ON CONFLICT(id) DO UPDATE SET
                 url=?2, file_name=?3, dest_path=?4, total_bytes=?5,
                 downloaded_bytes=?6, status=?7, supports_ranges=?8, error=?9, priority=?10, category=?11,
-                referrer=?12, cookie=?13, user_agent=?14, kind=?15, audio_url=?16, media_selection=?17",
+                referrer=?12, cookie=?13, user_agent=?14, kind=?15, audio_url=?16, media_selection=?17, thumbnail_url=?18, duration_s=?19",
             rusqlite::params![
                 d.id, d.url, d.file_name, d.dest_path,
                 d.total_bytes.map(|v| v as i64),
@@ -89,6 +91,8 @@ impl Storage {
                 kind_to_str(d.kind),
                 d.audio_url,
                 d.media_selection,
+                d.thumbnail_url,
+                d.duration_s.map(|v| v as i64),
             ],
         )
         .map_err(|e| CoreError::Storage(e.to_string()))?;
@@ -98,7 +102,7 @@ impl Storage {
     pub fn list(&self) -> Result<Vec<Download>, CoreError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn
-            .prepare("SELECT id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority, category, referrer, cookie, user_agent, kind, audio_url, media_selection FROM downloads ORDER BY rowid")
+            .prepare("SELECT id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority, category, referrer, cookie, user_agent, kind, audio_url, media_selection, thumbnail_url, duration_s FROM downloads ORDER BY rowid")
             .map_err(|e| CoreError::Storage(e.to_string()))?;
         let rows = stmt
             .query_map([], |row| {
@@ -120,6 +124,8 @@ impl Storage {
                     kind: kind_from_str(&row.get::<_, String>(14)?),
                     audio_url: row.get(15)?,
                     media_selection: row.get(16)?,
+                    thumbnail_url: row.get(17)?,
+                    duration_s: row.get::<_, Option<i64>>(18)?.map(|v| v as u64),
                 })
             })
             .map_err(|e| CoreError::Storage(e.to_string()))?;
@@ -183,7 +189,7 @@ impl Storage {
     pub fn get_by_id(&self, id: &str) -> Result<Option<Download>, CoreError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn
-            .prepare("SELECT id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority, category, referrer, cookie, user_agent, kind, audio_url, media_selection FROM downloads WHERE id=?1")
+            .prepare("SELECT id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority, category, referrer, cookie, user_agent, kind, audio_url, media_selection, thumbnail_url, duration_s FROM downloads WHERE id=?1")
             .map_err(|e| CoreError::Storage(e.to_string()))?;
         let mut rows = stmt
             .query_map([id], |row| {
@@ -205,6 +211,8 @@ impl Storage {
                     kind: kind_from_str(&row.get::<_, String>(14)?),
                     audio_url: row.get(15)?,
                     media_selection: row.get(16)?,
+                    thumbnail_url: row.get(17)?,
+                    duration_s: row.get::<_, Option<i64>>(18)?.map(|v| v as u64),
                 })
             })
             .map_err(|e| CoreError::Storage(e.to_string()))?;
@@ -385,6 +393,7 @@ impl Storage {
 
 fn status_to_str(s: DownloadStatus) -> &'static str {
     match s {
+        DownloadStatus::Held => "held",
         DownloadStatus::Queued => "queued",
         DownloadStatus::Downloading => "downloading",
         DownloadStatus::Recording => "recording",
@@ -396,6 +405,7 @@ fn status_to_str(s: DownloadStatus) -> &'static str {
 
 fn status_from_str(s: &str) -> DownloadStatus {
     match s {
+        "held" => DownloadStatus::Held,
         "downloading" => DownloadStatus::Downloading,
         "recording" => DownloadStatus::Recording,
         "paused" => DownloadStatus::Paused,
@@ -512,6 +522,8 @@ mod tests {
             kind: DownloadKind::Regular,
             audio_url: None,
             media_selection: None,
+            thumbnail_url: None,
+            duration_s: None,
         }
     }
 
@@ -815,6 +827,21 @@ mod tests {
         let plain = sample("y2");
         s.upsert(&plain).unwrap();
         assert_eq!(s.get_by_id("y2").unwrap().unwrap().kind, DownloadKind::Regular);
+    }
+
+    #[test]
+    fn held_and_media_fields_roundtrip() {
+        let s = Storage::open_in_memory().unwrap();
+        let mut d = sample("h1");
+        d.status = DownloadStatus::Held;
+        d.thumbnail_url = Some("https://i.ytimg.com/x.jpg".into());
+        d.duration_s = Some(768);
+        s.upsert(&d).unwrap();
+        let back = s.get_by_id("h1").unwrap().unwrap();
+        assert_eq!((back.status, back.thumbnail_url, back.duration_s), (DownloadStatus::Held, Some("https://i.ytimg.com/x.jpg".into()), Some(768)));
+        let listed = s.list().unwrap();
+        assert_eq!(listed[0].status, DownloadStatus::Held);
+        assert_eq!(listed[0].duration_s, Some(768));
     }
 
     #[test]

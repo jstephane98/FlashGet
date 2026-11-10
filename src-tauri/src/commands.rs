@@ -74,6 +74,8 @@ pub(crate) async fn add_url_with_probe(app: &AppHandle, url: &str, dest_dir: &st
         kind: DownloadKind::Regular,
         audio_url: None,
         media_selection: None,
+        thumbnail_url: None,
+        duration_s: None,
     };
 
     {
@@ -170,6 +172,8 @@ pub(crate) async fn add_url_no_probe(
         kind: DownloadKind::Regular,
         audio_url: None,
         media_selection: None,
+        thumbnail_url: None,
+        duration_s: None,
     };
 
     {
@@ -222,6 +226,8 @@ async fn add_ytdlp_queued(app: &AppHandle, url: &str, title: &str, audio: bool) 
         kind: DownloadKind::Ytdlp,
         audio_url: None,
         media_selection: Some(sel),
+        thumbnail_url: None,
+        duration_s: None,
     };
     app.state::<AppState>().storage.upsert(&download).map_err(|e| e.to_string())?;
     Ok(download)
@@ -631,6 +637,8 @@ pub async fn add_media_download(app: AppHandle, probe_id: String, variant_index:
         kind,
         audio_url,
         media_selection,
+        thumbnail_url: None,
+        duration_s: None,
     };
     {
         let state = app.state::<AppState>();

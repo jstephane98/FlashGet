@@ -54,6 +54,8 @@ mod tests {
             kind: DownloadKind::Regular,
             audio_url: None,
             media_selection: None,
+            thumbnail_url: None,
+            duration_s: None,
         }
     }
 
@@ -109,6 +111,15 @@ mod tests {
             dl("q", DownloadStatus::Queued, Priority::Normal),
         ];
         assert!(pick_to_start(&downloads, 1).is_empty());
+    }
+
+    #[test]
+    fn never_starts_held() {
+        let items = vec![
+            dl("h", DownloadStatus::Held, Priority::High),
+            dl("q", DownloadStatus::Queued, Priority::Normal),
+        ];
+        assert_eq!(pick_to_start(&items, 3), vec!["q"]);
     }
 
     #[test]

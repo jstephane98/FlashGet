@@ -3,6 +3,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DownloadStatus {
+    /// Ajouté mais pas démarré : n'entre pas dans la file tant que l'utilisateur ne le lance pas.
+    Held,
     Queued,
     Downloading,
     Recording,
@@ -83,6 +85,10 @@ pub struct Download {
     pub audio_url: Option<String>,
     #[serde(default)]
     pub media_selection: Option<String>,
+    #[serde(default)]
+    pub thumbnail_url: Option<String>,
+    #[serde(default)]
+    pub duration_s: Option<u64>,
 }
 
 /// En-têtes HTTP optionnels transmis par le navigateur pour un téléchargement capturé.

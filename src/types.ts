@@ -1,4 +1,5 @@
 export type DownloadStatus =
+  | "held"
   | "queued"
   | "downloading"
   | "recording"
@@ -39,6 +40,8 @@ export interface Download {
   kind?: DownloadKind;
   audio_url?: string | null;
   media_selection?: string | null;
+  thumbnail_url?: string | null;
+  duration_s?: number | null;
 }
 
 export interface Settings {
