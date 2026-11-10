@@ -55,7 +55,7 @@ export function Switch({ checked, label, onChange, disabled }: { checked: boolea
 /** Champ numérique : la valeur n'est enregistrée qu'à la sortie du champ ou sur Entrée.
  *  `decimal` accepte la virgule française. `format` convertit la valeur enregistrée en texte. */
 export function NumberField({
-  value, label, min, max, decimal, disabled, width = "w-20", format, onCommit,
+  value, label, min, max, decimal, disabled, width = "w-20", format, resetKey, onCommit,
 }: {
   value: number;
   label: string;
@@ -65,11 +65,13 @@ export function NumberField({
   disabled?: boolean;
   width?: string;
   format?: (v: number) => string;
+  /** Change quand le parent rétablit la valeur enregistrée (refus) : le texte saisi est réaffiché depuis `value`. */
+  resetKey?: number;
   onCommit(v: number): void;
 }) {
   const show = (v: number) => (format ? format(v) : String(v));
   const [text, setText] = useState(show(value));
-  useEffect(() => { setText(show(value)); }, [value]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setText(show(value)); }, [value, resetKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const commit = () => {
     const n = Number(text.trim().replace(",", "."));

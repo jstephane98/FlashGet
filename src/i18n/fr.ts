@@ -220,6 +220,7 @@ export const fr = {
   "set.concurrentHint": "Les suivants attendent dans la file.",
   "set.connections": "Connexions par fichier",
   "set.connectionsHint": "Plus de connexions = plus rapide, si le serveur l'accepte.",
+  "set.unitMbps": "Mo/s",
   "set.limit": "Limiter la vitesse",
   "set.limitHint": "S'applique à l'ensemble des téléchargements.",
   "set.reliability": "Fiabilité",

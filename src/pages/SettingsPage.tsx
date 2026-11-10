@@ -15,7 +15,7 @@ export function SettingsPage({ onSaved }: { onSaved(s: Settings): void }) {
   const [loadFailed, setLoadFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [error, setError] = useState<string>();
-  // Incrémenté à chaque refus : remonte la section pour que les champs reprennent la valeur enregistrée.
+  // Incrémenté à chaque refus : les champs réaffichent la dernière valeur enregistrée.
   const [rev, setRev] = useState(0);
   const saved = useRef<Settings | null>(null);
   const latest = useRef<Settings | null>(null);
@@ -43,15 +43,15 @@ export function SettingsPage({ onSaved }: { onSaved(s: Settings): void }) {
     const mine = ++seq.current;
     api.saveSettings(next).then(
       (res) => {
-        saved.current = res;
         if (mine !== seq.current) return;
+        saved.current = res;
         latest.current = res;
         setSettings(res);
         onSaved(res);
       },
       (e) => {
-        setError(String(e));
         if (mine !== seq.current) return;
+        setError(String(e));
         latest.current = saved.current;
         setSettings(saved.current);
         setRev((n) => n + 1);
@@ -73,8 +73,8 @@ export function SettingsPage({ onSaved }: { onSaved(s: Settings): void }) {
     <div className="flex h-full min-h-0">
       <SettingsNav active={section} onSelect={(id) => { setSection(id); setError(undefined); }} />
       <div className="flex-1 min-w-0 overflow-y-auto px-7 py-[22px]">
-        {section === "general" ? <GeneralSection key={rev} {...props} />
-          : section === "downloads" ? <DownloadsSection key={rev} {...props} />
+        {section === "general" ? <GeneralSection {...props} />
+          : section === "downloads" ? <DownloadsSection {...props} rev={rev} />
           : section === "folders" ? <FoldersSection />
           : <SectionShell title={t(`set.nav.${section}` as MsgKey)} desc={t("set.soon")}>{null}</SectionShell>}
       </div>

@@ -62,8 +62,14 @@ describe("SettingsPage", () => {
   it("curseur de connexions à 16", async () => {
     await ready();
     goTo("Téléchargements");
-    fireEvent.change(await screen.findByRole("slider", { name: "Connexions par fichier" }), { target: { value: "16" } });
+    const slider = await screen.findByRole("slider", { name: "Connexions par fichier" });
+    fireEvent.change(slider, { target: { value: "12" } });
+    fireEvent.change(slider, { target: { value: "16" } });
+    expect(saveSettings).not.toHaveBeenCalled();
+    fireEvent.pointerUp(slider);
+    fireEvent.blur(slider);
     await waitFor(() => expect(saveSettings).toHaveBeenCalledWith({ ...S, connections: 16 }));
+    expect(saveSettings).toHaveBeenCalledTimes(1);
   });
 
   it("limite 2,5 enregistrée à la sortie du champ", async () => {
