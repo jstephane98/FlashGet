@@ -139,13 +139,3 @@ pub fn get_cookies_from_browser(app: AppHandle) -> Result<Option<String>, String
 pub fn set_cookies_from_browser(app: AppHandle, value: Option<String>) -> Result<(), String> {
     app.state::<AppState>().storage.set_cookies_from_browser(value).map_err(|e| e.to_string())
 }
-
-#[tauri::command]
-pub fn get_notify_on_complete(app: AppHandle) -> Result<bool, String> {
-    app.state::<AppState>().storage.get_notify_on_complete().map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn set_notify_on_complete(app: AppHandle, value: bool) -> Result<(), String> {
-    app.state::<AppState>().storage.set_notify_on_complete(value).map_err(|e| e.to_string())
-}

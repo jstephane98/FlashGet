@@ -148,8 +148,6 @@ pub fn run() {
             youtube::youtube_logout,
             youtube::get_cookies_from_browser,
             youtube::set_cookies_from_browser,
-            youtube::get_notify_on_complete,
-            youtube::set_notify_on_complete,
             prefs::get_ui_pref,
             prefs::set_ui_pref,
             queue::reorder_queue,

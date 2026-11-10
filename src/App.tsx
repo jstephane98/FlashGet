@@ -14,7 +14,7 @@ import { QueuePage } from "./pages/QueuePage";
 import { SchedulerPage } from "./pages/SchedulerPage";
 import { EndOfQueueDialog } from "./components/EndOfQueueDialog";
 import { NewPage, type ExternalEvent } from "./pages/NewPage";
-import { SettingsDialog } from "./components/SettingsDialog";
+import { SettingsPage } from "./pages/SettingsPage";
 
 type ExternalPayload =
   | { kind: "probing"; url: string }
@@ -28,7 +28,6 @@ export default function App() {
   const [speeds, setSpeeds] = useState<Record<string, number>>({});
   const [parts, setParts] = useState<Record<string, number[] | null>>({});
   const [info, setInfo] = useState<string | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [external, setExternal] = useState<ExternalEvent | null>(null);
   const [startInBatch, setStartInBatch] = useState(false);
@@ -116,10 +115,8 @@ export default function App() {
     setPage("new");
   }
 
-  // « Réglages » ouvre encore la boîte existante (page en phase 5) : elle ne change pas la page courante.
   function go(id: PageId) {
     if (id === "new") openNew(false);
-    else if (id === "settings") setSettingsOpen(true);
     else setPage(id);
   }
 
@@ -206,6 +203,8 @@ export default function App() {
                 heldCount={downloads.filter((d) => d.status === "held").length}
                 pendingCount={downloads.filter((d) => ["queued", "held", "downloading", "recording"].includes(d.status)).length}
               />
+            ) : page === "settings" ? (
+              <SettingsPage onSaved={(s) => { setMaxSpeedBps(s.max_speed_bps); setMaxConcurrent(s.max_concurrent); }} />
             ) : page === "completed" ? (
               <CompletedPage
                 downloads={downloads}
@@ -242,7 +241,6 @@ export default function App() {
       {endAction && (
         <EndOfQueueDialog action={endAction} onCancel={() => setEndAction(null)} onRun={runEnd} />
       )}
-      <SettingsDialog open={settingsOpen} onClose={() => { setSettingsOpen(false); refreshStatusInfo(); }} />
     </div>
   );
 }
