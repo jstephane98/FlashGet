@@ -103,6 +103,8 @@ export const fr = {
   "lib.todayAt": "aujourd'hui à {time}",
   "lib.dateAt": "{date} à {time}",
   "lib.all": "Tout · {n}",
+  "lib.viewList": "Liste",
+  "lib.viewGrid": "Grille",
   "catp.video": "Vidéos · {n}",
   "catp.music": "Musique · {n}",
   "catp.document": "Documents · {n}",
