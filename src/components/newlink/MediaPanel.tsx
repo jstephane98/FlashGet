@@ -20,6 +20,7 @@ export type MediaChoice = {
 interface Props {
   probe: Extract<LinkProbe, { type: "media" }>;
   busy: boolean;
+  error?: string | null;
   onConfirm(choice: MediaChoice, startNow: boolean): void;
 }
 
@@ -46,7 +47,7 @@ function Switch({ checked, disabled, label, onChange }: { checked: boolean; disa
   );
 }
 
-export function MediaPanel({ probe, busy, onConfirm }: Props) {
+export function MediaPanel({ probe, busy, error, onConfirm }: Props) {
   const { info, formats } = probe;
   const kinds = availableKinds(formats);
   const [kind, setKind] = useState<FormatKind>(kinds[0] ?? "av");
@@ -118,7 +119,7 @@ export function MediaPanel({ probe, busy, onConfirm }: Props) {
         <div className="flex flex-col gap-2.5 p-3 rounded-lg bg-panel border border-line">
           <div className="text-[11px] uppercase tracking-wide text-ink-mute">{t("new.options")}</div>
           <Switch label={t("new.optSubs")} checked={subsOn} disabled={!subsAvailable || kind === "audio"} onChange={setSubtitles} />
-          {info.can_cut && <Switch label={t("new.optCut")} checked={cutOn} onChange={setCutOn} />}
+          {info.can_cut && <Switch label={t("new.optCut")} checked={cutOn} onChange={(v) => { setCutOn(v); if (v && start === "") setStart("0:00"); }} />}
           {info.can_cut && cutOn && (
             <div className="flex flex-col gap-1.5">
               <div className="grid grid-cols-2 gap-2">
@@ -152,6 +153,7 @@ export function MediaPanel({ probe, busy, onConfirm }: Props) {
         </div>
         <FormatList formats={formatsOf(formats, kind)} selected={formatIndex} onSelect={setFormatIndex} />
         <DestinationFields dir={dir} fileName={fileName} onDir={setDirEdit} onFileName={setNameEdit} />
+        {error && <div role="alert" className="text-xs text-err">{error}</div>}
         <div className="flex justify-end gap-2">
           <button type="button" disabled={disabled} onClick={() => confirm(false)}
             className="h-9 px-4 rounded-lg border border-border bg-panel text-ink text-[13px] hover:bg-surface disabled:opacity-50 disabled:pointer-events-none">

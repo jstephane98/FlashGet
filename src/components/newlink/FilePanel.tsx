@@ -8,10 +8,11 @@ import { DestinationFields } from "./DestinationFields";
 interface Props {
   probe: Extract<LinkProbe, { type: "file" }>;
   busy: boolean;
+  error?: string | null;
   onConfirm(choice: { dir: string; fileName: string }, startNow: boolean): void;
 }
 
-export function FilePanel({ probe, busy, onConfirm }: Props) {
+export function FilePanel({ probe, busy, error, onConfirm }: Props) {
   const [dir, setDir] = useState(probe.default_dir);
   const [fileName, setFileName] = useState(probe.file_name);
   const disabled = busy || fileName.trim() === "";
@@ -36,6 +37,7 @@ export function FilePanel({ probe, busy, onConfirm }: Props) {
         </div>
       </div>
       <DestinationFields dir={dir} fileName={fileName} onDir={setDir} onFileName={setFileName} />
+      {error && <div role="alert" className="text-xs text-err">{error}</div>}
       <div className="flex justify-end gap-2">
         <button type="button" disabled={disabled} onClick={() => onConfirm({ dir, fileName }, false)}
           className="h-9 px-4 rounded-lg border border-border bg-panel text-ink text-[13px] hover:bg-surface disabled:opacity-50 disabled:pointer-events-none">

@@ -75,6 +75,8 @@ describe("newlink", () => {
   it("MediaPanel : découpe invalide affiche le message et désactive les boutons", () => {
     render(<MediaPanel probe={media()} busy={false} onConfirm={vi.fn()} />);
     fireEvent.click(screen.getByRole("switch", { name: "Découper un extrait" }));
+    expect((screen.getByLabelText("Début") as HTMLInputElement).value).toBe("0:00");
+    expect(screen.queryByText("Début invalide (ex. 1:30)")).toBeNull();
     fireEvent.change(screen.getByLabelText("Début"), { target: { value: "2:00" } });
     fireEvent.change(screen.getByLabelText("Fin"), { target: { value: "1:00" } });
     expect(screen.getByText("La fin doit être après le début")).not.toBeNull();
