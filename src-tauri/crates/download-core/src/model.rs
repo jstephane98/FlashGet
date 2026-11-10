@@ -89,6 +89,12 @@ pub struct Download {
     pub thumbnail_url: Option<String>,
     #[serde(default)]
     pub duration_s: Option<u64>,
+    #[serde(default)]
+    pub created_at: Option<i64>,
+    #[serde(default)]
+    pub started_at: Option<i64>,
+    #[serde(default)]
+    pub completed_at: Option<i64>,
 }
 
 /// En-têtes HTTP optionnels transmis par le navigateur pour un téléchargement capturé.

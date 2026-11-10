@@ -80,6 +80,9 @@ pub(crate) async fn add_url_no_probe(
         media_selection: None,
         thumbnail_url: None,
         duration_s: None,
+        created_at: None,
+        started_at: None,
+        completed_at: None,
     };
 
     {
@@ -128,6 +131,9 @@ async fn add_ytdlp_queued(app: &AppHandle, url: &str, title: &str, audio: bool, 
         media_selection: Some(sel),
         thumbnail_url: None,
         duration_s: None,
+        created_at: None,
+        started_at: None,
+        completed_at: None,
     };
     app.state::<AppState>().storage.upsert(&download).map_err(|e| e.to_string())?;
     Ok(download)

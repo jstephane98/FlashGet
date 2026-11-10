@@ -56,6 +56,9 @@ mod tests {
             media_selection: None,
             thumbnail_url: None,
             duration_s: None,
+            created_at: None,
+            started_at: None,
+            completed_at: None,
         }
     }
 
