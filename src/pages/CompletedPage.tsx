@@ -31,13 +31,13 @@ export function CompletedPage({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t("dl.search")}
-            className="w-full h-9 pl-9 pr-3 rounded-lg bg-field text-ink text-[13px] placeholder:text-ink-mute outline-none"
+            className="w-full h-9 pl-9 pr-3 rounded-lg border border-border bg-field text-ink text-[13px] placeholder:text-ink-mute outline-none focus:border-accent focus:ring-1 focus:ring-accent/50"
           />
         </div>
         <button
           type="button"
           onClick={onClear}
-          className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg bg-field text-ink text-[13px] font-medium hover:bg-surface"
+          className="inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-border bg-field text-ink text-[13px] font-medium hover:bg-surface"
         >
           <Trash2 size={15} />
           {t("done.clear")}

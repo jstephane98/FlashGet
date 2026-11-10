@@ -11,7 +11,7 @@ interface Props {
 
 export function StatusBar({ active, queued, maxSpeedBps, bridgeListening, totalSpeedBps }: Props) {
   return (
-    <div className="flex h-7 shrink-0 items-center justify-between bg-deep px-3 font-sans text-[12px] text-ink-soft">
+    <div className="flex h-7 shrink-0 items-center justify-between border-t border-border bg-deep px-3 font-sans text-[12px] text-ink-soft">
       <div className="flex items-center gap-4">
         <span>{t("status.counts", { active, queued })}</span>
         <span>

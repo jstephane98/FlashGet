@@ -6,6 +6,7 @@ import { CategoryIcon } from "./categoryIcons";
 import { Settings, Puzzle, X, Check, Video, Bell } from "lucide-react";
 import { useTheme } from "../theme/ThemeProvider";
 import type { ThemePref } from "../theme/theme";
+import { t } from "../i18n";
 
 const CATS: { key: Category; label: string }[] = [
   { key: "video", label: "Vidéos" },
@@ -90,9 +91,9 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
       <div className="bg-bg border border-border rounded-xl w-[460px] max-h-[80vh] overflow-auto text-ink shadow-[0_20px_50px_rgba(0,0,0,.5)]" onClick={(e) => e.stopPropagation()}>
         <h3 className="font-bold text-ink px-4 py-3 border-b border-border"><span className="inline-flex items-center gap-2"><Settings size={18} /> Réglages</span></h3>
         <div className="px-4 py-3 border-b border-border">
-          <div className="block text-sm text-ink-soft mb-1.5">Thème</div>
-          <div className="inline-flex gap-1" role="group" aria-label="Thème">
-            {([["dark", "Sombre"], ["light", "Clair"], ["system", "Système"]] as [ThemePref, string][]).map(([v, label]) => (
+          <div className="block text-sm text-ink-soft mb-1.5">{t("theme.title")}</div>
+          <div className="inline-flex gap-1" role="group" aria-label={t("theme.title")}>
+            {([["dark", t("theme.dark")], ["light", t("theme.light")], ["system", t("theme.system")]] as [ThemePref, string][]).map(([v, label]) => (
               <button key={v} type="button" aria-pressed={themePref === v} onClick={() => setThemePref(v)}
                 className={"px-3 py-1 rounded-md text-sm border " + (themePref === v ? "bg-accent text-accent-ink border-accent" : "bg-surface text-ink-soft border-border")}>{label}</button>
             ))}

@@ -10,12 +10,12 @@ export function TitleBar() {
   return (
     <div
       data-tauri-drag-region
-      className="flex h-9 shrink-0 select-none items-center justify-between bg-deep font-sans"
+      className="flex h-9 shrink-0 select-none items-center justify-between border-b border-border bg-deep font-sans"
     >
       <div data-tauri-drag-region className="flex items-center gap-2 pl-3">
         <span
           data-tauri-drag-region
-          className="flex h-5 w-5 items-center justify-center rounded-md bg-accent text-accent-fg"
+          className="flex h-5 w-5 items-center justify-center rounded-md bg-accent text-accent-ink"
         >
           <Download size={12} strokeWidth={2.5} />
         </span>

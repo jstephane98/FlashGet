@@ -726,7 +726,55 @@ pub fn open_file(app: AppHandle, id: String) -> Result<(), String> {
 pub fn open_folder(app: AppHandle, id: String) -> Result<(), String> {
     let d = app.state::<AppState>().storage.get_by_id(&id).map_err(|e| e.to_string())?
         .ok_or_else(|| format!("download not found: {id}"))?;
-    app.opener().reveal_item_in_dir(&d.dest_path).map_err(|e| e.to_string())
+    match folder_target(std::path::Path::new(&d.dest_path)) {
+        FolderTarget::Reveal(p) => app.opener().reveal_item_in_dir(&p).map_err(|e| e.to_string()),
+        FolderTarget::Open(parent) => app.opener().open_path(parent.to_string_lossy(), None::<&str>).map_err(|e| e.to_string()),
+        FolderTarget::Missing(p) => app.opener().reveal_item_in_dir(&p).map_err(|e| e.to_string()),
+    }
+}
+
+/// Que faire pour « Ouvrir le dossier » : révéler le fichier s'il existe,
+/// sinon ouvrir son dossier parent (fichier pas encore créé : file, HLS, .part...).
+#[derive(Debug, PartialEq)]
+enum FolderTarget {
+    Reveal(PathBuf),
+    Open(PathBuf),
+    /// Ni le fichier ni son parent n'existent : on garde l'erreur d'origine.
+    Missing(PathBuf),
+}
+
+fn folder_target(dest: &std::path::Path) -> FolderTarget {
+    if dest.exists() {
+        return FolderTarget::Reveal(dest.to_path_buf());
+    }
+    match dest.parent() {
+        Some(parent) if parent.is_dir() => FolderTarget::Open(parent.to_path_buf()),
+        _ => FolderTarget::Missing(dest.to_path_buf()),
+    }
+}
+
+#[cfg(test)]
+mod folder_target_tests {
+    use super::*;
+
+    #[test]
+    fn reveals_existing_file() {
+        let dir = std::env::temp_dir().join(format!("fg_ft_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("a.bin");
+        std::fs::write(&f, b"x").unwrap();
+        assert_eq!(folder_target(&f), FolderTarget::Reveal(f.clone()));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn opens_parent_when_file_missing() {
+        let dir = std::env::temp_dir();
+        let f = dir.join("fg_ft_does_not_exist.part");
+        assert_eq!(folder_target(&f), FolderTarget::Open(dir.clone()));
+        let g = dir.join("fg_ft_no_dir").join("x.bin");
+        assert!(matches!(folder_target(&g), FolderTarget::Missing(_)));
+    }
 }
 
 /// Ré-évalue la file : démarre les `Queued` élus selon la limite + priorités.

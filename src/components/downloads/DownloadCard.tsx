@@ -139,6 +139,7 @@ export function DownloadCard({
         <button className={BTN} onClick={onOpenFolder} title={t("dl.openFolder")} aria-label={t("dl.openFolder")}><FolderOpen size={14} /></button>
         <RowMenu
           canOpen={d.status === "completed"}
+          completed={d.status === "completed"}
           priority={d.priority}
           onOpenFile={onOpenFile}
           onOpenFolder={onOpenFolder}

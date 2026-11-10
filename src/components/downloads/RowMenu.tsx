@@ -13,6 +13,7 @@ const ITEM = "block w-full text-left px-3 py-2 hover:bg-bg disabled:opacity-40";
 
 export function RowMenu({
   canOpen,
+  completed = false,
   priority,
   onOpenFile,
   onOpenFolder,
@@ -21,6 +22,7 @@ export function RowMenu({
   onRemove,
 }: {
   canOpen: boolean;
+  completed?: boolean;
   priority: Priority;
   onOpenFile: () => void;
   onOpenFolder: () => void;
@@ -48,7 +50,7 @@ export function RowMenu({
             <button className={ITEM} disabled={!canOpen} onClick={close(onOpenFolder)}>
               <span className="inline-flex items-center gap-2"><FolderOpen size={15} /> {t("dl.openFolder")}</span>
             </button>
-            <div className="border-t border-border">
+            {!completed && (<div className="border-t border-border">
               {PRIOS.map(({ value, key, Icon }) => (
                 <button
                   key={value}
@@ -57,11 +59,13 @@ export function RowMenu({
                   onClick={close(() => onPriority(value))}
                 ><span className="inline-flex items-center gap-2"><Icon size={15} /> {t(key)}</span></button>
               ))}
-            </div>
+            </div>)}
             <div className="border-t border-border">
-              <button className={ITEM} onClick={close(onCancel)}>
-                <span className="inline-flex items-center gap-2"><X size={15} /> {t("dl.cancel")}</span>
-              </button>
+              {!completed && (
+                <button className={ITEM} onClick={close(onCancel)}>
+                  <span className="inline-flex items-center gap-2"><X size={15} /> {t("dl.cancel")}</span>
+                </button>
+              )}
               <button className={ITEM} onClick={close(onRemove)}>
                 <span className="inline-flex items-center gap-2"><Trash2 size={15} /> {t("dl.remove")}</span>
               </button>

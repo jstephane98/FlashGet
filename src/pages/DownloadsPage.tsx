@@ -19,7 +19,7 @@ export type CardActions = {
 const TABS: DownloadTab[] = ["all", "active", "paused", "error"];
 
 const secondaryBtn =
-  "inline-flex items-center gap-1.5 h-9 px-3 rounded-lg bg-field text-ink text-[13px] font-medium hover:bg-surface";
+  "inline-flex items-center gap-1.5 h-9 px-3 rounded-lg border border-border bg-field text-ink text-[13px] font-medium hover:bg-surface";
 
 export function DownloadsPage({
   downloads, speeds, parts, segments, onAddLink, onAddBatch, onPauseAll, onResumeAll, actions,
@@ -51,7 +51,7 @@ export function DownloadsPage({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t("dl.search")}
-            className="w-full h-9 pl-9 pr-3 rounded-lg bg-field text-ink text-[13px] placeholder:text-ink-mute outline-none"
+            className="w-full h-9 pl-9 pr-3 rounded-lg border border-border bg-field text-ink text-[13px] placeholder:text-ink-mute outline-none focus:border-accent focus:ring-1 focus:ring-accent/50"
           />
         </div>
         <button type="button" className={secondaryBtn} onClick={onAddBatch}>
@@ -88,7 +88,7 @@ export function DownloadsPage({
             aria-selected={tab === id}
             onClick={() => setTab(id)}
             className={`h-8 px-3.5 rounded-full text-[13px] font-medium ${
-              tab === id ? "bg-surface text-ink" : "text-ink-soft hover:text-ink"
+              tab === id ? "border border-border bg-panel text-ink shadow-sm" : "text-ink-soft hover:text-ink"
             }`}
           >
             {t(`tab.${id}` as const, { n: counts[id] })}

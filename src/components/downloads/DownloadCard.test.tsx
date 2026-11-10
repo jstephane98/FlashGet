@@ -141,4 +141,12 @@ describe("DownloadCard", () => {
     expect(screen.getAllByTestId("segment")).toHaveLength(2);
     expect(screen.getByText("2 connexions")).toBeTruthy();
   });
+
+  it("terminé : le menu n'offre ni Annuler ni priorité", () => {
+    renderCard({ status: "completed", kind: "regular", total_bytes: 100, downloaded_bytes: 100 });
+    fireEvent.click(screen.getByLabelText("Actions"));
+    expect(screen.queryByText("Annuler (efface le fichier)")).toBeNull();
+    expect(screen.queryByText("Priorité haute")).toBeNull();
+    expect(screen.getByText("Retirer de la liste")).toBeTruthy();
+  });
 });
