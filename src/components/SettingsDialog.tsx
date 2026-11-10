@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import * as api from "../api";
-import type { BridgeInfo, Category, CategoryDirs } from "../types";
+import type { BridgeInfo, Category, CategoryDirs, Settings as AppSettings } from "../types";
 import { CategoryIcon } from "./categoryIcons";
 import { Settings, Puzzle, X, Check, Video, Bell } from "lucide-react";
 import { useTheme } from "../theme/ThemeProvider";
@@ -29,10 +29,12 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
   const [notify, setNotify] = useState(true);
   const [ytConnected, setYtConnected] = useState(false);
   const [ytBrowser, setYtBrowser] = useState<string>("");
+  const [loaded, setLoaded] = useState<AppSettings | null>(null);
 
   useEffect(() => {
     if (!open) return;
     api.getSettings().then((s) => {
+      setLoaded(s);
       setMaxConcurrent(s.max_concurrent);
       if (s.max_speed_bps === 0) { setUnlimited(true); setSpeedValue(0); }
       else { setUnlimited(false); setSpeedValue(Math.round((s.max_speed_bps / (1024 * 1024)) * 10) / 10); }
@@ -80,7 +82,7 @@ export function SettingsDialog({ open, onClose }: { open: boolean; onClose: () =
 
   async function save() {
     const bps = unlimited ? 0 : Math.round(speedValue * 1024 * 1024);
-    await api.updateSettings(Math.max(1, Math.round(maxConcurrent)), bps);
+    if (loaded) await api.saveSettings({ ...loaded, max_concurrent: Math.min(10, Math.max(1, Math.round(maxConcurrent))), max_speed_bps: bps });
     await api.setAutostart(autostart);
     await api.setNotifyOnComplete(notify);
     onClose();

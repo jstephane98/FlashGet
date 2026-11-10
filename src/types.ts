@@ -48,9 +48,23 @@ export interface Download {
   queue_rank?: number | null;
 }
 
+export type ConflictPolicy = "rename" | "overwrite";
+export type AudioFormat = "mp3" | "m4a" | "opus";
+
 export interface Settings {
   max_concurrent: number;
   max_speed_bps: number;
+  connections: number;
+  retries: number;
+  auto_resume: boolean;
+  conflict: ConflictPolicy;
+  close_to_tray: boolean;
+  notify_complete: boolean;
+  notify_error: boolean;
+  video_max_height: number;
+  audio_format: AudioFormat;
+  audio_kbps: number;
+  sub_langs: string[];
 }
 
 export interface Progress {

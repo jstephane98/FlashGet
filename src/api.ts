@@ -123,8 +123,8 @@ export function getSettings(): Promise<Settings> {
   return invoke<Settings>("get_settings");
 }
 
-export function updateSettings(maxConcurrent: number, maxSpeedBps: number): Promise<void> {
-  return invoke("update_settings", { maxConcurrent, maxSpeedBps });
+export function saveSettings(s: Settings): Promise<Settings> {
+  return invoke<Settings>("save_settings", { s });
 }
 
 export function pauseAll(): Promise<void> {

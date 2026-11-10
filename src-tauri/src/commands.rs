@@ -381,16 +381,17 @@ pub fn get_settings(state: State<AppState>) -> Result<Settings, String> {
 }
 
 #[tauri::command]
-pub fn update_settings(app: AppHandle, max_concurrent: u32, max_speed_bps: u64) -> Result<(), String> {
-    {
+pub fn save_settings(app: AppHandle, s: Settings) -> Result<Settings, String> {
+    download_core::model::validate_settings(&s)?;
+    let saved = {
         let state = app.state::<AppState>();
-        let s = Settings { max_concurrent: max_concurrent.max(1), max_speed_bps };
         state.storage.set_settings(&s).map_err(|e| e.to_string())?;
         // Pendant une plage avec limite, la limite de la plage reste appliquée.
         crate::queue::apply_effective_rate(&state);
-    }
+        state.storage.get_settings().map_err(|e| e.to_string())?
+    };
     reevaluate(&app);
-    Ok(())
+    Ok(saved)
 }
 
 #[tauri::command]

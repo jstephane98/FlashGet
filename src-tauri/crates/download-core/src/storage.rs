@@ -1,4 +1,4 @@
-use crate::model::{Download, DownloadKind, DownloadStatus, Priority, Settings, Category, CategoryDirs};
+use crate::model::{AudioFormat, ConflictPolicy, Download, DownloadKind, DownloadStatus, Priority, Settings, Category, CategoryDirs};
 use crate::CoreError;
 use rusqlite::Connection;
 use std::path::Path;
@@ -422,14 +422,45 @@ impl Storage {
         let read = |key: &str| -> Option<String> {
             conn.query_row("SELECT value FROM settings WHERE key=?1", [key], |r| r.get::<_, String>(0)).ok()
         };
-        let mut s = Settings::default();
-        if let Some(v) = read("max_concurrent") {
-            if let Ok(n) = v.parse::<u32>() { s.max_concurrent = n; }
-        }
-        if let Some(v) = read("max_speed_bps") {
-            if let Ok(n) = v.parse::<u64>() { s.max_speed_bps = n; }
-        }
-        Ok(s)
+        let num = |key: &str| -> Option<u32> { read(key).and_then(|v| v.trim().parse::<u32>().ok()) };
+        let flag = |key: &str| -> Option<bool> {
+            match read(key)?.trim() {
+                "1" | "true" | "on" => Some(true),
+                "0" | "false" | "off" => Some(false),
+                _ => None,
+            }
+        };
+        let d = Settings::default();
+        Ok(Settings {
+            max_concurrent: num("max_concurrent").unwrap_or(d.max_concurrent),
+            max_speed_bps: read("max_speed_bps").and_then(|v| v.trim().parse::<u64>().ok()).unwrap_or(d.max_speed_bps),
+            connections: num("connections").unwrap_or(d.connections),
+            retries: num("retries").unwrap_or(d.retries),
+            auto_resume: flag("auto_resume").unwrap_or(d.auto_resume),
+            conflict: read("conflict")
+                .and_then(|v| match v.as_str() {
+                    "rename" => Some(ConflictPolicy::Rename),
+                    "overwrite" => Some(ConflictPolicy::Overwrite),
+                    _ => None,
+                })
+                .unwrap_or(d.conflict),
+            close_to_tray: flag("close_to_tray").unwrap_or(d.close_to_tray),
+            notify_complete: flag("notify_on_complete").unwrap_or(d.notify_complete),
+            notify_error: flag("notify_error").unwrap_or(d.notify_error),
+            video_max_height: num("video_max_height").unwrap_or(d.video_max_height),
+            audio_format: read("audio_format")
+                .and_then(|v| match v.as_str() {
+                    "mp3" => Some(AudioFormat::Mp3),
+                    "m4a" => Some(AudioFormat::M4a),
+                    "opus" => Some(AudioFormat::Opus),
+                    _ => None,
+                })
+                .unwrap_or(d.audio_format),
+            audio_kbps: num("audio_kbps").unwrap_or(d.audio_kbps),
+            sub_langs: read("sub_langs")
+                .and_then(|v| serde_json::from_str::<Vec<String>>(&v).ok())
+                .unwrap_or(d.sub_langs),
+        })
     }
 
     pub fn set_settings(&self, s: &Settings) -> Result<(), CoreError> {
@@ -442,8 +473,22 @@ impl Storage {
             .map_err(|e| CoreError::Storage(e.to_string()))?;
             Ok(())
         };
+        let b = |v: bool| if v { "1" } else { "0" }.to_string();
+        let conflict = match s.conflict { ConflictPolicy::Rename => "rename", ConflictPolicy::Overwrite => "overwrite" };
+        let fmt = match s.audio_format { AudioFormat::Mp3 => "mp3", AudioFormat::M4a => "m4a", AudioFormat::Opus => "opus" };
         put("max_concurrent", s.max_concurrent.to_string())?;
         put("max_speed_bps", s.max_speed_bps.to_string())?;
+        put("connections", s.connections.to_string())?;
+        put("retries", s.retries.to_string())?;
+        put("auto_resume", b(s.auto_resume))?;
+        put("conflict", conflict.to_string())?;
+        put("close_to_tray", b(s.close_to_tray))?;
+        put("notify_on_complete", b(s.notify_complete))?;
+        put("notify_error", b(s.notify_error))?;
+        put("video_max_height", s.video_max_height.to_string())?;
+        put("audio_format", fmt.to_string())?;
+        put("audio_kbps", s.audio_kbps.to_string())?;
+        put("sub_langs", serde_json::to_string(&s.sub_langs).map_err(|e| CoreError::Storage(e.to_string()))?)?;
         Ok(())
     }
 }
@@ -550,6 +595,7 @@ fn upsert_bridge_token(conn: &Connection, token: &str) -> Result<(), CoreError> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::validate_settings;
 
     #[test]
     fn pref_roundtrip_and_absent() {
@@ -773,11 +819,81 @@ mod tests {
     }
 
     #[test]
-    fn settings_default_then_roundtrip() {
+    fn settings_defaults_for_missing_keys() {
         let s = Storage::open_in_memory().unwrap();
-        assert_eq!(s.get_settings().unwrap(), Settings::default());
-        s.set_settings(&Settings { max_concurrent: 5, max_speed_bps: 1024 }).unwrap();
-        assert_eq!(s.get_settings().unwrap(), Settings { max_concurrent: 5, max_speed_bps: 1024 });
+        let g = s.get_settings().unwrap();
+        assert_eq!(g, Settings::default());
+        assert_eq!((g.connections, g.retries, g.video_max_height), (8, 3, 1080));
+        assert_eq!(g.sub_langs, vec!["fr", "en"]);
+    }
+
+    #[test]
+    fn settings_roundtrip_all_fields() {
+        let s = Storage::open_in_memory().unwrap();
+        let v = Settings {
+            max_concurrent: 5,
+            max_speed_bps: 1024,
+            connections: 16,
+            retries: 7,
+            auto_resume: false,
+            conflict: ConflictPolicy::Overwrite,
+            close_to_tray: false,
+            notify_complete: false,
+            notify_error: false,
+            video_max_height: 720,
+            audio_format: AudioFormat::Opus,
+            audio_kbps: 256,
+            sub_langs: vec!["de".into(), "es".into(), "it".into()],
+        };
+        s.set_settings(&v).unwrap();
+        assert_eq!(s.get_settings().unwrap(), v);
+    }
+
+    #[test]
+    fn legacy_notify_key_is_reused() {
+        let s = Storage::open_in_memory().unwrap();
+        s.set_notify_on_complete(false).unwrap();
+        assert!(!s.get_settings().unwrap().notify_complete);
+        let mut v = s.get_settings().unwrap();
+        v.notify_complete = true;
+        s.set_settings(&v).unwrap();
+        assert!(s.get_notify_on_complete().unwrap());
+    }
+
+    #[test]
+    fn unreadable_keys_fall_back_to_defaults() {
+        let s = Storage::open_in_memory().unwrap();
+        s.set_pref("connections", "abc").unwrap();
+        s.set_pref("conflict", "???").unwrap();
+        s.set_pref("sub_langs", "not json").unwrap();
+        let g = s.get_settings().unwrap();
+        assert_eq!(g, Settings::default());
+    }
+
+    #[test]
+    fn validate_settings_cases() {
+        assert!(validate_settings(&Settings::default()).is_ok());
+        let bad = |f: &dyn Fn(&mut Settings), msg: &str| {
+            let mut s = Settings::default();
+            f(&mut s);
+            assert_eq!(validate_settings(&s), Err(msg.to_string()));
+        };
+        bad(&|s| s.max_concurrent = 0, "Téléchargements simultanés : entre 1 et 10");
+        bad(&|s| s.max_concurrent = 11, "Téléchargements simultanés : entre 1 et 10");
+        bad(&|s| s.connections = 0, "Connexions par fichier : entre 1 et 32");
+        bad(&|s| s.connections = 33, "Connexions par fichier : entre 1 et 32");
+        bad(&|s| s.retries = 11, "Nouvelles tentatives : entre 0 et 10");
+        bad(&|s| s.video_max_height = 999, "Qualité vidéo inconnue");
+        bad(&|s| s.audio_kbps = 100, "Débit audio inconnu");
+        bad(&|s| s.sub_langs = vec![], "Langues de sous-titres invalides");
+        bad(&|s| s.sub_langs = vec!["fr".into(); 7], "Langues de sous-titres invalides");
+        bad(&|s| s.sub_langs = vec!["FR".into()], "Langues de sous-titres invalides");
+        bad(&|s| s.sub_langs = vec!["fra".into()], "Langues de sous-titres invalides");
+        let mut ok = Settings::default();
+        ok.retries = 0;
+        ok.audio_kbps = 320;
+        ok.video_max_height = 360;
+        assert!(validate_settings(&ok).is_ok());
     }
 
     #[test]

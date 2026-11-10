@@ -106,7 +106,7 @@ pub fn run() {
             commands::cancel_download,
             commands::set_priority,
             commands::get_settings,
-            commands::update_settings,
+            commands::save_settings,
             commands::pause_all,
             commands::resume_all,
             commands::get_category_dirs,
