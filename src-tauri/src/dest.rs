@@ -1,7 +1,7 @@
 //! Choix du dossier de destination et noms de fichiers uniques.
 
 use crate::state::AppState;
-use download_core::model::Category;
+use download_core::model::{Category, ConflictPolicy};
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
@@ -64,6 +64,75 @@ pub fn unique_file_name(dir: &Path, name: &str, taken: &[String]) -> String {
     }
 }
 
+/// Décision pour un nom déjà pris.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ConflictResolution {
+    /// Le nom est libre.
+    Use(String),
+    /// Nom suivant libre (`"{stem} ({n}){.ext}"`).
+    Rename(String),
+    /// L'ancien fichier (ce chemin) est remplacé ; le nom ne change pas.
+    ReplaceExisting(PathBuf),
+}
+
+/// Applique la politique de conflit. `exists_on_disk` : un fichier ordinaire porte déjà ce
+/// nom. `ReplaceExisting` seulement en « remplacer », pour un fichier présent sur le disque
+/// qu'aucun autre téléchargement ne vise (`taken`) ; dans tous les autres cas de conflit
+/// (dossier du même nom compris), on renomme.
+pub fn resolve_conflict(dir: &Path, name: &str, taken: &[String], policy: ConflictPolicy, exists_on_disk: bool) -> ConflictResolution {
+    let unique = unique_file_name(dir, name, taken);
+    if unique == name {
+        return ConflictResolution::Use(unique);
+    }
+    let path = dir.join(name);
+    let planned = taken.iter().any(|t| Path::new(t) == path.as_path());
+    if policy == ConflictPolicy::Overwrite && exists_on_disk && !planned {
+        ConflictResolution::ReplaceExisting(path)
+    } else {
+        ConflictResolution::Rename(unique)
+    }
+}
+
+/// Nom retenu pour un nouveau téléchargement.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Placement {
+    pub file_name: String,
+    /// « Remplacer » demandé mais la Corbeille a échoué : on a renommé.
+    pub replace_failed: bool,
+}
+
+/// `resolve_conflict` puis exécution : `ReplaceExisting` envoie l'ancien fichier à la
+/// Corbeille (`trash`) et supprime son fichier de reprise ; si la Corbeille échoue, on
+/// renomme et on le signale.
+pub fn settle_conflict(
+    dir: &Path,
+    name: &str,
+    taken: &[String],
+    policy: ConflictPolicy,
+    trash: impl FnOnce(&Path) -> Result<(), String>,
+) -> Placement {
+    let exists = dir.join(name).is_file();
+    match resolve_conflict(dir, name, taken, policy, exists) {
+        ConflictResolution::Use(n) | ConflictResolution::Rename(n) => Placement { file_name: n, replace_failed: false },
+        ConflictResolution::ReplaceExisting(path) => match trash(&path) {
+            Ok(()) => {
+                download_core::resume::clear(&path);
+                Placement { file_name: name.to_string(), replace_failed: false }
+            }
+            Err(e) => {
+                eprintln!("conflit: corbeille impossible pour {}: {e}", path.display());
+                Placement { file_name: unique_file_name(dir, name, taken), replace_failed: true }
+            }
+        },
+    }
+}
+
+/// `settle_conflict` avec la politique des réglages, les chemins déjà prévus et la vraie Corbeille.
+pub fn place_file(app: &AppHandle, dir: &Path, name: &str) -> Placement {
+    let policy = app.state::<AppState>().storage.get_settings().map(|s| s.conflict).unwrap_or_default();
+    settle_conflict(dir, name, &taken_paths(app), policy, |p| trash::delete(p).map_err(|e| e.to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -105,6 +174,56 @@ mod tests {
         let d = tempfile::tempdir().unwrap();
         let taken = vec![d.path().join("a.mp4").to_string_lossy().to_string()];
         assert_eq!(unique_file_name(d.path(), "a.mp4", &taken), "a (2).mp4");
+    }
+
+    #[test]
+    fn conflict_policy() {
+        use ConflictPolicy::{Overwrite, Rename};
+        let d = tempfile::tempdir().unwrap();
+        let dir = d.path();
+        // Nom libre : utilisé tel quel, quelle que soit la politique.
+        assert_eq!(resolve_conflict(dir, "a.mp4", &[], Overwrite, false), ConflictResolution::Use("a.mp4".into()));
+        assert_eq!(resolve_conflict(dir, "a.mp4", &[], Rename, false), ConflictResolution::Use("a.mp4".into()));
+        std::fs::write(dir.join("a.mp4"), b"x").unwrap();
+        // Fichier présent, « renommer » : nom suivant.
+        assert_eq!(resolve_conflict(dir, "a.mp4", &[], Rename, true), ConflictResolution::Rename("a (2).mp4".into()));
+        // Fichier présent, « remplacer » : l'ancien sera remplacé.
+        assert_eq!(resolve_conflict(dir, "a.mp4", &[], Overwrite, true), ConflictResolution::ReplaceExisting(dir.join("a.mp4")));
+        // Chemin déjà prévu par un autre téléchargement : on renomme même en « remplacer ».
+        let taken = vec![dir.join("a.mp4").to_string_lossy().to_string()];
+        assert_eq!(resolve_conflict(dir, "a.mp4", &taken, Overwrite, true), ConflictResolution::Rename("a (2).mp4".into()));
+        let taken = vec![dir.join("b.mp4").to_string_lossy().to_string()];
+        assert_eq!(resolve_conflict(dir, "b.mp4", &taken, Overwrite, false), ConflictResolution::Rename("b (2).mp4".into()));
+        // Un dossier du même nom n'est jamais remplacé.
+        std::fs::create_dir(dir.join("c.mp4")).unwrap();
+        assert_eq!(resolve_conflict(dir, "c.mp4", &[], Overwrite, false), ConflictResolution::Rename("c (2).mp4".into()));
+    }
+
+    #[test]
+    fn settle_conflict_trashes_or_falls_back() {
+        let d = tempfile::tempdir().unwrap();
+        let dir = d.path();
+        let old = dir.join("a.mp4");
+        std::fs::write(&old, b"x").unwrap();
+        let sidecar = download_core::resume::sidecar_path(&old);
+        std::fs::write(&sidecar, b"{}").unwrap();
+        // Corbeille en échec : on renomme et on le signale.
+        let p = settle_conflict(dir, "a.mp4", &[], ConflictPolicy::Overwrite, |_| Err("non".into()));
+        assert_eq!(p, Placement { file_name: "a (2).mp4".into(), replace_failed: true });
+        assert!(old.exists() && sidecar.exists());
+        // Corbeille OK : même nom, fichier de reprise supprimé.
+        let mut trashed = Vec::new();
+        let p = settle_conflict(dir, "a.mp4", &[], ConflictPolicy::Overwrite, |p| {
+            trashed.push(p.to_path_buf());
+            std::fs::remove_file(p).map_err(|e| e.to_string())
+        });
+        assert_eq!(p, Placement { file_name: "a.mp4".into(), replace_failed: false });
+        assert_eq!(trashed, [old.clone()]);
+        assert!(!old.exists() && !sidecar.exists());
+        // « Renommer » : la Corbeille n'est jamais appelée.
+        std::fs::write(&old, b"x").unwrap();
+        let p = settle_conflict(dir, "a.mp4", &[], ConflictPolicy::Rename, |_| panic!("corbeille"));
+        assert_eq!(p, Placement { file_name: "a (2).mp4".into(), replace_failed: false });
     }
 
     #[test]

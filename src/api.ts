@@ -85,6 +85,8 @@ export interface BatchSummary {
   skipped_invalid: number;
   skipped_duplicate: number;
   failed: number;
+  /** Réglage « remplacer » : renommés faute de pouvoir mettre l'ancien fichier à la Corbeille. */
+  not_replaced: number;
 }
 
 export function addBatchDownloads(text: string, destDir: string, mode: string = "direct", hold = false): Promise<BatchSummary> {

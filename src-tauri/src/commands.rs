@@ -34,18 +34,21 @@ pub struct BatchSummary {
     pub skipped_invalid: usize,
     pub skipped_duplicate: usize,
     pub failed: usize,
+    /// Réglage « remplacer » : fichiers renommés faute de pouvoir mettre l'ancien à la Corbeille.
+    pub not_replaced: usize,
 }
 
 /// Crée un `Download` (`Queued`, ou `Held` si `hold`) SANS sonder l'URL (le moteur sondera
 /// au démarrage). Le nom vient de l'URL ; taille/segments inconnus. Ne ré-évalue PAS la file
-/// (l'appelant le fait une seule fois après le lot).
+/// (l'appelant le fait une seule fois après le lot). Le booléen : « remplacer » demandé
+/// mais impossible (Corbeille en échec, fichier renommé).
 pub(crate) async fn add_url_no_probe(
     app: &AppHandle,
     url: &str,
     dest_dir: &str,
     headers: RequestHeaders,
     hold: bool,
-) -> Result<Download, String> {
+) -> Result<(Download, bool), String> {
     let file_name = download_core::naming::choose_file_name(
         None,
         download_core::http::file_name_from_url(url).as_deref(),
@@ -54,11 +57,13 @@ pub(crate) async fn add_url_no_probe(
 
     // Dossier : argument explicite > dossier configuré pour la catégorie > dossier Téléchargements.
     let dest_dir = crate::dest::dest_dir_for(app, Some(dest_dir), category)?;
-    let file_name = crate::dest::unique_file_name(&dest_dir, &file_name, &crate::dest::taken_paths(app));
-    let dest_path = dest_dir.join(&file_name);
-    if dest_path.parent() != Some(dest_dir.as_path()) {
+    // Nom invalide refusé avant tout passage à la Corbeille.
+    if dest_dir.join(&file_name).parent() != Some(dest_dir.as_path()) {
         return Err("invalid file name derived from URL".to_string());
     }
+    let placed = crate::dest::place_file(app, &dest_dir, &file_name);
+    let file_name = placed.file_name;
+    let dest_path = dest_dir.join(&file_name);
 
     let download = Download {
         id: uuid::Uuid::new_v4().to_string(),
@@ -90,26 +95,29 @@ pub(crate) async fn add_url_no_probe(
         let state = app.state::<AppState>();
         state.storage.upsert(&download).map_err(|e| e.to_string())?;
     }
-    Ok(download)
+    Ok((download, placed.replace_failed))
 }
 
 /// Crée un téléchargement yt-dlp (vidéo meilleure qualité ou audio MP3), `Queued` ou `Held` si `hold`.
-async fn add_ytdlp_queued(app: &AppHandle, url: &str, title: &str, audio: bool, dest_dir: Option<&str>, hold: bool) -> Result<Download, String> {
+/// Le booléen : comme pour `add_url_no_probe`.
+async fn add_ytdlp_queued(app: &AppHandle, url: &str, title: &str, audio: bool, dest_dir: Option<&str>, hold: bool) -> Result<(Download, bool), String> {
     let stem = download_core::naming::sanitize_title(Some(title));
     let stem = if stem.trim().is_empty() { "video".to_string() } else { stem };
     let ext = if audio { "mp3" } else { "mp4" };
     let file_name = download_core::naming::ensure_extension(&stem, ext);
     let category = if audio { Category::Music } else { Category::Video };
     let dest_dir = crate::dest::dest_dir_for(app, dest_dir, category)?;
-    let file_name = crate::dest::unique_file_name(&dest_dir, &file_name, &crate::dest::taken_paths(app));
-    let dest_path = dest_dir.join(&file_name);
-    if dest_path.parent() != Some(dest_dir.as_path()) {
+    // Nom invalide refusé avant tout passage à la Corbeille.
+    if dest_dir.join(&file_name).parent() != Some(dest_dir.as_path()) {
         return Err("nom de fichier invalide".into());
     }
+    let placed = crate::dest::place_file(app, &dest_dir, &file_name);
+    let file_name = placed.file_name;
+    let dest_path = dest_dir.join(&file_name);
     let job = if audio {
-        download_core::ytdlp::YtdlpJob { format_id: "bestaudio".into(), mode: download_core::ytdlp::JobMode::Audio, time_range: None, subs: None, convert_mp3: true }
+        download_core::ytdlp::YtdlpJob { format_id: "bestaudio".into(), mode: download_core::ytdlp::JobMode::Audio, convert_mp3: true, ..Default::default() }
     } else {
-        download_core::ytdlp::YtdlpJob { format_id: "bestvideo".into(), mode: download_core::ytdlp::JobMode::Av, time_range: None, subs: None, convert_mp3: false }
+        download_core::ytdlp::YtdlpJob { format_id: "bestvideo".into(), mode: download_core::ytdlp::JobMode::Av, ..Default::default() }
     };
     let sel = serde_json::to_string(&job).map_err(|e| e.to_string())?;
     let download = Download {
@@ -138,7 +146,7 @@ async fn add_ytdlp_queued(app: &AppHandle, url: &str, title: &str, audio: bool, 
         queue_rank: None,
     };
     app.state::<AppState>().storage.upsert(&download).map_err(|e| e.to_string())?;
-    Ok(download)
+    Ok((download, placed.replace_failed))
 }
 
 /// Ajoute en lot : parse le texte (une URL par ligne), crée chaque téléchargement
@@ -152,6 +160,7 @@ pub async fn add_batch_downloads(app: AppHandle, args: AddBatchArgs) -> Result<B
     let parsed = download_core::batch::parse_batch(&args.text);
     let mut added = 0usize;
     let mut failed = 0usize;
+    let mut not_replaced = 0usize;
     let mode = args.mode.as_deref().unwrap_or("direct");
     for url in &parsed.urls {
         if mode == "video" || mode == "audio" {
@@ -159,7 +168,10 @@ pub async fn add_batch_downloads(app: AppHandle, args: AddBatchArgs) -> Result<B
                 Ok(entries) => {
                     for (u, t) in entries {
                         match add_ytdlp_queued(&app, &u, &t, mode == "audio", Some(&args.dest_dir), args.hold).await {
-                            Ok(_) => added += 1,
+                            Ok((_, replace_failed)) => {
+                                added += 1;
+                                not_replaced += replace_failed as usize;
+                            }
                             Err(e) => {
                                 eprintln!("batch: échec ajout {u}: {e}");
                                 failed += 1;
@@ -175,7 +187,10 @@ pub async fn add_batch_downloads(app: AppHandle, args: AddBatchArgs) -> Result<B
             continue;
         }
         match add_url_no_probe(&app, url, &args.dest_dir, RequestHeaders::default(), args.hold).await {
-            Ok(_) => added += 1,
+            Ok((_, replace_failed)) => {
+                added += 1;
+                not_replaced += replace_failed as usize;
+            }
             Err(e) => {
                 eprintln!("batch: échec ajout {url}: {e}");
                 failed += 1;
@@ -193,6 +208,7 @@ pub async fn add_batch_downloads(app: AppHandle, args: AddBatchArgs) -> Result<B
         skipped_invalid: parsed.skipped_invalid,
         skipped_duplicate: parsed.skipped_duplicate,
         failed,
+        not_replaced,
     })
 }
 

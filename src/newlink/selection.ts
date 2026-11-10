@@ -17,8 +17,9 @@ export function defaultFormat(formats: MediaFormat[], kind: FormatKind): MediaFo
 }
 
 export function outputExtension(f: MediaFormat): string {
-  if (f.format_id === "mp3") return ".mp3";
+  // Ligne de conversion (`format_id` "convert") : son conteneur est le format des réglages.
   if (f.kind === "audio" && f.container) return "." + f.container.toLowerCase();
+  if (f.format_id === "convert") return ".mp3";
   return ".mp4";
 }
 

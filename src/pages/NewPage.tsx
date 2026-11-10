@@ -113,6 +113,7 @@ export function NewPage({
       if (s.skipped_duplicate) parts.push(`${s.skipped_duplicate} doublon(s)`);
       if (s.skipped_invalid) parts.push(`${s.skipped_invalid} ignoré(s)`);
       if (s.failed) parts.push(`${s.failed} échec(s)`);
+      if (s.not_replaced) parts.push(`${s.not_replaced} renommé(s), Corbeille indisponible`);
       onDone(parts.join(" · "));
     } catch (e) {
       setBatchError(`Échec de l'ajout en lot : ${errText(e)}`);
