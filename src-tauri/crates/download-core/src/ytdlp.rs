@@ -3,7 +3,7 @@
 //! `-f`, et parse les lignes de progression. Aucune dépendance Tauri/process.
 
 use crate::CoreError;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 /// Un format yt-dlp pertinent extrait de `yt-dlp -J`.
 #[derive(Debug, Clone, PartialEq)]
@@ -16,10 +16,20 @@ pub struct YtdlpFormat {
     pub acodec: Option<String>,
     pub filesize: Option<u64>,
     pub tbr: Option<f64>,
+    pub fps: Option<f32>,
+    pub abr: Option<f64>,
 }
 
 #[derive(Deserialize)]
 struct RawInfo {
+    #[serde(default)]
+    thumbnail: Option<String>,
+    #[serde(default)]
+    duration: Option<f64>,
+    #[serde(default)]
+    upload_date: Option<String>,
+    #[serde(default)]
+    subtitles: Option<std::collections::HashMap<String, serde_json::Value>>,
     #[serde(default)]
     title: Option<String>,
     #[serde(default)]
@@ -49,6 +59,27 @@ struct RawFormat {
     filesize_approx: Option<u64>,
     #[serde(default)]
     tbr: Option<f64>,
+    #[serde(default)]
+    fps: Option<f32>,
+    #[serde(default)]
+    abr: Option<f64>,
+}
+
+impl From<RawFormat> for YtdlpFormat {
+    fn from(f: RawFormat) -> Self {
+        YtdlpFormat {
+            format_id: f.format_id,
+            height: f.height,
+            width: f.width,
+            ext: f.ext,
+            vcodec: f.vcodec,
+            acodec: f.acodec,
+            filesize: f.filesize.or(f.filesize_approx),
+            tbr: f.tbr,
+            fps: f.fps,
+            abr: f.abr,
+        }
+    }
 }
 
 /// Choisit un nom d'affichage à partir des champs yt-dlp.
@@ -75,21 +106,226 @@ pub fn parse_formats(json: &str) -> Result<(String, Vec<YtdlpFormat>), CoreError
         .map_err(|e| CoreError::Media(format!("sortie yt-dlp illisible: {e}")))?;
     let title = info.title.unwrap_or_default();
     let name = pick_name(&title, info.uploader.as_deref(), info.id.as_deref());
-    let formats = info
-        .formats
-        .into_iter()
-        .map(|f| YtdlpFormat {
-            format_id: f.format_id,
-            height: f.height,
-            width: f.width,
-            ext: f.ext,
-            vcodec: f.vcodec,
-            acodec: f.acodec,
-            filesize: f.filesize.or(f.filesize_approx),
-            tbr: f.tbr,
-        })
-        .collect();
+    let formats = info.formats.into_iter().map(YtdlpFormat::from).collect();
     Ok((name, formats))
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum FormatKind {
+    Av,
+    Video,
+    Audio,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct MediaFormat {
+    pub index: u32,
+    pub kind: FormatKind,
+    pub format_id: String,
+    pub height: Option<u32>,
+    pub label: String,
+    pub container: Option<String>,
+    pub codecs: Option<String>,
+    pub fps: Option<f32>,
+    pub est_size: Option<u64>,
+    pub recommended: bool,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq, Default)]
+pub struct MediaInfo {
+    pub title: String,
+    pub uploader: Option<String>,
+    pub thumbnail: Option<String>,
+    pub duration_s: Option<u64>,
+    pub upload_date: Option<String>,
+    pub subtitle_langs: Vec<String>,
+    pub can_cut: bool,
+}
+
+/// Parse `yt-dlp -J` : métadonnées (`MediaInfo`) + formats bruts.
+pub fn parse_info(json: &str) -> Result<(MediaInfo, Vec<YtdlpFormat>), CoreError> {
+    let info: RawInfo = serde_json::from_str(json)
+        .map_err(|e| CoreError::Media(format!("sortie yt-dlp illisible: {e}")))?;
+    let title = pick_name(
+        info.title.as_deref().unwrap_or(""),
+        info.uploader.as_deref(),
+        info.id.as_deref(),
+    );
+    let upload_date = info.upload_date.as_deref().and_then(|d| {
+        let d = d.trim();
+        (d.len() == 8 && d.bytes().all(|b| b.is_ascii_digit()))
+            .then(|| format!("{}-{}-{}", &d[0..4], &d[4..6], &d[6..8]))
+    });
+    let mut subtitle_langs: Vec<String> = info
+        .subtitles
+        .map(|m| m.into_keys().collect())
+        .unwrap_or_default();
+    subtitle_langs.sort();
+    let media = MediaInfo {
+        title,
+        uploader: info.uploader.filter(|u| !u.trim().is_empty()),
+        thumbnail: info.thumbnail.filter(|t| !t.is_empty()),
+        duration_s: info.duration.filter(|d| *d >= 0.0).map(|d| d.round() as u64),
+        upload_date,
+        subtitle_langs,
+        can_cut: true,
+    };
+    let formats = info.formats.into_iter().map(YtdlpFormat::from).collect();
+    Ok((media, formats))
+}
+
+/// Libellé court d'un codec yt-dlp.
+pub fn codec_label(codec: &str) -> String {
+    let c = codec.trim();
+    if c.starts_with("avc1") {
+        "H.264".into()
+    } else if c == "vp9" || c.starts_with("vp09") {
+        "VP9".into()
+    } else if c.starts_with("av01") {
+        "AV1".into()
+    } else if c.starts_with("hev1") || c.starts_with("hvc1") {
+        "H.265".into()
+    } else if c.starts_with("mp4a") {
+        "AAC".into()
+    } else if c == "opus" {
+        "Opus".into()
+    } else if c == "vorbis" {
+        "Vorbis".into()
+    } else {
+        c.split('.').next().unwrap_or("").to_uppercase()
+    }
+}
+
+fn has_codec(c: &Option<String>) -> bool {
+    c.as_deref().map(|c| c != "none" && !c.is_empty()).unwrap_or(false)
+}
+
+fn abr_of(f: &YtdlpFormat) -> f64 {
+    f.abr.or(f.tbr).unwrap_or(0.0)
+}
+
+/// Liste ordonnée des formats proposés : Av, puis Video, puis Audio (MP3 d'abord).
+pub fn build_media_formats(formats: &[YtdlpFormat]) -> Vec<MediaFormat> {
+    // Audio seul, meilleur abr en premier.
+    let audio_only: Vec<&YtdlpFormat> = formats
+        .iter()
+        .filter(|f| has_codec(&f.acodec) && !has_codec(&f.vcodec))
+        .collect();
+    let best_audio = audio_only
+        .iter()
+        .copied()
+        .max_by(|a, b| abr_of(a).partial_cmp(&abr_of(b)).unwrap_or(std::cmp::Ordering::Equal));
+
+    // Un format vidéo par hauteur : préférence avc1, puis tbr maximal.
+    let mut best_by_height: Vec<(u32, &YtdlpFormat)> = Vec::new();
+    for f in formats.iter().filter(|f| has_codec(&f.vcodec)) {
+        let Some(h) = f.height else { continue };
+        let rank = |f: &YtdlpFormat| {
+            (
+                f.vcodec.as_deref().unwrap_or("").starts_with("avc1"),
+                f.tbr.unwrap_or(0.0),
+            )
+        };
+        match best_by_height.iter_mut().find(|(bh, _)| *bh == h) {
+            Some(slot) => {
+                let (a_avc, a_tbr) = rank(f);
+                let (b_avc, b_tbr) = rank(slot.1);
+                if (a_avc, a_tbr) > (b_avc, b_tbr) {
+                    slot.1 = f;
+                }
+            }
+            None => best_by_height.push((h, f)),
+        }
+    }
+    best_by_height.sort_by(|a, b| b.0.cmp(&a.0));
+    let rec_height = best_by_height.iter().map(|(h, _)| *h).find(|h| *h <= 1080);
+
+    let mut out: Vec<MediaFormat> = Vec::new();
+    let mut push = |out: &mut Vec<MediaFormat>, mut m: MediaFormat| {
+        m.index = out.len() as u32;
+        out.push(m);
+    };
+
+    for (h, f) in &best_by_height {
+        let vlabel = f.vcodec.as_deref().map(codec_label).unwrap_or_default();
+        let codecs = match best_audio.and_then(|a| a.acodec.as_deref()) {
+            Some(ac) => format!("{vlabel} + {}", codec_label(ac)),
+            None => vlabel,
+        };
+        let est_size = match (f.filesize, best_audio.and_then(|a| a.filesize)) {
+            (Some(v), Some(a)) => Some(v + a),
+            _ => None,
+        };
+        push(&mut out, MediaFormat {
+            index: 0,
+            kind: FormatKind::Av,
+            format_id: f.format_id.clone(),
+            height: Some(*h),
+            label: format!("{h}p"),
+            container: f.ext.as_ref().map(|e| e.to_uppercase()),
+            codecs: Some(codecs),
+            fps: f.fps,
+            est_size,
+            recommended: rec_height == Some(*h),
+        });
+    }
+    for (h, f) in &best_by_height {
+        push(&mut out, MediaFormat {
+            index: 0,
+            kind: FormatKind::Video,
+            format_id: f.format_id.clone(),
+            height: Some(*h),
+            label: format!("{h}p"),
+            container: f.ext.as_ref().map(|e| e.to_uppercase()),
+            codecs: f.vcodec.as_deref().map(codec_label),
+            fps: f.fps,
+            est_size: f.filesize,
+            recommended: rec_height == Some(*h),
+        });
+    }
+
+    push(&mut out, MediaFormat {
+        index: 0,
+        kind: FormatKind::Audio,
+        format_id: "mp3".into(),
+        height: None,
+        label: "MP3".into(),
+        container: Some("MP3".into()),
+        codecs: Some("MP3 (conversion)".into()),
+        fps: None,
+        est_size: None,
+        recommended: true,
+    });
+    // Meilleur format audio par extension, dans l'ordre de première apparition.
+    let mut by_ext: Vec<(String, &YtdlpFormat)> = Vec::new();
+    for f in &audio_only {
+        let ext = f.ext.clone().unwrap_or_default();
+        match by_ext.iter_mut().find(|(e, _)| *e == ext) {
+            Some(slot) => {
+                if abr_of(f) > abr_of(slot.1) {
+                    slot.1 = f;
+                }
+            }
+            None => by_ext.push((ext, f)),
+        }
+    }
+    for (ext, f) in by_ext {
+        let up = ext.to_uppercase();
+        push(&mut out, MediaFormat {
+            index: 0,
+            kind: FormatKind::Audio,
+            format_id: f.format_id.clone(),
+            height: None,
+            label: format!("{up} · {} kb/s", abr_of(f).round() as u64),
+            container: Some(up),
+            codecs: f.acodec.as_deref().map(codec_label),
+            fps: None,
+            est_size: f.filesize,
+            recommended: false,
+        });
+    }
+    out
 }
 
 /// Préfixe de progression émis via `--progress-template` (voir couche Tauri).
@@ -212,7 +448,7 @@ mod tests {
         formats.push(YtdlpFormat {
             format_id: "299".into(), height: Some(1080), width: Some(1920),
             ext: Some("mp4".into()), vcodec: Some("avc1".into()), acodec: Some("none".into()),
-            filesize: Some(6000), tbr: Some(4500.0),
+            filesize: Some(6000), tbr: Some(4500.0), fps: None, abr: None,
         });
         let v = select_variants(&formats);
         let n_1080 = v.iter().filter(|(_, mv)| mv.resolution.as_deref() == Some("1920x1080")).count();
@@ -253,13 +489,90 @@ mod tests {
         let formats = vec![YtdlpFormat {
             format_id: "0".into(), height: None, width: None,
             ext: Some("mp4".into()), vcodec: Some("avc1".into()), acodec: Some("none".into()),
-            filesize: None, tbr: None,
+            filesize: None, tbr: None, fps: None, abr: None,
         }];
         let v = select_variants(&formats);
         assert_eq!(v.len(), 2);
         assert_eq!(v[0].1.resolution, None);
         assert_eq!(v[0].1.bandwidth, 0);
         assert_eq!(v[1].0, "bestaudio");
+    }
+
+    const INFO_SAMPLE: &str = r#"{
+        "title": "Ma vidéo", "uploader": "Chaîne", "thumbnail": "https://img/x.jpg",
+        "duration": 768.4, "upload_date": "20261102",
+        "subtitles": {"fr": [{"ext":"vtt"}], "en": [{"ext":"vtt"}]},
+        "formats": [
+            {"format_id":"137","height":1080,"ext":"mp4","vcodec":"avc1.640028","acodec":"none","filesize":1000000,"tbr":4000.0,"fps":60},
+            {"format_id":"248","height":1080,"ext":"webm","vcodec":"vp9","acodec":"none","tbr":5000.0},
+            {"format_id":"22","height":720,"ext":"mp4","vcodec":"avc1.64001F","acodec":"none","filesize":500000},
+            {"format_id":"313","height":2160,"ext":"webm","vcodec":"vp9","acodec":"none","filesize":4000000},
+            {"format_id":"140","ext":"m4a","vcodec":"none","acodec":"mp4a.40.2","abr":129,"filesize":100000},
+            {"format_id":"251","ext":"webm","vcodec":"none","acodec":"opus","abr":160,"filesize":120000},
+            {"format_id":"250","ext":"webm","vcodec":"none","acodec":"opus","abr":70}
+        ]
+    }"#;
+
+    #[test]
+    fn parse_info_reads_metadata() {
+        let (info, f) = parse_info(INFO_SAMPLE).unwrap();
+        assert_eq!(info.title, "Ma vidéo");
+        assert_eq!(info.duration_s, Some(768));
+        assert_eq!(info.upload_date.as_deref(), Some("2026-11-02"));
+        assert_eq!(info.subtitle_langs, vec!["en", "fr"]);
+        assert!(info.can_cut && info.thumbnail.is_some() && f.len() == 7);
+    }
+
+    #[test]
+    fn av_formats_one_per_height_prefer_h264() {
+        let (_, f) = parse_info(INFO_SAMPLE).unwrap();
+        let av: Vec<_> = build_media_formats(&f).into_iter().filter(|m| m.kind == FormatKind::Av).collect();
+        assert_eq!(av.iter().map(|m| m.label.as_str()).collect::<Vec<_>>(), ["2160p", "1080p", "720p"]);
+        let p1080 = &av[1];
+        assert_eq!(p1080.format_id, "137");
+        assert_eq!(p1080.codecs.as_deref(), Some("H.264 + Opus"));
+        assert_eq!(p1080.est_size, Some(1_120_000));
+        assert_eq!(p1080.fps, Some(60.0));
+        assert!(p1080.recommended && !av[0].recommended);
+    }
+
+    #[test]
+    fn video_formats_follow_av_with_same_heights() {
+        let (_, f) = parse_info(INFO_SAMPLE).unwrap();
+        let v: Vec<_> = build_media_formats(&f).into_iter().filter(|m| m.kind == FormatKind::Video).collect();
+        assert_eq!(v.iter().map(|m| m.label.as_str()).collect::<Vec<_>>(), ["2160p", "1080p", "720p"]);
+        assert_eq!(v[1].codecs.as_deref(), Some("H.264"));
+        assert_eq!(v[1].est_size, Some(1_000_000));
+        assert!(v[1].recommended && !v[0].recommended);
+    }
+
+    #[test]
+    fn audio_formats_mp3_first_then_native_by_ext() {
+        let (_, f) = parse_info(INFO_SAMPLE).unwrap();
+        let au: Vec<_> = build_media_formats(&f).into_iter().filter(|m| m.kind == FormatKind::Audio).collect();
+        assert_eq!(au[0].format_id, "mp3");
+        assert!(au[0].recommended);
+        assert_eq!(au.iter().skip(1).map(|m| m.label.as_str()).collect::<Vec<_>>(), ["M4A · 129 kb/s", "WEBM · 160 kb/s"]);
+    }
+
+    #[test]
+    fn indexes_are_positions() {
+        let (_, f) = parse_info(INFO_SAMPLE).unwrap();
+        for (i, m) in build_media_formats(&f).iter().enumerate() {
+            assert_eq!(m.index as usize, i);
+        }
+    }
+
+    #[test]
+    fn codec_labels() {
+        assert_eq!(codec_label("avc1.640028"), "H.264");
+        assert_eq!(codec_label("vp09.00.40.08"), "VP9");
+        assert_eq!(codec_label("av01.0.08M.08"), "AV1");
+        assert_eq!(codec_label("hev1.1.6"), "H.265");
+        assert_eq!(codec_label("mp4a.40.2"), "AAC");
+        assert_eq!(codec_label("opus"), "Opus");
+        assert_eq!(codec_label("vorbis"), "Vorbis");
+        assert_eq!(codec_label("flac"), "FLAC");
     }
 
     #[test]
