@@ -5,7 +5,6 @@ import * as api from "../../api";
 import type { Download } from "../../types";
 import { formatBytes, formatElapsed } from "../../format";
 import { formatLabel, downloadDuration, formatDay } from "../../library/library";
-import { CategoryIcon } from "../categoryIcons";
 import { Thumb } from "./Thumb";
 import { t } from "../../i18n";
 
@@ -62,7 +61,12 @@ export function DetailPanel({ d, onOpenFile, onOpenFolder, onCopyLink, onRedownl
 
   let top;
   if (missing) {
-    top = <div className="p-4 text-sm text-err text-center">{t("lib.missing")}</div>;
+    top = (
+      <div className="p-3 flex flex-col gap-2">
+        <Thumb d={d} className="w-full h-32" iconSize={32} />
+        <div className="text-sm text-err text-center">{t("lib.missing")}</div>
+      </div>
+    );
   } else if (playError) {
     top = <div className="p-4 text-sm text-ink-soft text-center">{t("lib.cantPlay")}</div>;
   } else if (player?.kind === "video") {
@@ -75,7 +79,7 @@ export function DetailPanel({ d, onOpenFile, onOpenFolder, onCopyLink, onRedownl
       </div>
     );
   } else if (info && !info.playable) {
-    top = <div className="h-32 flex items-center justify-center text-ink-mute"><CategoryIcon cat={d.category} size={48} /></div>;
+    top = <div className="p-3"><Thumb d={d} className="w-full h-32" iconSize={48} /></div>;
   } else {
     top = <div className="h-32" />;
   }
@@ -98,7 +102,7 @@ export function DetailPanel({ d, onOpenFile, onOpenFolder, onCopyLink, onRedownl
           {row(t("lib.size"), size != null && size > 0 ? formatBytes(size) : "—", "font-mono")}
           {d.duration_s != null && row(t("lib.duration"), formatElapsed(d.duration_s), "font-mono")}
           {d.completed_at != null && row(t("lib.finished"), `${formatDay(d.completed_at)}${dur != null ? ` · ${formatElapsed(dur)}` : ""}`, "font-mono")}
-          {row(t("lib.folder"), <span title={folderOf(d.dest_path)} className="block truncate font-mono text-[11px]" style={{ direction: "rtl", textAlign: "left" }}>{folderOf(d.dest_path)}</span>)}
+          {row(t("lib.folder"), <span title={folderOf(d.dest_path)} className="block truncate font-mono text-[11px]" style={{ direction: "rtl", textAlign: "left" }}><bdi dir="ltr">{folderOf(d.dest_path)}</bdi></span>)}
           {row(t("lib.source"), <span title={d.url} className="block truncate text-accent-fg">{d.url}</span>)}
         </dl>
         <div className="grid grid-cols-2 gap-2">

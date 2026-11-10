@@ -61,6 +61,23 @@ describe("DetailPanel", () => {
     expect(allowPlayback).not.toHaveBeenCalled();
   });
 
+  it("non lisible avec vignette : affiche l'image", async () => {
+    getFileInfo.mockResolvedValue({ exists: true, size: 5, playable: null });
+    const { container } = render(<DetailPanel d={mk({ file_name: "a.mkv", thumbnail_url: "https://x/t.jpg" })} {...cbs()} />);
+    await screen.findByText("5 o");
+    expect(container.querySelector("img")).not.toBeNull();
+  });
+
+  it("dossier : chemin exact, isolé en ltr", async () => {
+    getFileInfo.mockResolvedValue({ exists: true, size: 5, playable: null });
+    const p = String.raw`D:\Vidéos\Concert (2)`;
+    const { container } = render(<DetailPanel d={mk({ dest_path: p + String.raw`\f.mp4` })} {...cbs()} />);
+    await screen.findByText("5 o");
+    const bdi = container.querySelector("bdi")!;
+    expect(bdi.getAttribute("dir")).toBe("ltr");
+    expect(bdi.textContent).toBe(p);
+  });
+
   it("erreur de lecture", async () => {
     getFileInfo.mockResolvedValue({ exists: true, size: 5, playable: "video" });
     const { container } = render(<DetailPanel d={mk()} {...cbs()} />);
@@ -75,7 +92,7 @@ describe("DetailPanel", () => {
     render(<DetailPanel d={mk()} {...cbs()} />);
     expect(await screen.findByText("2,0 Mo")).toBeTruthy();
     expect(screen.getByText("MP4")).toBeTruthy();
-    expect(screen.getByText("02:05")).toBeTruthy();
+    expect(screen.getAllByText("02:05").length).toBeGreaterThan(0);
     expect(screen.getByText(/· 01:23/)).toBeTruthy();
     expect(screen.getByText("https://example.com/f")).toBeTruthy();
   });

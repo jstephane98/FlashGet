@@ -715,7 +715,6 @@ fn launch(app: &AppHandle, download: Download, handle: DownloadHandle) {
                 last_bytes = p.downloaded_bytes;
             }
             p.speed_bps = current_speed;
-            let _ = app_for_rx.emit("download://progress", &p);
             let persist = matches!(p.status, DownloadStatus::Completed | DownloadStatus::Paused | DownloadStatus::Error)
                 || (p.status == DownloadStatus::Recording && last_persisted != Some(DownloadStatus::Recording));
             if persist {
@@ -734,6 +733,9 @@ fn launch(app: &AppHandle, download: Download, handle: DownloadHandle) {
                 }
                 last_persisted = Some(p.status);
             }
+            // Émission APRÈS la persistance des états terminaux : un refresh() côté UI
+            // déclenché par l'évènement lit ainsi le statut et completed_at à jour.
+            let _ = app_for_rx.emit("download://progress", &p);
         }
     });
 

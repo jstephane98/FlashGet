@@ -56,7 +56,7 @@ fn find(app: &AppHandle, id: &str) -> Result<download_core::model::Download, Str
         .ok_or_else(|| format!("download not found: {id}"))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn get_file_info(app: AppHandle, id: String) -> Result<FileInfo, String> {
     let d = find(&app, &id)?;
     Ok(file_info(Path::new(&d.dest_path)))

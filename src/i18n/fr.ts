@@ -116,6 +116,7 @@ export const fr = {
   "lib.copyLink": "Copier le lien",
   "lib.redownload": "Re-télécharger",
   "lib.delete": "Supprimer…",
+  "lib.noResults": "Aucun résultat pour ce filtre.",
   "lib.missing": "Fichier introuvable (déplacé ou supprimé)",
   "lib.cantPlay": "Lecture impossible ici — utilise « Ouvrir »",
   "lib.deleteTitle": "Supprimer « {name} » ?",

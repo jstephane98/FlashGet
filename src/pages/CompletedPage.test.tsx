@@ -105,7 +105,8 @@ describe("CompletedPage", () => {
     expect(screen.queryAllByText("film.mp4")).toHaveLength(0);
     expect(screen.queryAllByText("song.mp3")).toHaveLength(0);
     fireEvent.change(screen.getByPlaceholderText("Rechercher…"), { target: { value: "rien" } });
-    expect(screen.getByText("Aucun téléchargement terminé.")).toBeTruthy();
+    expect(screen.getByText("Aucun résultat pour ce filtre.")).toBeTruthy();
+    expect(screen.queryByText("Aucun téléchargement terminé.")).toBeNull();
     expect(screen.queryByRole("complementary")).toBeNull();
   });
 

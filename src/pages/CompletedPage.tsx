@@ -146,7 +146,7 @@ export function CompletedPage({
       <div className="flex flex-1 min-h-0">
         <div className="flex-1 min-w-0 overflow-auto px-5 pb-5">
           {view == null ? null : shown.length === 0 ? (
-            <div className="p-8 text-center text-ink-mute text-sm">{t("done.empty")}</div>
+            <div className="p-8 text-center text-ink-mute text-sm">{downloads.some((d) => d.status === "completed") ? t("lib.noResults") : t("done.empty")}</div>
           ) : view === "list" ? (
             <LibraryList groups={groups} selectedId={selectedId} onSelect={select} />
           ) : (
