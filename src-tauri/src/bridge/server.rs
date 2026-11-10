@@ -2,12 +2,12 @@
 //! Lancée via `tauri::async_runtime::spawn` (JAMAIS `tokio::spawn` direct).
 
 use crate::bridge::protocol::{handle_message, parse_client_message, ServerReply};
-use crate::commands;
+use crate::link;
 use crate::state::AppState;
 use download_core::model::RequestHeaders;
 use futures_util::{SinkExt, StreamExt};
 use std::sync::atomic::Ordering;
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Manager};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::tungstenite::Message;
 
@@ -79,53 +79,16 @@ async fn handle_conn(app: AppHandle, stream: TcpStream) {
                 serde_json::json!({ "type": "error", "error": msg }).to_string()
             }
             ServerReply::CaptureRequested { url, filename, referrer, cookie, user_agent, kind, fallback_url, fallback_kind } => {
+                // Toute capture (fichier direct sans `kind` compris) passe par l'analyse de lien :
+                // `link://probing` + fenêtre au premier plan, puis `link://probed` / `link://error`.
+                // L'utilisateur confirme sur la page Nouveau : aucun téléchargement n'est créé ici.
+                // Comme avant, la réponse WS part une fois l'analyse terminée.
                 let headers = RequestHeaders { referrer, cookie, user_agent };
-                let is_probe = matches!(
-                    kind.as_deref(),
-                    Some("smart") | Some("hls") | Some("dash") | Some("page")
-                );
-                if is_probe {
-                    // Feedback immédiat pour les sondes déclenchées par l'extension :
-                    // l'app passe devant et affiche un overlay de chargement.
-                    let _ = app.emit("media://probing", ());
-                    crate::commands::focus_main_window(&app);
-                }
-                if kind.as_deref() == Some("smart") {
-                    match commands::probe_smart(&app, &url, filename, fallback_url, fallback_kind, headers).await {
-                        Ok(()) => serde_json::json!({ "type": "ack", "kind": "smart" }).to_string(),
-                        Err(e) => serde_json::json!({ "type": "error", "error": e }).to_string(),
-                    }
-                } else if kind.as_deref() == Some("hls") {
-                    match commands::probe_hls(&app, &url, headers, filename).await {
-                        Ok(()) => serde_json::json!({ "type": "ack", "kind": "hls" }).to_string(),
-                        Err(e) => serde_json::json!({ "type": "error", "error": e }).to_string(),
-                    }
-                } else if kind.as_deref() == Some("dash") {
-                    match commands::probe_dash(&app, &url, headers, filename).await {
-                        Ok(()) => serde_json::json!({ "type": "ack", "kind": "dash" }).to_string(),
-                        Err(e) => serde_json::json!({ "type": "error", "error": e }).to_string(),
-                    }
-                } else if kind.as_deref() == Some("page") {
-                    // Page vidéo générique → extraction yt-dlp (cookies/UA transmis).
-                    match commands::probe_ytdlp(&app, &url, headers).await {
-                        Ok(()) => serde_json::json!({ "type": "ack", "kind": "page" }).to_string(),
-                        Err(e) => serde_json::json!({ "type": "error", "error": e }).to_string(),
-                    }
-                } else {
-                    // Capture via le pipeline d'ajout existant, en transmettant les en-têtes du navigateur
-                    // et le nom de fichier suggéré par le navigateur.
-                    match commands::add_url(&app, &url, "", headers, filename).await {
-                        Ok(d) => {
-                            // Notifier le frontend pour qu'il rafraîchisse sa liste : sans cet
-                            // événement la capture n'apparaît qu'à la complétion (l'UI n'insère
-                            // pas les downloads inconnus reçus via `download://progress`).
-                            let _ = app.emit("download://added", &d);
-                            // Faire surgir la fenêtre de l'app au premier plan (UX type IDM).
-                            crate::commands::focus_main_window(&app);
-                            serde_json::json!({ "type": "ack", "id": d.id }).to_string()
-                        }
-                        Err(e) => serde_json::json!({ "type": "error", "error": e }).to_string(),
-                    }
+                let ack_kind = kind.clone().unwrap_or_else(|| "file".to_string());
+                let hint = link::hint_for_kind(kind.as_deref(), fallback_url, fallback_kind);
+                match link::capture(&app, &url, headers, hint, filename).await {
+                    Ok(p) => serde_json::json!({ "type": "ack", "kind": ack_kind, "probe_id": p.probe_id() }).to_string(),
+                    Err(e) => serde_json::json!({ "type": "error", "error": e }).to_string(),
                 }
             }
         };

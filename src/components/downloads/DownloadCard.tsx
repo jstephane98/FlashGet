@@ -40,6 +40,9 @@ export function DownloadCard({
   onRemove: () => void;
 }) {
   const isRecording = d.status === "recording";
+  const [thumbFailed, setThumbFailed] = useState(false);
+  useEffect(() => setThumbFailed(false), [d.thumbnail_url]);
+  const showThumb = !!d.thumbnail_url && !thumbFailed;
 
   // Minuteur du direct : horodatage à la première apparition en enregistrement, tic chaque seconde.
   const startRef = useRef<number | null>(null);
@@ -69,7 +72,7 @@ export function DownloadCard({
     : d.status === "completed" ? "done"
     : d.status === "paused" ? "paused"
     : d.status === "error" ? "error"
-    : d.status === "queued" ? "queued"
+    : d.status === "queued" || d.status === "held" ? "queued"
     : "active";
 
   const showParts = (d.status === "downloading" || d.status === "paused") && parts && parts.length >= 2 ? parts : null;
@@ -79,7 +82,9 @@ export function DownloadCard({
     ? t("dl.live")
     : d.status === "queued" && queuePosition !== null
       ? t("dl.queuePos", { n: queuePosition })
-      : showParts
+      : d.status === "held"
+        ? t("dl.held")
+        : showParts
         ? t("dl.connections", { n: showParts.length })
         : d.status === "error" && d.error
           ? d.error
@@ -101,6 +106,7 @@ export function DownloadCard({
       : formatSpeed(speed);
   } else if (d.status === "completed") right = t("dl.done");
   else if (d.status === "paused") right = t("dl.paused");
+  else if (d.status === "held") right = t("dl.held");
   else if (d.status === "error") right = t("dl.interrupted");
   else right = t("dl.waiting");
   const rightActive = d.status === "downloading" || isRecording;
@@ -108,7 +114,15 @@ export function DownloadCard({
   return (
     <div className="grid grid-cols-[76px_minmax(0,1fr)_210px_auto] items-center gap-4 px-4 py-3 rounded-lg bg-panel border border-line text-sm">
       <div className="relative w-[76px] h-[46px] rounded-md bg-surface flex items-center justify-center text-ink-mute">
-        <CategoryIcon cat={d.category} size={22} />
+        {showThumb ? (
+          <img src={d.thumbnail_url ?? undefined} alt="" loading="lazy" onError={() => setThumbFailed(true)}
+            className="w-full h-full rounded-md object-cover" />
+        ) : (
+          <CategoryIcon cat={d.category} size={22} />
+        )}
+        {d.duration_s != null && (
+          <span className="absolute bottom-1 right-1 px-1 text-[9px] font-mono rounded bg-black/70 text-white">{formatElapsed(d.duration_s)}</span>
+        )}
         {isRecording && (
           <span className="absolute top-1 left-1 px-1 text-[9px] rounded bg-err/20 text-err border border-err/40">LIVE</span>
         )}

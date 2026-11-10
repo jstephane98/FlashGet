@@ -28,6 +28,7 @@ interface Extra {
   speed?: number;
   queuePosition?: number | null;
   onStop?: () => void;
+  onResume?: () => void;
   onPriority?: (p: Priority) => void;
 }
 
@@ -40,7 +41,7 @@ function renderCard(over: Partial<Download> = {}, extra: Extra = {}) {
       queuePosition={extra.queuePosition ?? null}
       seg={{ done: 7, total: 0 }}
       onPause={vi.fn()}
-      onResume={vi.fn()}
+      onResume={extra.onResume ?? vi.fn()}
       onCancel={vi.fn()}
       onStop={extra.onStop ?? vi.fn()}
       onPriority={extra.onPriority ?? vi.fn()}
@@ -148,5 +149,42 @@ describe("DownloadCard", () => {
     expect(screen.queryByText("Annuler (efface le fichier)")).toBeNull();
     expect(screen.queryByText("Priorité haute")).toBeNull();
     expect(screen.getByText("Retirer de la liste")).toBeTruthy();
+  });
+});
+
+describe("DownloadCard vignette, durée et état en attente", () => {
+  it("vignette image quand thumbnail_url", () => {
+    const { container } = render(
+      <DownloadCard d={makeDownload({ status: "queued", thumbnail_url: "https://x/t.jpg" })} speed={0} queuePosition={null}
+        onPause={vi.fn()} onResume={vi.fn()} onCancel={vi.fn()} onStop={vi.fn()} onPriority={vi.fn()}
+        onOpenFile={vi.fn()} onOpenFolder={vi.fn()} onRemove={vi.fn()} />,
+    );
+    const img = container.querySelector("img");
+    expect(img?.getAttribute("src")).toBe("https://x/t.jpg");
+    expect(img?.getAttribute("alt")).toBe("");
+  });
+
+  it("retour à l'icône si l'image échoue", () => {
+    const { container } = render(
+      <DownloadCard d={makeDownload({ status: "queued", thumbnail_url: "https://x/t.jpg" })} speed={0} queuePosition={null}
+        onPause={vi.fn()} onResume={vi.fn()} onCancel={vi.fn()} onStop={vi.fn()} onPriority={vi.fn()}
+        onOpenFile={vi.fn()} onOpenFolder={vi.fn()} onRemove={vi.fn()} />,
+    );
+    fireEvent.error(container.querySelector("img") as HTMLImageElement);
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.querySelector("svg")).toBeTruthy();
+  });
+
+  it("durée affichée", () => {
+    renderCard({ status: "queued", duration_s: 125 });
+    expect(screen.getByText("02:05")).toBeTruthy();
+  });
+
+  it("held : libellé et bouton Reprendre → onResume", () => {
+    const onResume = vi.fn();
+    renderCard({ status: "held" }, { onResume });
+    expect(screen.getAllByText("en attente de la file").length).toBeGreaterThan(0);
+    fireEvent.click(screen.getByLabelText("Reprendre"));
+    expect(onResume).toHaveBeenCalled();
   });
 });

@@ -108,25 +108,58 @@ fn header_args(headers: &RequestHeaders) -> Vec<String> {
     a
 }
 
-/// Sonde les formats d'une URL via `yt-dlp -J`. Renvoie (titre, formats).
-/// Pour YouTube : essaie d'abord SANS cookies de compte (les cookies cassent l'extraction
-/// quand YouTube force SABR/PO-token) ; en cas d'échec, réessaie AVEC.
-pub async fn probe_formats(
+/// Sonde une URL via `yt-dlp -J` et parse la sortie via `parse_info` : métadonnées détaillées
+/// (`MediaInfo`) + formats bruts. Même processus, mêmes en-têtes, même repli cookies YouTube.
+pub async fn probe_info(
     app: &AppHandle,
     url: &str,
     headers: &RequestHeaders,
-) -> Result<(String, Vec<download_core::ytdlp::YtdlpFormat>), String> {
+) -> Result<(download_core::ytdlp::MediaInfo, Vec<download_core::ytdlp::YtdlpFormat>), String> {
+    probe_with(app, url, headers, |json| download_core::ytdlp::parse_info(json).map_err(|e| e.to_string())).await
+}
+
+/// `yt-dlp -J` puis `parse` ; en cas d'échec (process OU parse), réessaie avec les
+/// cookies de compte YouTube s'il y en a.
+async fn probe_with<T>(
+    app: &AppHandle,
+    url: &str,
+    headers: &RequestHeaders,
+    parse: fn(&str) -> Result<T, String>,
+) -> Result<T, String> {
     let primary = header_args(headers);
-    match probe_once(app, url, &primary).await {
+    match probe_once(app, url, &primary, parse).await {
         Ok(r) => Ok(r),
         Err(e) => {
             if let Some(mut ck) = crate::youtube::account_cookie_args(app, url) {
                 ck.extend(referer_args(headers));
-                probe_once(app, url, &ck).await
+                probe_once(app, url, &ck, parse).await
             } else {
                 Err(e)
             }
         }
+    }
+}
+
+/// Certains sites (ex. YouTube) refusent l'extraction quand on transmet les en-têtes du
+/// navigateur (les cookies déclenchent un downgrade de client → « Requested format is not
+/// available »), alors que d'autres (ex. Facebook) en ont besoin. On essaie donc d'abord
+/// AVEC les en-têtes, puis on réessaie SANS en cas d'échec (= comportement « coller l'URL »
+/// qui fonctionne). Renvoie aussi le jeu d'en-têtes qui a réussi, pour que le téléchargement
+/// soit cohérent avec la sonde.
+pub async fn with_header_fallback<T, F, Fut>(headers: RequestHeaders, probe: F) -> Result<(T, RequestHeaders), String>
+where
+    F: Fn(RequestHeaders) -> Fut,
+    Fut: std::future::Future<Output = Result<T, String>>,
+{
+    let has_headers =
+        headers.cookie.is_some() || headers.referrer.is_some() || headers.user_agent.is_some();
+    match probe(headers.clone()).await {
+        Ok(t) => Ok((t, headers)),
+        Err(_first) if has_headers => {
+            let t = probe(RequestHeaders::default()).await?;
+            Ok((t, RequestHeaders::default()))
+        }
+        Err(e) => Err(e),
     }
 }
 
@@ -175,11 +208,12 @@ pub async fn list_entries(app: &AppHandle, url: &str) -> Result<Vec<(String, Str
     Ok(vec![(u, title_of(&v))])
 }
 
-async fn probe_once(
+async fn probe_once<T>(
     app: &AppHandle,
     url: &str,
     extra: &[String],
-) -> Result<(String, Vec<download_core::ytdlp::YtdlpFormat>), String> {
+    parse: fn(&str) -> Result<T, String>,
+) -> Result<T, String> {
     let mut args: Vec<String> = vec![
         "-J".into(),
         "--no-playlist".into(),
@@ -203,7 +237,7 @@ async fn probe_once(
         return Err(format!("yt-dlp -J a échoué: {tail}"));
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
-    download_core::ytdlp::parse_formats(&stdout).map_err(|e| e.to_string())
+    parse(&stdout)
 }
 
 /// Télécharge via yt-dlp. Pour YouTube : essaie d'abord SANS cookies de compte ; si l'essai
@@ -213,22 +247,21 @@ pub async fn run_download(
     app: AppHandle,
     id: &str,
     url: &str,
-    format_id: &str,
-    time_range: Option<String>,
+    job: &download_core::ytdlp::YtdlpJob,
     dest: &Path,
     handle: DownloadHandle,
     headers: &RequestHeaders,
     tx: UnboundedSender<Progress>,
 ) -> Result<(), CoreError> {
     let primary = header_args(headers);
-    match run_yt(&app, id, url, format_id, time_range.clone(), dest, &handle, &tx, &primary).await {
+    match run_yt(&app, id, url, job, dest, &handle, &tx, &primary).await {
         Ok(()) => Ok(()),
         Err(e) => {
             // Repli cookies (YouTube) : seulement si rien n'a été téléchargé et pas pause/annulation.
             if handle.downloaded() == 0 && !handle.is_paused() && !handle.is_cancelled() {
                 if let Some(mut ck) = crate::youtube::account_cookie_args(&app, url) {
                     ck.extend(referer_args(headers));
-                    return run_yt(&app, id, url, format_id, time_range.clone(), dest, &handle, &tx, &ck).await;
+                    return run_yt(&app, id, url, job, dest, &handle, &tx, &ck).await;
                 }
             }
             Err(e)
@@ -241,34 +274,16 @@ async fn run_yt(
     app: &AppHandle,
     id: &str,
     url: &str,
-    format_id: &str,
-    time_range: Option<String>,
+    job: &download_core::ytdlp::YtdlpJob,
     dest: &Path,
     handle: &DownloadHandle,
     tx: &UnboundedSender<Progress>,
     extra: &[String],
 ) -> Result<(), CoreError> {
-    let mut args: Vec<String> = vec![
-        "-f".into(),
-        download_core::ytdlp::build_format_arg(format_id),
-        "--no-playlist".into(),
-        "--newline".into(),
-        "--continue".into(),
-        "--js-runtimes".into(),
-        "node".into(),
-    ];
-    if let Some(range) = time_range {
-        args.push("--download-sections".into());
-        args.push(range);
-    }
-    if format_id == "bestaudio" {
-        args.push("-x".into());
-        args.push("--audio-format".into());
-        args.push("mp3".into());
-    } else {
-        args.push("--merge-output-format".into());
-        args.push("mp4".into());
-    }
+    let mut args: Vec<String> = download_core::ytdlp::job_args(job);
+    args.extend(
+        ["--no-playlist", "--newline", "--continue", "--js-runtimes", "node"].map(String::from),
+    );
     args.extend_from_slice(&[
         "--progress-template".into(),
         format!("{}%(progress.downloaded_bytes)s/%(progress.total_bytes)s", download_core::ytdlp::PROGRESS_PREFIX),

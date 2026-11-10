@@ -2,41 +2,82 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { Download, Progress, Priority, Settings, Category, CategoryDirs, BridgeInfo } from "./types";
 
-export interface HlsVariant {
+export type FormatKind = "av" | "video" | "audio";
+
+export interface MediaFormat {
   index: number;
-  resolution: string | null;
-  bandwidth: number;
+  kind: FormatKind;
+  format_id: string;
+  height: number | null;
+  label: string;
+  container: string | null;
+  codecs: string | null;
+  fps: number | null;
   est_size: number | null;
+  recommended: boolean;
 }
 
-export interface MediaVariantsEvent {
+export interface MediaInfo {
+  title: string;
+  uploader: string | null;
+  thumbnail: string | null;
+  duration_s: number | null;
+  upload_date: string | null;
+  subtitle_langs: string[];
+  can_cut: boolean;
+}
+
+export type LinkProbe =
+  | {
+      type: "file";
+      probe_id: string;
+      url: string;
+      file_name: string;
+      total_bytes: number | null;
+      supports_ranges: boolean;
+      category: Category;
+      default_dir: string;
+    }
+  | {
+      type: "media";
+      probe_id: string;
+      url: string;
+      source: "hls" | "dash" | "ytdlp";
+      info: MediaInfo;
+      formats: MediaFormat[];
+      file_name: string;
+      video_dir: string;
+      music_dir: string;
+    };
+
+export interface ConfirmLink {
   probe_id: string;
+  format_index: number | null;
+  subtitles: boolean;
+  cut: { start: string; end: string | null } | null;
+  dest_dir: string | null;
   file_name: string;
-  variants: HlsVariant[];
+  start_now: boolean;
 }
 
-export function onMediaVariants(cb: (e: MediaVariantsEvent) => void): Promise<UnlistenFn> {
-  return listen<MediaVariantsEvent>("media://variants", (e) => cb(e.payload));
+export function probeLink(url: string): Promise<LinkProbe> {
+  return invoke<LinkProbe>("probe_link", { url });
 }
 
-export interface MediaErrorEvent {
-  message: string;
+export function confirmLink(req: ConfirmLink): Promise<Download> {
+  return invoke<Download>("confirm_link", { req });
 }
 
-export function onMediaError(cb: (e: MediaErrorEvent) => void): Promise<UnlistenFn> {
-  return listen<MediaErrorEvent>("media://error", (e) => cb(e.payload));
+export function onLinkProbing(cb: (e: { url: string }) => void): Promise<UnlistenFn> {
+  return listen<{ url: string }>("link://probing", (e) => cb(e.payload));
 }
 
-export function onMediaProbing(cb: () => void): Promise<UnlistenFn> {
-  return listen("media://probing", () => cb());
+export function onLinkProbed(cb: (p: LinkProbe) => void): Promise<UnlistenFn> {
+  return listen<LinkProbe>("link://probed", (e) => cb(e.payload));
 }
 
-export function addMediaDownload(probeId: string, variantIndex: number, fileName: string, timeRange?: string): Promise<Download> {
-  return invoke<Download>("add_media_download", { probeId, variantIndex, fileName, timeRange });
-}
-
-export function addDownload(url: string, destDir: string): Promise<Download> {
-  return invoke<Download>("add_download", { args: { url, dest_dir: destDir } });
+export function onLinkError(cb: (e: { url: string; message: string }) => void): Promise<UnlistenFn> {
+  return listen<{ url: string; message: string }>("link://error", (e) => cb(e.payload));
 }
 
 export interface BatchSummary {
@@ -46,8 +87,8 @@ export interface BatchSummary {
   failed: number;
 }
 
-export function addBatchDownloads(text: string, destDir: string, mode: string = "direct"): Promise<BatchSummary> {
-  return invoke<BatchSummary>("add_batch_downloads", { args: { text, dest_dir: destDir, mode } });
+export function addBatchDownloads(text: string, destDir: string, mode: string = "direct", hold = false): Promise<BatchSummary> {
+  return invoke<BatchSummary>("add_batch_downloads", { args: { text, dest_dir: destDir, mode, hold } });
 }
 
 export function listDownloads(): Promise<Download[]> {
@@ -72,10 +113,6 @@ export function stopRecording(id: string): Promise<void> {
 
 export function onProgress(cb: (p: Progress) => void): Promise<UnlistenFn> {
   return listen<Progress>("download://progress", (e) => cb(e.payload));
-}
-
-export function onDownloadAdded(cb: (d: Download) => void): Promise<UnlistenFn> {
-  return listen<Download>("download://added", (e) => cb(e.payload));
 }
 
 export function setPriority(id: string, priority: Priority): Promise<void> {

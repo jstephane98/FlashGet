@@ -1,5 +1,7 @@
 mod bridge;
 mod commands;
+mod dest;
+mod link;
 mod prefs;
 mod remux;
 mod state;
@@ -93,9 +95,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            commands::add_download,
             commands::add_batch_downloads,
-            commands::add_media_download,
             commands::list_downloads,
             commands::start_download,
             commands::pause_download,
@@ -116,6 +116,8 @@ pub fn run() {
             commands::regenerate_bridge_token,
             commands::get_autostart,
             commands::set_autostart,
+            link::probe_link,
+            link::confirm_link,
             youtube::youtube_login,
             youtube::youtube_status,
             youtube::youtube_logout,
