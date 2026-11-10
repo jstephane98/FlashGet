@@ -34,3 +34,21 @@ export function formatElapsed(seconds: number): string {
 export function recordingLabel(segDone: number, bytes: number, elapsedSec: number): string {
   return `Enregistrement · ${formatElapsed(elapsedSec)} · ${segDone} segments · ${formatBytes(bytes)}`;
 }
+
+export function formatEta(remainingBytes: number, bps: number): string {
+  if (!(bps > 0) || !Number.isFinite(remainingBytes) || remainingBytes < 0) return "—";
+  const s = Math.round(remainingBytes / bps);
+  if (s < 60) return `${s} s`;
+  if (s < 3600) return `${Math.floor(s / 60)} min`;
+  const h = Math.floor(s / 3600);
+  const mm = String(Math.floor((s % 3600) / 60)).padStart(2, "0");
+  return `${h} h ${mm}`;
+}
+
+export function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
