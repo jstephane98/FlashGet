@@ -202,7 +202,10 @@ export default function App() {
                 onChanged={() => { refresh().catch(() => {}); refreshQueueInfo(); }}
               />
             ) : page === "scheduler" ? (
-              <SchedulerPage heldCount={downloads.filter((d) => d.status === "held").length} />
+              <SchedulerPage
+                heldCount={downloads.filter((d) => d.status === "held").length}
+                pendingCount={downloads.filter((d) => ["queued", "held", "downloading", "recording"].includes(d.status)).length}
+              />
             ) : page === "completed" ? (
               <CompletedPage
                 downloads={downloads}

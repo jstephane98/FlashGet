@@ -74,12 +74,52 @@ describe("SchedulerPage", () => {
     await waitFor(() => expect(setEndAction).toHaveBeenCalledWith("sleep"));
   });
 
-  it("affiche l'erreur de validation et garde la saisie", async () => {
+  it("refus : affiche l'erreur et revient à l'heure enregistrée", async () => {
     setSchedule.mockRejectedValueOnce("Le début et la fin doivent différer");
     await ready();
-    fireEvent.change(screen.getByDisplayValue("07:00"), { target: { value: "02:00" } });
+    const end = screen.getByDisplayValue("07:00");
+    fireEvent.change(end, { target: { value: "02:00" } });
+    fireEvent.blur(end);
     expect((await screen.findByRole("alert")).textContent).toContain("différer");
-    expect(screen.getAllByDisplayValue("02:00").length).toBe(2);
+    await waitFor(() => expect((end as HTMLInputElement).value).toBe("07:00"));
+    expect(screen.getByRole("alert").textContent).toContain("différer");
+  });
+
+  it("heures : une seule sauvegarde au blur avec la valeur finale", async () => {
+    await ready();
+    const start = screen.getByLabelText("Démarrer la file à");
+    fireEvent.change(start, { target: { value: "03:00" } });
+    fireEvent.change(start, { target: { value: "04:30" } });
+    expect(setSchedule).not.toHaveBeenCalled();
+    fireEvent.blur(start);
+    expect(setSchedule).toHaveBeenCalledTimes(1);
+    expect(setSchedule).toHaveBeenCalledWith(expect.objectContaining({ start: "04:30", end: "07:00" }));
+    // Entrée enregistre aussi ; le blur qui suit ne renvoie rien.
+    const end = screen.getByLabelText("jusqu'à");
+    fireEvent.change(end, { target: { value: "08:00" } });
+    fireEvent.keyDown(end, { key: "Enter" });
+    fireEvent.blur(end);
+    expect(setSchedule).toHaveBeenCalledTimes(2);
+    expect(setSchedule).toHaveBeenLastCalledWith(expect.objectContaining({ start: "04:30", end: "08:00" }));
+  });
+
+  it("refus : décocher le dernier jour restaure les jours enregistrés", async () => {
+    getSchedule.mockResolvedValue({ ...SCH, enabled: true, days: [true, false, false, false, false, false, false] });
+    setSchedule.mockRejectedValueOnce("au moins un jour doit être coché");
+    await ready();
+    const monday = screen.getByRole("button", { name: "lundi" });
+    fireEvent.click(monday);
+    expect((await screen.findByRole("alert")).textContent).toContain("au moins un jour");
+    await waitFor(() => expect(monday.getAttribute("aria-pressed")).toBe("true"));
+  });
+
+  it("plage en cours : indique la fin de la plage", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 10, 9, 3, 0)); // lundi 03:00, dans 02:00 → 07:00
+    getSchedule.mockResolvedValue({ ...SCH, enabled: true });
+    render(<SchedulerPage heldCount={0} pendingCount={4} />);
+    await screen.findByDisplayValue("02:00");
+    expect(screen.getByText("Plage en cours jusqu'à 07:00 · 4 téléchargements concernés")).toBeTruthy();
   });
 
   it("limite : une seule sauvegarde au blur, virgule acceptée, champ vide restauré", async () => {
@@ -122,6 +162,8 @@ describe("SchedulerPage", () => {
   });
 
   it("affiche le prochain démarrage avec le nombre d'éléments", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date(2026, 10, 9, 10, 0)); // lundi 10:00, hors plage
     getSchedule.mockResolvedValue({ ...SCH, enabled: true });
     await ready();
     expect(screen.getByText(/Prochain démarrage : .* · 3 téléchargements concernés/)).toBeTruthy();

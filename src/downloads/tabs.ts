@@ -1,8 +1,7 @@
-import type { Download, Priority } from "../types";
+import type { Download } from "../types";
+import { queueItems } from "../queue/queue";
 
 export type DownloadTab = "all" | "active" | "paused" | "error";
-
-const RANK: Record<Priority, number> = { high: 0, normal: 1, low: 2 };
 
 export function inTab(d: Download, tab: DownloadTab): boolean {
   if (d.status === "completed") return false;
@@ -27,12 +26,11 @@ export function visibleDownloads(list: Download[], tab: DownloadTab, query: stri
   return list.filter((d) => inTab(d, tab) && (!q || d.file_name.toLowerCase().includes(q)));
 }
 
+/** Rang de démarrage des `queued`, dans l'ordre exact de la page File d'attente (`queueItems`). */
 export function queuePositions(list: Download[]): Record<string, number> {
-  const queued = list
-    .map((d, i) => ({ d, i }))
-    .filter((x) => x.d.status === "queued")
-    .sort((a, b) => RANK[a.d.priority] - RANK[b.d.priority] || a.i - b.i);
   const position: Record<string, number> = {};
-  queued.forEach((x, idx) => { position[x.d.id] = idx + 1; });
+  queueItems(list)
+    .filter((d) => d.status === "queued")
+    .forEach((d, idx) => { position[d.id] = idx + 1; });
   return position;
 }

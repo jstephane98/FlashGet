@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as api from "../api";
 import type { EndAction, Schedule } from "../api";
 import { t } from "../i18n";
 import type { MsgKey } from "../i18n";
-import { nextStartLabel, timelineSegments } from "../queue/schedule";
+import { inWindow, nextStartLabel, parseHHMM, timelineSegments } from "../queue/schedule";
 
 const MB = 1048576;
 const DAYS = [0, 1, 2, 3, 4, 5, 6];
@@ -28,10 +28,19 @@ function Switch({ checked, label, onChange }: { checked: boolean; label: string;
   );
 }
 
-export function SchedulerPage({ heldCount }: { heldCount: number }) {
+const limitTextOf = (s: Schedule) => (s.limit_bps != null ? String(s.limit_bps / MB) : "");
+
+/** `pendingCount` : éléments concernés pendant une plage en cours (repli : `heldCount`). */
+export function SchedulerPage({ heldCount, pendingCount }: { heldCount: number; pendingCount?: number }) {
   const [sch, setSch] = useState<Schedule | null>(null);
   const [endAction, setEnd] = useState<EndAction | null>(null);
   const [limitText, setLimitText] = useState("");
+  // Heures saisies : gardées localement, enregistrées au blur / Entrée (pas à chaque frappe).
+  const [startText, setStartText] = useState("");
+  const [endText, setEndText] = useState("");
+  // Dernier réglage accepté par le moteur (retour arrière si un enregistrement est refusé).
+  const saved = useRef<Schedule | null>(null);
+  const saveSeq = useRef(0);
   const [loadFailed, setLoadFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [error, setError] = useState<string>();
@@ -41,8 +50,11 @@ export function SchedulerPage({ heldCount }: { heldCount: number }) {
     setLoadFailed(false);
     api.getSchedule().then((s) => {
       if (!alive) return;
+      saved.current = s;
       setSch(s);
-      setLimitText(s.limit_bps != null ? String(s.limit_bps / MB) : "");
+      setLimitText(limitTextOf(s));
+      setStartText(s.start);
+      setEndText(s.end);
     }).catch(() => { if (alive) setLoadFailed(true); });
     api.getEndAction().then((a) => { if (alive) setEnd(a); }).catch(() => { if (alive) setLoadFailed(true); });
     return () => { alive = false; };
@@ -61,16 +73,40 @@ export function SchedulerPage({ heldCount }: { heldCount: number }) {
   }
 
   // Un seul message d'erreur pour la page : une plage invalide peut faire échouer l'enregistrement d'une autre carte.
+  // Refus : l'erreur reste affichée et la page revient au dernier réglage enregistré (sauf si
+  // un enregistrement plus récent est parti entre-temps : c'est lui qui décidera).
   const save = (next: Schedule) => {
     setSch(next);
     setError(undefined);
-    api.setSchedule(next).catch((e) => setError(String(e)));
+    const seq = ++saveSeq.current;
+    api.setSchedule(next).then(
+      () => { saved.current = next; },
+      (e) => {
+        setError(String(e));
+        const back = saved.current;
+        if (seq !== saveSeq.current || !back) return;
+        setSch(back);
+        setLimitText(limitTextOf(back));
+        setStartText(back.start);
+        setEndText(back.end);
+      },
+    );
   };
 
-  const label = sch.enabled ? nextStartLabel(sch, new Date()) : null;
+  const now = new Date();
+  const running = inWindow(sch, (now.getDay() + 6) % 7, now.getHours() * 60 + now.getMinutes());
+  const label = sch.enabled ? nextStartLabel(sch, now) : null;
   const limitOn = sch.limit_bps != null;
   const segs = timelineSegments(sch);
-  const savedLimitText = sch.limit_bps != null ? String(sch.limit_bps / MB) : "";
+  const savedLimitText = limitTextOf(sch);
+
+  const commitTime = (field: "start" | "end", raw: string) => {
+    if (parseHHMM(raw) == null) {
+      (field === "start" ? setStartText : setEndText)(sch[field]);
+    } else if (raw !== sch[field]) {
+      save({ ...sch, [field]: raw });
+    }
+  };
 
   const commitLimit = () => {
     const raw = limitText.trim();
@@ -96,7 +132,9 @@ export function SchedulerPage({ heldCount }: { heldCount: number }) {
         <div>
           <h1 className="text-[16px] font-semibold text-ink">{t("sch.title")}</h1>
           <p className="text-[12.5px] text-ink-soft">
-            {sch.enabled && label ? t("sch.next", { when: label, n: heldCount }) : t("sch.off")}
+            {running
+              ? t("sch.running", { time: sch.end, n: pendingCount ?? heldCount })
+              : sch.enabled && label ? t("sch.next", { when: label, n: heldCount }) : t("sch.off")}
           </p>
         </div>
         <div className="flex items-center gap-2 text-[13px] text-ink">
@@ -111,11 +149,13 @@ export function SchedulerPage({ heldCount }: { heldCount: number }) {
         <h2 className="text-[13px] font-semibold text-ink">{t("sch.when")}</h2>
         <div className="flex items-center gap-2 text-[13px] text-ink-soft">
           <span>{t("sch.startAt")}</span>
-          <input type="time" aria-label={t("sch.startAt")} className={FIELD} value={sch.start}
-            onChange={(e) => e.target.value && save({ ...sch, start: e.target.value })} />
+          <input type="time" aria-label={t("sch.startAt")} className={FIELD} value={startText}
+            onChange={(e) => setStartText(e.target.value)} onBlur={() => commitTime("start", startText)}
+            onKeyDown={(e) => { if (e.key === "Enter") commitTime("start", startText); }} />
           <span>{t("sch.until")}</span>
-          <input type="time" aria-label={t("sch.until")} className={FIELD} value={sch.end}
-            onChange={(e) => e.target.value && save({ ...sch, end: e.target.value })} />
+          <input type="time" aria-label={t("sch.until")} className={FIELD} value={endText}
+            onChange={(e) => setEndText(e.target.value)} onBlur={() => commitTime("end", endText)}
+            onKeyDown={(e) => { if (e.key === "Enter") commitTime("end", endText); }} />
         </div>
         <div className="flex items-center gap-2">
           <span className="text-[12.5px] text-ink-soft mr-1">{t("sch.days")}</span>

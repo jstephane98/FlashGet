@@ -154,6 +154,7 @@ export const fr = {
   "sch.title": "Planificateur",
   "sch.enabled": "Activé",
   "sch.next": "Prochain démarrage : {when} · {n} téléchargements concernés",
+  "sch.running": "Plage en cours jusqu'à {time} · {n} téléchargements concernés",
   "sch.off": "Planification désactivée",
   "sch.when": "Quand",
   "sch.startAt": "Démarrer la file à",
