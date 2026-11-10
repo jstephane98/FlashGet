@@ -1,5 +1,6 @@
 mod bridge;
 mod commands;
+mod dest;
 mod prefs;
 mod remux;
 mod state;

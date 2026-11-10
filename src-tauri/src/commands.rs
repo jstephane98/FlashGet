@@ -40,17 +40,8 @@ pub(crate) async fn add_url_with_probe(app: &AppHandle, url: &str, dest_dir: &st
     let category = download_core::categorizer::categorize(&file_name);
 
     // Dossier : argument explicite > dossier configuré pour la catégorie > dossier Téléchargements.
-    let dest_dir = if !dest_dir.trim().is_empty() {
-        PathBuf::from(dest_dir)
-    } else {
-        let configured = { app.state::<AppState>().storage.category_dir(category).map_err(|e| e.to_string())? };
-        match configured {
-            Some(p) => PathBuf::from(p),
-            None => app.path().download_dir().map_err(|e| e.to_string())?,
-        }
-    };
-    std::fs::create_dir_all(&dest_dir).map_err(|e| format!("dossier de destination inaccessible: {e}"))?;
-
+    let dest_dir = crate::dest::dest_dir_for(app, Some(dest_dir), category)?;
+    let file_name = crate::dest::unique_file_name(&dest_dir, &file_name, &crate::dest::taken_paths(app));
     let dest_path = dest_dir.join(&file_name);
     if dest_path.parent() != Some(dest_dir.as_path()) {
         return Err("invalid file name derived from URL".to_string());
@@ -138,17 +129,8 @@ pub(crate) async fn add_url_no_probe(
     let category = download_core::categorizer::categorize(&file_name);
 
     // Dossier : argument explicite > dossier configuré pour la catégorie > dossier Téléchargements.
-    let dest_dir = if !dest_dir.trim().is_empty() {
-        PathBuf::from(dest_dir)
-    } else {
-        let configured = { app.state::<AppState>().storage.category_dir(category).map_err(|e| e.to_string())? };
-        match configured {
-            Some(p) => PathBuf::from(p),
-            None => app.path().download_dir().map_err(|e| e.to_string())?,
-        }
-    };
-    std::fs::create_dir_all(&dest_dir).map_err(|e| format!("dossier de destination inaccessible: {e}"))?;
-
+    let dest_dir = crate::dest::dest_dir_for(app, Some(dest_dir), category)?;
+    let file_name = crate::dest::unique_file_name(&dest_dir, &file_name, &crate::dest::taken_paths(app));
     let dest_path = dest_dir.join(&file_name);
     if dest_path.parent() != Some(dest_dir.as_path()) {
         return Err("invalid file name derived from URL".to_string());
@@ -184,20 +166,14 @@ pub(crate) async fn add_url_no_probe(
 }
 
 /// Crée un téléchargement yt-dlp (vidéo meilleure qualité ou audio MP3) en file.
-async fn add_ytdlp_queued(app: &AppHandle, url: &str, title: &str, audio: bool) -> Result<Download, String> {
+async fn add_ytdlp_queued(app: &AppHandle, url: &str, title: &str, audio: bool, dest_dir: Option<&str>) -> Result<Download, String> {
     let stem = download_core::naming::sanitize_title(Some(title));
     let stem = if stem.trim().is_empty() { "video".to_string() } else { stem };
     let ext = if audio { "mp3" } else { "mp4" };
     let file_name = download_core::naming::ensure_extension(&stem, ext);
     let category = if audio { Category::Music } else { Category::Video };
-    let dest_dir = {
-        let state = app.state::<AppState>();
-        match state.storage.category_dir(category).map_err(|e| e.to_string())? {
-            Some(p) => PathBuf::from(p),
-            None => app.path().download_dir().map_err(|e| e.to_string())?,
-        }
-    };
-    std::fs::create_dir_all(&dest_dir).map_err(|e| format!("dossier de destination inaccessible: {e}"))?;
+    let dest_dir = crate::dest::dest_dir_for(app, dest_dir, category)?;
+    let file_name = crate::dest::unique_file_name(&dest_dir, &file_name, &crate::dest::taken_paths(app));
     let dest_path = dest_dir.join(&file_name);
     if dest_path.parent() != Some(dest_dir.as_path()) {
         return Err("nom de fichier invalide".into());
@@ -249,7 +225,7 @@ pub async fn add_batch_downloads(app: AppHandle, args: AddBatchArgs) -> Result<B
             match crate::ytdlp::list_entries(&app, url).await {
                 Ok(entries) => {
                     for (u, t) in entries {
-                        match add_ytdlp_queued(&app, &u, &t, mode == "audio").await {
+                        match add_ytdlp_queued(&app, &u, &t, mode == "audio", Some(&args.dest_dir)).await {
                             Ok(_) => added += 1,
                             Err(e) => {
                                 eprintln!("batch: échec ajout {u}: {e}");
@@ -597,15 +573,9 @@ pub async fn add_media_download(app: AppHandle, probe_id: String, variant_index:
         r
     };
 
-    let dest_dir = {
-        let state = app.state::<AppState>();
-        let cat = if file_name.ends_with(".mp3") { Category::Music } else { Category::Video };
-        match state.storage.category_dir(cat).map_err(|e| e.to_string())? {
-            Some(p) => PathBuf::from(p),
-            None => app.path().download_dir().map_err(|e| e.to_string())?,
-        }
-    };
-    std::fs::create_dir_all(&dest_dir).map_err(|e| format!("dossier de destination inaccessible: {e}"))?;
+    let cat = if file_name.ends_with(".mp3") { Category::Music } else { Category::Video };
+    let dest_dir = crate::dest::dest_dir_for(&app, None, cat)?;
+    let file_name = crate::dest::unique_file_name(&dest_dir, &file_name, &crate::dest::taken_paths(&app));
     let dest_path = dest_dir.join(&file_name);
     if dest_path.parent() != Some(dest_dir.as_path()) {
         return Err("nom de fichier invalide".into());
