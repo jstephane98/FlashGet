@@ -184,6 +184,9 @@ pub async fn add_batch_downloads(app: AppHandle, args: AddBatchArgs) -> Result<B
     }
     if !args.hold {
         reevaluate(&app);
+    } else {
+        // Dans une plage active, le planificateur lâche tout de suite les `held` ajoutés.
+        crate::queue::planner_tick(&app);
     }
     Ok(BatchSummary {
         added,
@@ -355,6 +358,7 @@ pub fn cancel_download(app: AppHandle, id: String) -> Result<(), String> {
         }
     }
     state.storage.delete(&id).map_err(|e| e.to_string())?;
+    crate::queue::reset_run_if_idle(&state);
     reevaluate(&app);
     Ok(())
 }
@@ -424,7 +428,9 @@ pub fn remove_from_list(state: State<AppState>, id: String) -> Result<(), String
     if state.handles.lock().unwrap().contains_key(&id) {
         return Err("arrêtez le téléchargement avant de le retirer".to_string());
     }
-    state.storage.delete(&id).map_err(|e| e.to_string())
+    state.storage.delete(&id).map_err(|e| e.to_string())?;
+    crate::queue::reset_run_if_idle(&state);
+    Ok(())
 }
 
 #[tauri::command]
@@ -546,10 +552,14 @@ pub(crate) fn reevaluate_with(app: &AppHandle, forced: Option<&str>) {
             Some(d) => d.clone(),
             None => continue,
         };
+        // Marquer Downloading conditionnellement — ne jamais écraser un statut terminal ni
+        // un `held` posé entre la lecture de la liste et ce verrou (sortie de plage) : dans
+        // ce cas on ne lance pas. Une erreur de stockage garde l'ancien comportement (lancer).
+        if let Ok(false) = state.storage.mark_active(&id, download.downloaded_bytes) {
+            continue;
+        }
         let handle = DownloadHandle::new();
         handles.insert(id.clone(), handle.clone());
-        // Marquer Downloading conditionnellement — ne jamais écraser un statut terminal.
-        let _ = state.storage.mark_active(&id, download.downloaded_bytes);
         // Début (ou poursuite) d'une exécution de la file. Ordre des verrous : handles → planner.
         crate::queue::on_started(app);
         launch(app, download, handle);

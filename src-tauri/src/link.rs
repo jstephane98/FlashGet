@@ -661,6 +661,9 @@ pub async fn confirm_link(app: AppHandle, req: ConfirmLink) -> Result<Download, 
     }
     if req.start_now {
         commands::reevaluate(&app);
+    } else {
+        // Dans une plage active, le planificateur lâche tout de suite les `held` ajoutés.
+        crate::queue::planner_tick(&app);
     }
     Ok(download)
 }

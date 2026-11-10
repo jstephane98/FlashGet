@@ -135,6 +135,12 @@ impl RunTracker {
         }
     }
 
+    /// Abandonne l'exécution en cours sans signaler de fin (ex. file vidée par annulation).
+    pub fn reset(&mut self) {
+        self.active = false;
+        self.completed = 0;
+    }
+
     /// `true` une seule fois, quand une exécution active s'est vidée avec au moins un succès.
     pub fn check_finished(&mut self, pending: usize) -> bool {
         if pending != 0 || !self.active {
@@ -221,6 +227,20 @@ mod tests {
         assert!(r.check_finished(0));
         assert!(!r.check_finished(0));
         r.on_started();
+        assert!(!r.check_finished(0));
+    }
+
+    #[test]
+    fn reset_forgets_previous_success() {
+        let mut r = RunTracker::default();
+        r.on_started();
+        r.on_completed();
+        r.reset();
+        // Nouvelle exécution qui échoue : l'ancien succès ne doit pas déclencher la fin.
+        r.on_started();
+        assert!(!r.check_finished(0));
+        // Reset hors exécution : sans effet.
+        r.reset();
         assert!(!r.check_finished(0));
     }
 

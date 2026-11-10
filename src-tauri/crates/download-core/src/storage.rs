@@ -194,14 +194,16 @@ impl Storage {
     }
 
     /// Passe un téléchargement en `downloading` SANS écraser un statut terminal
-    /// (completed/error). No-op si l'id n'existe pas ou est déjà terminé.
-    pub fn mark_active(&self, id: &str, downloaded_bytes: u64) -> Result<(), CoreError> {
+    /// (completed/error) ni `held` (remis en attente, ex. par la sortie de plage du
+    /// planificateur pendant une ré-évaluation concurrente). No-op dans ces cas.
+    /// Renvoie `true` si la ligne est passée en `downloading` (sinon : ne pas lancer).
+    pub fn mark_active(&self, id: &str, downloaded_bytes: u64) -> Result<bool, CoreError> {
         let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "UPDATE downloads SET downloaded_bytes=?1, status='downloading', started_at=COALESCE(started_at, ?3) WHERE id=?2 AND status NOT IN ('completed','error')",
+        let n = conn.execute(
+            "UPDATE downloads SET downloaded_bytes=?1, status='downloading', started_at=COALESCE(started_at, ?3) WHERE id=?2 AND status NOT IN ('completed','error','held')",
             rusqlite::params![downloaded_bytes as i64, id, now_secs()],
         ).map_err(|e| CoreError::Storage(e.to_string()))?;
-        Ok(())
+        Ok(n > 0)
     }
 
     /// Marque un téléchargement en erreur (no-op si l'id n'existe plus).
@@ -791,7 +793,7 @@ mod tests {
     fn mark_active_sets_downloading() {
         let s = Storage::open_in_memory().unwrap();
         s.upsert(&sample("ma1")).unwrap(); // starts as Paused
-        s.mark_active("ma1", 10).unwrap();
+        assert!(s.mark_active("ma1", 10).unwrap());
         let d = s.get_by_id("ma1").unwrap().unwrap();
         assert_eq!(d.status, DownloadStatus::Downloading);
         assert_eq!(d.downloaded_bytes, 10);
@@ -802,11 +804,23 @@ mod tests {
         let s = Storage::open_in_memory().unwrap();
         s.upsert(&sample("ma2")).unwrap();
         s.update_state("ma2", 50, DownloadStatus::Completed).unwrap();
-        s.mark_active("ma2", 99).unwrap();
+        assert!(!s.mark_active("ma2", 99).unwrap());
         let d = s.get_by_id("ma2").unwrap().unwrap();
         // status must remain Completed, not flipped back to Downloading
         assert_eq!(d.status, DownloadStatus::Completed);
         assert_eq!(d.downloaded_bytes, 50);
+    }
+
+    #[test]
+    fn mark_active_noop_when_held() {
+        let s = Storage::open_in_memory().unwrap();
+        s.upsert(&sample("ma3")).unwrap();
+        s.update_state("ma3", 5, DownloadStatus::Held).unwrap();
+        assert!(!s.mark_active("ma3", 99).unwrap());
+        let d = s.get_by_id("ma3").unwrap().unwrap();
+        assert_eq!(d.status, DownloadStatus::Held);
+        assert_eq!(d.downloaded_bytes, 5);
+        assert_eq!(d.started_at, None);
     }
 
     #[test]

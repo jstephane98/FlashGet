@@ -10,6 +10,7 @@ use download_core::model::{Download, DownloadStatus};
 use download_core::planner::{self, AtEnd, EndAction, RunTracker, Schedule};
 use download_core::storage::Storage;
 use std::collections::HashSet;
+use std::sync::MutexGuard;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 const SCHEDULE_KEY: &str = "schedule";
@@ -22,12 +23,18 @@ const TICK_SECS: u64 = 30;
 pub struct PlannerState {
     /// Dernier état connu « dans la plage horaire ».
     pub in_window: bool,
-    /// Ids passés de `held` à `queued` par le planificateur à l'entrée dans la plage.
+    /// Ids passés de `held` à `queued` par le planificateur pendant la plage.
     pub launched: HashSet<String>,
     /// Exécution en cours (détection de la fin de file).
     pub run: RunTracker,
     /// Ids mis en pause à la sortie de la plage : leur `Paused` est persisté en `Held`.
     pub hold_on_pause: HashSet<String>,
+}
+
+/// Verrou du planificateur, tolérant à l'empoisonnement (un panic ailleurs ne doit pas
+/// arrêter la boucle de 30 s : l'état reste cohérent, chaque section critique est courte).
+fn planner_lock(st: &AppState) -> MutexGuard<'_, PlannerState> {
+    st.planner.lock().unwrap_or_else(|e| e.into_inner())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,13 +52,45 @@ pub fn planner_transition(was_in: bool, now_in: bool) -> Transition {
     }
 }
 
-/// Éléments encore « à faire » : en attente (`queued`, `held`) ou en cours (`downloading`, `recording`).
+/// Pendant une plage active (sans transition), les `held` ajoutés entre-temps sont lâchés
+/// dans la file à chaque passage — sans lever une suspension de file faite dans la plage.
+pub fn release_in_window(t: Transition, now_in: bool) -> bool {
+    t == Transition::None && now_in
+}
+
+/// Ce que la sortie de plage (`at_end = pause`) fait d'un élément lancé par le planificateur.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExitAction {
+    /// Pas démarré : repasse directement en `held`.
+    Hold,
+    /// Actif : mise en pause, puis le relais persiste `held` au lieu de `paused`.
+    PauseThenHold,
+    /// Laisser tel quel : mis en pause par l'utilisateur (ou « Suspendre la file »), déjà
+    /// `held`, terminé, en erreur, ou enregistrement live (laissé en cours, comme `pause_all`
+    /// n'arrête pas non plus un live : seul « Arrêter » le finalise).
+    Leave,
+}
+
+pub fn exit_action(status: DownloadStatus, has_handle: bool) -> ExitAction {
+    match (status, has_handle) {
+        (DownloadStatus::Queued, false) => ExitAction::Hold,
+        (DownloadStatus::Queued | DownloadStatus::Downloading, true) => ExitAction::PauseThenHold,
+        _ => ExitAction::Leave,
+    }
+}
+
+/// Éléments encore « à faire » pour la fin de file : en attente (`queued`, `held`), en cours
+/// (`downloading`, `recording`) ou en pause (`paused` : la file n'est pas finie).
 pub fn pending_count(list: &[Download]) -> usize {
     list.iter()
         .filter(|d| {
             matches!(
                 d.status,
-                DownloadStatus::Queued | DownloadStatus::Held | DownloadStatus::Downloading | DownloadStatus::Recording
+                DownloadStatus::Queued
+                    | DownloadStatus::Held
+                    | DownloadStatus::Downloading
+                    | DownloadStatus::Recording
+                    | DownloadStatus::Paused
             )
         })
         .count()
@@ -98,16 +137,44 @@ fn release_held(storage: &Storage) -> Result<Vec<String>, String> {
     Ok(ids)
 }
 
-// --- Hooks appelés depuis commands.rs ---
+/// Lâche les `held` dans la file au nom du planificateur (retenus dans `launched`).
+/// Renvoie le nombre d'éléments lâchés.
+fn admit_held(st: &AppState) -> usize {
+    let ids = match release_held(&st.storage) {
+        Ok(ids) => ids,
+        Err(e) => {
+            eprintln!("planificateur : passage en file impossible : {e}");
+            return 0;
+        }
+    };
+    let n = ids.len();
+    planner_lock(st).launched.extend(ids);
+    n
+}
+
+// --- Hooks appelés depuis commands.rs / library.rs ---
 
 /// Un téléchargement vient de passer en cours (`mark_active` dans `reevaluate`).
 pub(crate) fn on_started(app: &AppHandle) {
-    app.state::<AppState>().planner.lock().unwrap().run.on_started();
+    planner_lock(&app.state::<AppState>()).run.on_started();
 }
 
 /// Retire `id` de la liste « à remettre en attente » ; `true` s'il y figurait.
 pub(crate) fn take_hold_on_pause(app: &AppHandle, id: &str) -> bool {
-    app.state::<AppState>().planner.lock().unwrap().hold_on_pause.remove(id)
+    planner_lock(&app.state::<AppState>()).hold_on_pause.remove(id)
+}
+
+/// Après un retrait de la liste (annuler, retirer, supprimer) : si plus rien n'est en
+/// attente, l'exécution est abandonnée SANS émettre (un ancien succès ne doit pas faire
+/// déclencher l'action de fin par une exécution ultérieure qui échoue).
+pub(crate) fn reset_run_if_idle(st: &AppState) {
+    let pending = match st.storage.list() {
+        Ok(list) => pending_count(&list),
+        Err(_) => return,
+    };
+    if pending == 0 {
+        planner_lock(st).run.reset();
+    }
 }
 
 /// À appeler APRÈS la persistance d'un statut terminal. `first` = première persistance de ce
@@ -118,7 +185,7 @@ pub(crate) fn take_hold_on_pause(app: &AppHandle, id: &str) -> bool {
 pub(crate) fn on_terminal_persisted(app: &AppHandle, status: DownloadStatus, first: bool) {
     let st = app.state::<AppState>();
     if status == DownloadStatus::Completed && first {
-        st.planner.lock().unwrap().run.on_completed();
+        planner_lock(&st).run.on_completed();
     }
     if !matches!(status, DownloadStatus::Completed | DownloadStatus::Error) {
         return;
@@ -130,7 +197,7 @@ pub(crate) fn on_terminal_persisted(app: &AppHandle, status: DownloadStatus, fir
             return;
         }
     };
-    let finished = st.planner.lock().unwrap().run.check_finished(pending);
+    let finished = planner_lock(&st).run.check_finished(pending);
     if !finished {
         return;
     }
@@ -144,7 +211,8 @@ pub(crate) fn on_terminal_persisted(app: &AppHandle, status: DownloadStatus, fir
 
 // --- Planificateur ---
 
-/// Un passage du planificateur à l'heure locale courante.
+/// Un passage du planificateur à l'heure locale courante. Aussi appelé tout de suite après
+/// un ajout « sans démarrer » (pour qu'un `held` ajouté dans la plage parte sans attendre 30 s).
 pub(crate) fn planner_tick(app: &AppHandle) {
     use chrono::{Datelike, Timelike};
     let now = chrono::Local::now();
@@ -160,29 +228,26 @@ fn planner_tick_at(app: &AppHandle, weekday: u8, minute: u16) {
     // Transition calculée et appliquée à l'état sous un seul verrou court : deux passages
     // concurrents (boucle + set_schedule) ne peuvent pas agir deux fois.
     let (transition, launched) = {
-        let mut p = st.planner.lock().unwrap();
+        let mut p = planner_lock(&st);
         let t = planner_transition(p.in_window, now_in);
         p.in_window = now_in;
         let launched = if t == Transition::Exit { std::mem::take(&mut p.launched) } else { HashSet::new() };
         (t, launched)
     };
     match transition {
-        Transition::None => {}
         Transition::Enter => enter_window(app, &schedule),
         Transition::Exit => exit_window(app, &schedule, launched),
+        Transition::None => {
+            if release_in_window(transition, now_in) && admit_held(&st) > 0 {
+                reevaluate(app);
+            }
+        }
     }
 }
 
 fn enter_window(app: &AppHandle, schedule: &Schedule) {
     let st = app.state::<AppState>();
-    let ids = match release_held(&st.storage) {
-        Ok(ids) => ids,
-        Err(e) => {
-            eprintln!("planificateur : passage en file impossible : {e}");
-            Vec::new()
-        }
-    };
-    st.planner.lock().unwrap().launched.extend(ids);
+    admit_held(&st);
     if let Some(limit) = schedule.limit_bps {
         st.limiter.set_rate(limit);
     }
@@ -196,21 +261,27 @@ fn exit_window(app: &AppHandle, schedule: &Schedule, launched: HashSet<String>) 
     let st = app.state::<AppState>();
     if schedule.at_end == AtEnd::Pause {
         for id in launched {
+            // `handles` tenu pendant lecture + décision : un démarrage concurrent ne peut pas
+            // s'intercaler (et `mark_active` ignore désormais les `held`).
+            let handles = st.handles.lock().unwrap();
             let d = match st.storage.get_by_id(&id) {
                 Ok(Some(d)) => d,
                 _ => continue,
             };
-            if matches!(d.status, DownloadStatus::Completed | DownloadStatus::Error) {
-                continue;
-            }
-            // `handles` tenu pendant la décision : un démarrage concurrent ne peut pas s'intercaler.
-            let handles = st.handles.lock().unwrap();
-            if let Some(h) = handles.get(&id) {
-                // Actif : pause ; le relais persistera `Held` au lieu de `Paused`.
-                st.planner.lock().unwrap().hold_on_pause.insert(id.clone());
-                h.pause();
-            } else if let Err(e) = st.storage.update_state(&id, d.downloaded_bytes, DownloadStatus::Held) {
-                eprintln!("planificateur : mise en attente de {id} impossible : {e}");
+            let handle = handles.get(&id);
+            match exit_action(d.status, handle.is_some()) {
+                ExitAction::Hold => {
+                    if let Err(e) = st.storage.update_state(&id, d.downloaded_bytes, DownloadStatus::Held) {
+                        eprintln!("planificateur : mise en attente de {id} impossible : {e}");
+                    }
+                }
+                ExitAction::PauseThenHold => {
+                    if let Some(h) = handle {
+                        planner_lock(&st).hold_on_pause.insert(id.clone());
+                        h.pause();
+                    }
+                }
+                ExitAction::Leave => {}
             }
         }
     }
@@ -330,7 +401,32 @@ mod tests {
     }
 
     #[test]
-    fn pending_counts_waiting_and_running_only() {
+    fn release_in_window_only_without_transition_inside_window() {
+        assert!(release_in_window(Transition::None, true));
+        assert!(!release_in_window(Transition::None, false));
+        // Enter lâche déjà les held (et lève la suspension) ; Exit ne lâche rien.
+        assert!(!release_in_window(Transition::Enter, true));
+        assert!(!release_in_window(Transition::Exit, false));
+    }
+
+    #[test]
+    fn exit_action_cases() {
+        use DownloadStatus::*;
+        assert_eq!(exit_action(Queued, false), ExitAction::Hold);
+        assert_eq!(exit_action(Queued, true), ExitAction::PauseThenHold);
+        assert_eq!(exit_action(Downloading, true), ExitAction::PauseThenHold);
+        // Pause utilisateur / « Suspendre la file » : respectée.
+        assert_eq!(exit_action(Paused, false), ExitAction::Leave);
+        assert_eq!(exit_action(Held, false), ExitAction::Leave);
+        assert_eq!(exit_action(Completed, false), ExitAction::Leave);
+        assert_eq!(exit_action(Error, false), ExitAction::Leave);
+        // Live laissé en cours ; `downloading` sans tâche (état périmé) laissé tel quel.
+        assert_eq!(exit_action(Recording, true), ExitAction::Leave);
+        assert_eq!(exit_action(Downloading, false), ExitAction::Leave);
+    }
+
+    #[test]
+    fn pending_counts_waiting_running_and_paused() {
         use DownloadStatus::*;
         let list = vec![
             dl("q", Queued),
@@ -341,9 +437,10 @@ mod tests {
             dl("e", Error),
             dl("c", Completed),
         ];
-        assert_eq!(pending_count(&list), 4);
+        assert_eq!(pending_count(&list), 5);
         assert_eq!(pending_count(&[]), 0);
-        assert_eq!(pending_count(&[dl("p", Paused), dl("c", Completed)]), 0);
+        assert_eq!(pending_count(&[dl("p", Paused), dl("c", Completed)]), 1);
+        assert_eq!(pending_count(&[dl("e", Error), dl("c", Completed)]), 0);
     }
 
     #[test]

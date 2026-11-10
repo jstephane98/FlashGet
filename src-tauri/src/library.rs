@@ -88,7 +88,9 @@ pub fn delete_download(app: AppHandle, id: String, delete_file: bool) -> Result<
     }
     let d = find(&app, &id)?;
     delete_entry(Path::new(&d.dest_path), delete_file, |p| trash::delete(p).map_err(|e| e.to_string()))?;
-    state.storage.delete(&id).map_err(|e| e.to_string())
+    state.storage.delete(&id).map_err(|e| e.to_string())?;
+    crate::queue::reset_run_if_idle(&state);
+    Ok(())
 }
 
 #[cfg(test)]
