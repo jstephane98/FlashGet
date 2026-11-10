@@ -135,11 +135,11 @@ pub fn media_or_error(info: MediaInfo, formats: Vec<MediaFormat>) -> Result<(Med
 }
 
 /// Formats yt-dlp proposés. `build_media_formats` ajoute toujours l'entrée « MP3
-/// (conversion) » : si elle est seule (aucun flux audio/vidéo réel, ex. storyboards
-/// seulement), il n'y a rien à télécharger → liste vide.
+/// (conversion) » : s'il n'y a aucun autre format (aucun flux audio/vidéo réel, ex.
+/// storyboards seulement), il n'y a rien à télécharger → liste vide.
 pub fn ytdlp_formats(raw: &[YtdlpFormat]) -> Vec<MediaFormat> {
     let formats = build_media_formats(raw);
-    if formats.len() <= 1 {
+    if !formats.iter().any(|f| f.format_id != "mp3") {
         return Vec::new();
     }
     formats
@@ -188,6 +188,15 @@ pub fn ytdlp_error(detail: &str) -> String {
         return NO_VIDEO.to_string();
     }
     inaccessible(detail)
+}
+
+/// Statut HTTP de la sonde `Auto` : >= 400 = lien mort (lien signé expiré, 404, erreur
+/// d'API…), sauf 416 (Range refusé sur un fichier vide ou déjà complet : le lien répond).
+pub fn check_http_status(status: u16) -> Result<(), String> {
+    if status >= 400 && status != 416 {
+        return Err(inaccessible(format!("HTTP {status}")));
+    }
+    Ok(())
 }
 
 fn inaccessible(detail: impl std::fmt::Display) -> String {
@@ -308,6 +317,7 @@ async fn resolve(
                 .await
                 .map_err(|_| inaccessible("délai dépassé"))?
                 .map_err(inaccessible)?;
+            check_http_status(probe.status)?;
             match classify_probe(url, probe.content_type.as_deref()) {
                 ProbeRoute::Page => media_ytdlp(app, url, headers).await,
                 ProbeRoute::Hls => media_hls(app, url, headers, suggested_name).await,
@@ -525,6 +535,23 @@ mod tests {
         assert!(ytdlp_formats(&[yf("sb0", Some(90), "none", "none")]).is_empty());
         let f = ytdlp_formats(&[yf("18", Some(360), "avc1.42001E", "mp4a.40.2"), yf("140", None, "none", "mp4a.40.2")]);
         assert!(f.len() > 1);
+    }
+
+    #[test]
+    fn dead_http_status_is_inaccessible() {
+        assert!(check_http_status(200).is_ok());
+        assert!(check_http_status(206).is_ok());
+        assert!(check_http_status(416).is_ok());
+        assert_eq!(check_http_status(404).unwrap_err(), "Lien inaccessible : HTTP 404");
+        assert_eq!(check_http_status(403).unwrap_err(), "Lien inaccessible : HTTP 403");
+        assert_eq!(check_http_status(500).unwrap_err(), "Lien inaccessible : HTTP 500");
+    }
+
+    #[test]
+    fn ytdlp_formats_keep_heightless_video() {
+        let f = ytdlp_formats(&[yf("0", None, "avc1", "mp4a")]);
+        assert_eq!(f[0].format_id, "bestvideo");
+        assert!(f[0].recommended);
     }
 
     #[test]

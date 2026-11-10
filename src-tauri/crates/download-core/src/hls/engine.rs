@@ -252,7 +252,7 @@ mod tests {
     #[async_trait]
     impl ByteFetcher for MapFetcher {
         async fn probe(&self, _u: &str, _h: &RequestHeaders) -> Result<ProbeResult, CoreError> {
-            Ok(ProbeResult { total_bytes: None, supports_ranges: false, file_name: None, content_type: None })
+            Ok(ProbeResult { total_bytes: None, supports_ranges: false, file_name: None, content_type: None, status: 200 })
         }
         async fn fetch_range(
             &self,
@@ -318,7 +318,7 @@ mod tests {
         #[async_trait]
         impl ByteFetcher for StopAfterFirst {
             async fn probe(&self, _u: &str, _h: &RequestHeaders) -> Result<ProbeResult, CoreError> {
-                Ok(ProbeResult { total_bytes: None, supports_ranges: false, file_name: None, content_type: None })
+                Ok(ProbeResult { total_bytes: None, supports_ranges: false, file_name: None, content_type: None, status: 200 })
             }
             async fn fetch_range(&self, url: &str, _r: Option<(u64, u64)>, _h: &RequestHeaders)
                 -> Result<BoxStream<'static, Result<Bytes, CoreError>>, CoreError> {

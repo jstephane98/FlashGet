@@ -284,6 +284,22 @@ pub fn build_media_formats(formats: &[YtdlpFormat]) -> Vec<MediaFormat> {
             recommended: rec_height == Some(*h),
         });
     }
+    // Aucune hauteur connue mais au moins un flux vidéo (vcodec absent/inconnu compris) :
+    // une seule ligne « Meilleure qualité » (`bestvideo` → `-f bestvideo+bestaudio/best`).
+    if best_by_height.is_empty() && formats.iter().any(|f| f.vcodec.as_deref() != Some("none")) {
+        push(&mut out, MediaFormat {
+            index: 0,
+            kind: FormatKind::Av,
+            format_id: "bestvideo".into(),
+            height: None,
+            label: "Meilleure qualité".into(),
+            container: None,
+            codecs: None,
+            fps: None,
+            est_size: None,
+            recommended: true,
+        });
+    }
 
     push(&mut out, MediaFormat {
         index: 0,
@@ -664,6 +680,54 @@ mod tests {
         assert_eq!(au[0].format_id, "mp3");
         assert!(au[0].recommended);
         assert_eq!(au.iter().skip(1).map(|m| m.label.as_str()).collect::<Vec<_>>(), ["M4A · 129 kb/s", "WEBM · 160 kb/s"]);
+    }
+
+    fn heightless(id: &str, vcodec: Option<&str>, acodec: Option<&str>, ext: &str) -> YtdlpFormat {
+        YtdlpFormat {
+            format_id: id.into(), height: None, width: None,
+            ext: Some(ext.into()), vcodec: vcodec.map(String::from), acodec: acodec.map(String::from),
+            filesize: None, tbr: None, fps: None, abr: None,
+        }
+    }
+
+    #[test]
+    fn heightless_video_gets_one_best_quality_row() {
+        let f = build_media_formats(&[
+            heightless("0", Some("avc1"), Some("mp4a"), "mp4"),
+            heightless("1", Some("avc1"), Some("none"), "mp4"),
+        ]);
+        let av: Vec<_> = f.iter().filter(|m| m.kind == FormatKind::Av).collect();
+        assert_eq!(av.len(), 1);
+        let row = av[0];
+        assert_eq!(row.format_id, "bestvideo");
+        assert_eq!(row.label, "Meilleure qualité");
+        assert_eq!((row.height, row.container.as_deref(), row.codecs.as_deref(), row.fps, row.est_size), (None, None, None, None, None));
+        assert!(row.recommended);
+        assert_eq!(row.index, 0);
+        assert!(!f.iter().any(|m| m.kind == FormatKind::Video));
+        // Les lignes audio suivent, indexes = positions.
+        assert_eq!(f[1].format_id, "mp3");
+        for (i, m) in f.iter().enumerate() {
+            assert_eq!(m.index as usize, i);
+        }
+        // vcodec absent (extracteur générique) = vidéo aussi.
+        let g = build_media_formats(&[heightless("direct", None, None, "mp4")]);
+        assert_eq!(g[0].format_id, "bestvideo");
+    }
+
+    #[test]
+    fn storyboards_alone_give_no_video_row() {
+        let f = build_media_formats(&[
+            heightless("sb0", Some("none"), Some("none"), "mhtml"),
+            heightless("sb1", Some("none"), Some("none"), "mhtml"),
+        ]);
+        assert!(!f.iter().any(|m| matches!(m.kind, FormatKind::Av | FormatKind::Video)));
+        assert!(!f.iter().any(|m| m.format_id != "mp3"));
+        // Rien du tout → pas de ligne vidéo non plus.
+        assert!(!build_media_formats(&[]).iter().any(|m| m.kind == FormatKind::Av));
+        // Des hauteurs connues → pas de ligne « Meilleure qualité ».
+        let (_, info) = parse_info(INFO_SAMPLE).unwrap();
+        assert!(!build_media_formats(&info).iter().any(|m| m.format_id == "bestvideo"));
     }
 
     #[test]

@@ -127,6 +127,8 @@ pub struct ProbeResult {
     pub supports_ranges: bool,
     pub file_name: Option<String>,
     pub content_type: Option<String>,
+    /// Code HTTP de la réponse de sonde (200, 206, 404…).
+    pub status: u16,
 }
 
 /// Payload de progression poussé vers l'UI.

@@ -101,7 +101,7 @@ impl ByteFetcher for ReqwestFetcher {
 
         let file_name = file_name_from_url(url);
 
-        Ok(ProbeResult { total_bytes, supports_ranges, file_name, content_type })
+        Ok(ProbeResult { total_bytes, supports_ranges, file_name, content_type, status: status.as_u16() })
     }
 
     async fn fetch_range(
