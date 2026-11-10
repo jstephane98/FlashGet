@@ -80,6 +80,9 @@ pub(crate) async fn add_url_no_probe(
         media_selection: None,
         thumbnail_url: None,
         duration_s: None,
+        created_at: None,
+        started_at: None,
+        completed_at: None,
     };
 
     {
@@ -128,6 +131,9 @@ async fn add_ytdlp_queued(app: &AppHandle, url: &str, title: &str, audio: bool, 
         media_selection: Some(sel),
         thumbnail_url: None,
         duration_s: None,
+        created_at: None,
+        started_at: None,
+        completed_at: None,
     };
     app.state::<AppState>().storage.upsert(&download).map_err(|e| e.to_string())?;
     Ok(download)
@@ -709,7 +715,6 @@ fn launch(app: &AppHandle, download: Download, handle: DownloadHandle) {
                 last_bytes = p.downloaded_bytes;
             }
             p.speed_bps = current_speed;
-            let _ = app_for_rx.emit("download://progress", &p);
             let persist = matches!(p.status, DownloadStatus::Completed | DownloadStatus::Paused | DownloadStatus::Error)
                 || (p.status == DownloadStatus::Recording && last_persisted != Some(DownloadStatus::Recording));
             if persist {
@@ -728,6 +733,9 @@ fn launch(app: &AppHandle, download: Download, handle: DownloadHandle) {
                 }
                 last_persisted = Some(p.status);
             }
+            // Émission APRÈS la persistance des états terminaux : un refresh() côté UI
+            // déclenché par l'évènement lit ainsi le statut et completed_at à jour.
+            let _ = app_for_rx.emit("download://progress", &p);
         }
     });
 

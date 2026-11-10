@@ -1,6 +1,7 @@
 mod bridge;
 mod commands;
 mod dest;
+mod library;
 mod link;
 mod prefs;
 mod remux;
@@ -112,6 +113,9 @@ pub fn run() {
             commands::clear_completed,
             commands::open_file,
             commands::open_folder,
+            library::get_file_info,
+            library::allow_playback,
+            library::delete_download,
             commands::get_bridge_info,
             commands::regenerate_bridge_token,
             commands::get_autostart,

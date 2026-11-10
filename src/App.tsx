@@ -3,6 +3,7 @@ import "./index.css";
 import { X } from "lucide-react";
 import type { Download, Priority } from "./types";
 import * as api from "./api";
+import { t } from "./i18n";
 import type { PageId } from "./navigation";
 import { TitleBar } from "./components/shell/TitleBar";
 import { Sidebar } from "./components/shell/Sidebar";
@@ -15,7 +16,8 @@ import { SettingsDialog } from "./components/SettingsDialog";
 type ExternalPayload =
   | { kind: "probing"; url: string }
   | { kind: "probed"; probe: api.LinkProbe }
-  | { kind: "error"; url: string; message: string };
+  | { kind: "error"; url: string; message: string }
+  | { kind: "analyze"; url: string };
 
 export default function App() {
   const [page, setPage] = useState<PageId>("downloads");
@@ -42,6 +44,15 @@ export default function App() {
     api.getBridgeInfo().then((b) => setBridgeListening(b.listening)).catch(() => {});
   }
 
+  // La page Nouveau s'ouvre, préremplie ; rien ne démarre avant confirmation.
+  // Utilise seulement des setters et une ref : sûr à appeler depuis l'effet monté une fois.
+  function showExternal(e: ExternalPayload) {
+    extSeq.current += 1;
+    setExternal({ ...e, seq: extSeq.current });
+    setStartInBatch(false);
+    setPage("new");
+  }
+
   useEffect(() => {
     refresh();
     refreshStatusInfo();
@@ -60,14 +71,7 @@ export default function App() {
       );
       if (p.status === "completed" || p.status === "paused" || p.status === "error") refresh();
     });
-    // Liens envoyés par l'extension : la page Nouveau s'ouvre, préremplie ; rien ne démarre
-    // avant confirmation. La fenêtre est déjà mise au premier plan côté Rust.
-    const showExternal = (e: ExternalPayload) => {
-      extSeq.current += 1;
-      setExternal({ ...e, seq: extSeq.current });
-      setStartInBatch(false);
-      setPage("new");
-    };
+    // Liens envoyés par l'extension. La fenêtre est déjà mise au premier plan côté Rust.
     const unProbing = api.onLinkProbing(({ url }) => showExternal({ kind: "probing", url }));
     const unProbed = api.onLinkProbed((probe) => showExternal({ kind: "probed", probe }));
     const unLinkErr = api.onLinkError(({ url, message }) => showExternal({ kind: "error", url, message }));
@@ -115,6 +119,19 @@ export default function App() {
     remove: (id) => withRefresh(() => api.removeFromList(id)),
   };
 
+  function redownload(url: string) {
+    setPage("new");
+    showExternal({ kind: "analyze", url });
+  }
+
+  function copyLink(d: Download) {
+    // Promise.resolve().then : une absence de presse-papiers devient un rejet, pas une exception.
+    Promise.resolve().then(() => navigator.clipboard.writeText(d.url)).then(
+      () => setInfo(t("lib.copied")),
+      (e) => setError(String(e)),
+    );
+  }
+
   const stats = useMemo(() => {
     let completed = 0, active = 0, queued = 0, totalSpeed = 0;
     for (const d of downloads) {
@@ -157,7 +174,11 @@ export default function App() {
               <CompletedPage
                 downloads={downloads}
                 onClear={() => withRefresh(api.clearCompleted)}
-                actions={actions}
+                onOpenFile={actions.openFile}
+                onOpenFolder={actions.openFolder}
+                onCopyLink={copyLink}
+                onRedownload={redownload}
+                onDeleted={refresh}
               />
             ) : (
               <DownloadsPage

@@ -7,6 +7,14 @@ use std::sync::Mutex;
 /// Clé du jeton du bridge navigateur dans la table key/value `settings`.
 const BRIDGE_TOKEN_KEY: &str = "bridge.token";
 
+/// Secondes Unix courantes.
+pub fn now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
 pub struct Storage {
     conn: Mutex<Connection>,
 }
@@ -60,6 +68,10 @@ impl Storage {
         let _ = conn.execute("ALTER TABLE downloads ADD COLUMN media_selection TEXT", []);
         let _ = conn.execute("ALTER TABLE downloads ADD COLUMN thumbnail_url TEXT", []);
         let _ = conn.execute("ALTER TABLE downloads ADD COLUMN duration_s INTEGER", []);
+        // Horodatage (secondes Unix), nullable pour les anciennes lignes.
+        let _ = conn.execute("ALTER TABLE downloads ADD COLUMN created_at INTEGER", []);
+        let _ = conn.execute("ALTER TABLE downloads ADD COLUMN started_at INTEGER", []);
+        let _ = conn.execute("ALTER TABLE downloads ADD COLUMN completed_at INTEGER", []);
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
         )
@@ -70,12 +82,14 @@ impl Storage {
     pub fn upsert(&self, d: &Download) -> Result<(), CoreError> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO downloads (id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority, category, referrer, cookie, user_agent, kind, audio_url, media_selection, thumbnail_url, duration_s)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
+            "INSERT INTO downloads (id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority, category, referrer, cookie, user_agent, kind, audio_url, media_selection, thumbnail_url, duration_s, created_at, started_at, completed_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, COALESCE(?20, ?23), ?21, ?22)
              ON CONFLICT(id) DO UPDATE SET
                 url=?2, file_name=?3, dest_path=?4, total_bytes=?5,
                 downloaded_bytes=?6, status=?7, supports_ranges=?8, error=?9, priority=?10, category=?11,
-                referrer=?12, cookie=?13, user_agent=?14, kind=?15, audio_url=?16, media_selection=?17, thumbnail_url=?18, duration_s=?19",
+                referrer=?12, cookie=?13, user_agent=?14, kind=?15, audio_url=?16, media_selection=?17, thumbnail_url=?18, duration_s=?19,
+                created_at=COALESCE(created_at, ?20, ?23),
+                started_at=COALESCE(?21, started_at), completed_at=COALESCE(?22, completed_at)",
             rusqlite::params![
                 d.id, d.url, d.file_name, d.dest_path,
                 d.total_bytes.map(|v| v as i64),
@@ -93,6 +107,10 @@ impl Storage {
                 d.media_selection,
                 d.thumbnail_url,
                 d.duration_s.map(|v| v as i64),
+                d.created_at,
+                d.started_at,
+                d.completed_at,
+                now_secs(),
             ],
         )
         .map_err(|e| CoreError::Storage(e.to_string()))?;
@@ -102,7 +120,7 @@ impl Storage {
     pub fn list(&self) -> Result<Vec<Download>, CoreError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn
-            .prepare("SELECT id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority, category, referrer, cookie, user_agent, kind, audio_url, media_selection, thumbnail_url, duration_s FROM downloads ORDER BY rowid")
+            .prepare("SELECT id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority, category, referrer, cookie, user_agent, kind, audio_url, media_selection, thumbnail_url, duration_s, created_at, started_at, completed_at FROM downloads ORDER BY rowid")
             .map_err(|e| CoreError::Storage(e.to_string()))?;
         let rows = stmt
             .query_map([], |row| {
@@ -126,6 +144,9 @@ impl Storage {
                     media_selection: row.get(16)?,
                     thumbnail_url: row.get(17)?,
                     duration_s: row.get::<_, Option<i64>>(18)?.map(|v| v as u64),
+                    created_at: row.get(19)?,
+                    started_at: row.get(20)?,
+                    completed_at: row.get(21)?,
                 })
             })
             .map_err(|e| CoreError::Storage(e.to_string()))?;
@@ -148,8 +169,10 @@ impl Storage {
     pub fn update_state(&self, id: &str, downloaded_bytes: u64, status: DownloadStatus) -> Result<(), CoreError> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "UPDATE downloads SET downloaded_bytes=?1, status=?2 WHERE id=?3",
-            rusqlite::params![downloaded_bytes as i64, status_to_str(status), id],
+            "UPDATE downloads SET downloaded_bytes=?1, status=?2,
+                completed_at=CASE WHEN ?2='completed' THEN COALESCE(completed_at, ?4) ELSE completed_at END
+             WHERE id=?3",
+            rusqlite::params![downloaded_bytes as i64, status_to_str(status), id, now_secs()],
         ).map_err(|e| CoreError::Storage(e.to_string()))?;
         Ok(())
     }
@@ -170,8 +193,8 @@ impl Storage {
     pub fn mark_active(&self, id: &str, downloaded_bytes: u64) -> Result<(), CoreError> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "UPDATE downloads SET downloaded_bytes=?1, status='downloading' WHERE id=?2 AND status NOT IN ('completed','error')",
-            rusqlite::params![downloaded_bytes as i64, id],
+            "UPDATE downloads SET downloaded_bytes=?1, status='downloading', started_at=COALESCE(started_at, ?3) WHERE id=?2 AND status NOT IN ('completed','error')",
+            rusqlite::params![downloaded_bytes as i64, id, now_secs()],
         ).map_err(|e| CoreError::Storage(e.to_string()))?;
         Ok(())
     }
@@ -189,7 +212,7 @@ impl Storage {
     pub fn get_by_id(&self, id: &str) -> Result<Option<Download>, CoreError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn
-            .prepare("SELECT id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority, category, referrer, cookie, user_agent, kind, audio_url, media_selection, thumbnail_url, duration_s FROM downloads WHERE id=?1")
+            .prepare("SELECT id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority, category, referrer, cookie, user_agent, kind, audio_url, media_selection, thumbnail_url, duration_s, created_at, started_at, completed_at FROM downloads WHERE id=?1")
             .map_err(|e| CoreError::Storage(e.to_string()))?;
         let mut rows = stmt
             .query_map([id], |row| {
@@ -213,6 +236,9 @@ impl Storage {
                     media_selection: row.get(16)?,
                     thumbnail_url: row.get(17)?,
                     duration_s: row.get::<_, Option<i64>>(18)?.map(|v| v as u64),
+                    created_at: row.get(19)?,
+                    started_at: row.get(20)?,
+                    completed_at: row.get(21)?,
                 })
             })
             .map_err(|e| CoreError::Storage(e.to_string()))?;
@@ -524,7 +550,66 @@ mod tests {
             media_selection: None,
             thumbnail_url: None,
             duration_s: None,
+            created_at: None,
+            started_at: None,
+            completed_at: None,
         }
+    }
+
+
+    #[test]
+    fn upsert_sets_created_at_once() {
+        let s = Storage::open_in_memory().unwrap();
+        s.upsert(&sample("a")).unwrap();
+        let first = s.get_by_id("a").unwrap().unwrap();
+        assert!(first.created_at.is_some());
+        s.upsert(&first).unwrap();
+        assert_eq!(s.get_by_id("a").unwrap().unwrap().created_at, first.created_at);
+        let mut none = first.clone();
+        none.created_at = None;
+        s.upsert(&none).unwrap();
+        assert_eq!(s.get_by_id("a").unwrap().unwrap().created_at, first.created_at);
+    }
+
+    #[test]
+    fn mark_active_sets_started_at_once() {
+        let s = Storage::open_in_memory().unwrap();
+        s.upsert(&sample("a")).unwrap();
+        assert_eq!(s.get_by_id("a").unwrap().unwrap().started_at, None);
+        s.mark_active("a", 10).unwrap();
+        let t1 = s.get_by_id("a").unwrap().unwrap().started_at;
+        assert!(t1.is_some());
+        {
+            let conn = s.conn.lock().unwrap();
+            conn.execute("UPDATE downloads SET started_at=5 WHERE id='a'", []).unwrap();
+        }
+        s.mark_active("a", 20).unwrap();
+        assert_eq!(s.get_by_id("a").unwrap().unwrap().started_at, Some(5));
+    }
+
+    #[test]
+    fn completion_sets_completed_at() {
+        let s = Storage::open_in_memory().unwrap();
+        s.upsert(&sample("a")).unwrap();
+        s.update_state("a", 50, DownloadStatus::Paused).unwrap();
+        assert_eq!(s.get_by_id("a").unwrap().unwrap().completed_at, None);
+        s.update_state("a", 100, DownloadStatus::Completed).unwrap();
+        assert!(s.get_by_id("a").unwrap().unwrap().completed_at.is_some());
+    }
+
+    #[test]
+    fn legacy_rows_have_no_dates() {
+        let s = Storage::open_in_memory().unwrap();
+        {
+            let conn = s.conn.lock().unwrap();
+            conn.execute(
+                "INSERT INTO downloads (id, url, file_name, dest_path, downloaded_bytes, status, supports_ranges) VALUES ('old','u','f','/f',0,'paused',1)",
+                [],
+            ).unwrap();
+        }
+        let d = s.get_by_id("old").unwrap().unwrap();
+        assert_eq!((d.created_at, d.started_at, d.completed_at), (None, None, None));
+        assert_eq!(s.list().unwrap().len(), 1);
     }
 
     #[test]

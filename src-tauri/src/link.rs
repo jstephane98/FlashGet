@@ -547,6 +547,9 @@ pub fn plan_download(pending: &PendingLink, req: &ConfirmLink, now_id: String) -
         media_selection: None,
         thumbnail_url: None,
         duration_s: None,
+        created_at: None,
+        started_at: None,
+        completed_at: None,
     };
 
     match &pending.probe {

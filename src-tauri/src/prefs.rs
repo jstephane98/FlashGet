@@ -2,7 +2,7 @@
 use crate::state::AppState;
 use tauri::State;
 
-const UI_PREFS: &[(&str, &[&str])] = &[("ui.theme", &["dark", "light", "system"])];
+const UI_PREFS: &[(&str, &[&str])] = &[("ui.theme", &["dark", "light", "system"]), ("ui.completedView", &["list", "grid"])];
 
 fn validate(key: &str, value: Option<&str>) -> Result<(), String> {
     let (_, allowed) = UI_PREFS
@@ -36,4 +36,5 @@ mod tests {
     #[test] fn accepts_known_key_and_value() { assert!(validate("ui.theme", Some("light")).is_ok()); assert!(validate("ui.theme", None).is_ok()); }
     #[test] fn rejects_unknown_key() { assert!(validate("bridge.token", None).is_err()); }
     #[test] fn rejects_unknown_value() { assert!(validate("ui.theme", Some("rose")).is_err()); }
+    #[test] fn completed_view_pref() { assert!(validate("ui.completedView", Some("grid")).is_ok()); assert!(validate("ui.completedView", Some("table")).is_err()); }
 }

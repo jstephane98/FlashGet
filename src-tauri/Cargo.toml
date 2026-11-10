@@ -21,7 +21,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["tray-icon", "protocol-asset"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
 tauri-plugin-shell = "2"
@@ -36,6 +36,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"
 uuid = { version = "1", features = ["v4"] }
 tokio-tungstenite = "0.24"
 futures-util = "0.3"
+trash = "5"
 
 [target.'cfg(windows)'.dependencies]
 tauri-winrt-notification = "0.7"

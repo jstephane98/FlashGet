@@ -205,3 +205,19 @@ export function getUiPref(key: string): Promise<string | null> {
 export function setUiPref(key: string, value: string): Promise<void> {
   return invoke("set_ui_pref", { key, value });
 }
+
+export type Playable = "video" | "audio";
+export interface FileInfo {
+  exists: boolean;
+  size: number | null;
+  playable: Playable | null;
+}
+export function getFileInfo(id: string): Promise<FileInfo> {
+  return invoke<FileInfo>("get_file_info", { id });
+}
+export function allowPlayback(id: string): Promise<string> {
+  return invoke<string>("allow_playback", { id });
+}
+export function deleteDownload(id: string, deleteFile: boolean): Promise<void> {
+  return invoke("delete_download", { id, deleteFile });
+}

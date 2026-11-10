@@ -42,6 +42,9 @@ export interface Download {
   media_selection?: string | null;
   thumbnail_url?: string | null;
   duration_s?: number | null;
+  created_at?: number | null;
+  started_at?: number | null;
+  completed_at?: number | null;
 }
 
 export interface Settings {
