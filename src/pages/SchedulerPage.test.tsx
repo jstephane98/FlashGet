@@ -60,6 +60,7 @@ describe("SchedulerPage", () => {
     await ready();
     fireEvent.click(screen.getByRole("switch", { name: "Limiter la vitesse" }));
     fireEvent.change(screen.getByLabelText("Mo/s"), { target: { value: "10" } });
+    fireEvent.blur(screen.getByLabelText("Mo/s"));
     await waitFor(() =>
       expect(setSchedule).toHaveBeenLastCalledWith(expect.objectContaining({ limit_bps: 10485760 })),
     );
@@ -79,6 +80,45 @@ describe("SchedulerPage", () => {
     fireEvent.change(screen.getByDisplayValue("07:00"), { target: { value: "02:00" } });
     expect((await screen.findByRole("alert")).textContent).toContain("différer");
     expect(screen.getAllByDisplayValue("02:00").length).toBe(2);
+  });
+
+  it("limite : une seule sauvegarde au blur, virgule acceptée, champ vide restauré", async () => {
+    await ready();
+    fireEvent.click(screen.getByRole("switch", { name: "Limiter la vitesse" }));
+    await waitFor(() => expect(setSchedule).toHaveBeenCalledTimes(1));
+    setSchedule.mockClear();
+    const input = screen.getByLabelText("Mo/s") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "2" } });
+    fireEvent.change(input, { target: { value: "25" } });
+    expect(setSchedule).not.toHaveBeenCalled();
+    fireEvent.blur(input);
+    expect(setSchedule).toHaveBeenCalledTimes(1);
+    expect(setSchedule).toHaveBeenCalledWith(expect.objectContaining({ limit_bps: 26214400 }));
+    fireEvent.change(input, { target: { value: "2,5" } });
+    fireEvent.blur(input);
+    expect(setSchedule).toHaveBeenLastCalledWith(expect.objectContaining({ limit_bps: 2621440 }));
+    setSchedule.mockClear();
+    fireEvent.change(input, { target: { value: "" } });
+    fireEvent.blur(input);
+    expect(setSchedule).not.toHaveBeenCalled();
+    expect(input.value).toBe("2.5");
+  });
+
+  it("échec de chargement : erreur puis Réessayer", async () => {
+    getSchedule.mockRejectedValueOnce("boom");
+    render(<SchedulerPage heldCount={3} />);
+    expect((await screen.findByRole("alert")).textContent).toContain("Impossible de charger");
+    fireEvent.click(screen.getByRole("button", { name: "Réessayer" }));
+    await screen.findByDisplayValue("02:00");
+    expect(getSchedule).toHaveBeenCalledTimes(2);
+  });
+
+  it("l'erreur d'une autre carte s'affiche en tête de page, une seule fois", async () => {
+    setSchedule.mockRejectedValueOnce("Plage invalide");
+    await ready();
+    fireEvent.click(screen.getByRole("switch", { name: "Limiter la vitesse" }));
+    await waitFor(() => expect(screen.getAllByRole("alert").length).toBe(1));
+    expect(screen.getByRole("alert").textContent).toContain("Plage invalide");
   });
 
   it("affiche le prochain démarrage avec le nombre d'éléments", async () => {

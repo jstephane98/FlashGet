@@ -150,6 +150,7 @@ export const fr = {
   "dayShort.4": "V",
   "dayShort.5": "S",
   "dayShort.6": "D",
+  "sch.loadError": "Impossible de charger le planificateur.",
   "sch.title": "Planificateur",
   "sch.enabled": "Activé",
   "sch.next": "Prochain démarrage : {when} · {n} téléchargements concernés",
