@@ -3,13 +3,13 @@ use crate::model::{Download, DownloadStatus, Priority};
 /// Étant donné l'ensemble des téléchargements et la limite de simultanés,
 /// renvoie les ids des téléchargements `Queued` à démarrer, triés par
 /// (priorité décroissante, rang de file, ordre du slice).
-/// `forced` (démarrage manuel) passe en premier s'il est `Queued` ; si la file
-/// est suspendue (`paused`), seul `forced` peut démarrer.
+/// `forced` (démarrage manuel) passe en premier s'il est `Queued`.
+/// La suspension de file n'est pas un filtre ici : « Suspendre la file » remet les `queued`
+/// en attente (`held`) et ce qui est `queued` ensuite (« Télécharger », reprise) démarre.
 /// Idempotent : ne renvoie jamais un id déjà `Downloading` / `Recording` / `Paused` / terminé.
 pub fn pick_to_start(
     downloads: &[Download],
     max_concurrent: u32,
-    paused: bool,
     forced: Option<&str>,
 ) -> Vec<String> {
     let active = downloads
@@ -23,9 +23,6 @@ pub fn pick_to_start(
     let forced_id = forced.filter(|f| {
         downloads.iter().any(|d| d.id == *f && d.status == DownloadStatus::Queued)
     });
-    if paused {
-        return forced_id.map(|f| vec![f.to_string()]).unwrap_or_default();
-    }
     let mut queued: Vec<&Download> = downloads
         .iter()
         .filter(|d| d.status == DownloadStatus::Queued && Some(d.id.as_str()) != forced_id)
@@ -88,7 +85,7 @@ mod tests {
             dl("b", DownloadStatus::Queued, Priority::Normal),
             dl("c", DownloadStatus::Queued, Priority::Normal),
         ];
-        assert_eq!(pick_to_start(&items, 2, false, None), vec!["a", "b"]);
+        assert_eq!(pick_to_start(&items, 2, None), vec!["a", "b"]);
     }
 
     #[test]
@@ -99,7 +96,7 @@ mod tests {
             dl("b", DownloadStatus::Queued, Priority::Normal),
         ];
         // 1 actif, limite 2 => 1 slot libre => démarre seulement "a".
-        assert_eq!(pick_to_start(&items, 2, false, None), vec!["a"]);
+        assert_eq!(pick_to_start(&items, 2, None), vec!["a"]);
     }
 
     #[test]
@@ -111,7 +108,7 @@ mod tests {
             dl("d", DownloadStatus::Queued, Priority::High),
         ];
         // High d'abord (b avant d, FIFO), puis Normal (c), puis Low (a).
-        assert_eq!(pick_to_start(&items, 3, false, None), vec!["b", "d", "c"]);
+        assert_eq!(pick_to_start(&items, 3, None), vec!["b", "d", "c"]);
     }
 
     #[test]
@@ -122,7 +119,7 @@ mod tests {
             dl("err", DownloadStatus::Error, Priority::High),
             dl("a", DownloadStatus::Queued, Priority::Normal),
         ];
-        assert_eq!(pick_to_start(&items, 5, false, None), vec!["a"]);
+        assert_eq!(pick_to_start(&items, 5, None), vec!["a"]);
     }
 
     #[test]
@@ -132,7 +129,7 @@ mod tests {
             dl("rec", DownloadStatus::Recording, Priority::Normal),
             dl("q", DownloadStatus::Queued, Priority::Normal),
         ];
-        assert!(pick_to_start(&downloads, 1, false, None).is_empty());
+        assert!(pick_to_start(&downloads, 1, None).is_empty());
     }
 
     #[test]
@@ -141,7 +138,7 @@ mod tests {
             dl("h", DownloadStatus::Held, Priority::High),
             dl("q", DownloadStatus::Queued, Priority::Normal),
         ];
-        assert_eq!(pick_to_start(&items, 3, false, None), vec!["q"]);
+        assert_eq!(pick_to_start(&items, 3, None), vec!["q"]);
     }
 
     fn ranked(id: &str, priority: Priority, rank: i64) -> Download {
@@ -157,28 +154,50 @@ mod tests {
             ranked("n2", Priority::Normal, 2),
             ranked("h9", Priority::High, 9),
         ];
-        assert_eq!(pick_to_start(&items, 3, false, None), vec!["h9", "n2", "n5"]);
+        assert_eq!(pick_to_start(&items, 3, None), vec!["h9", "n2", "n5"]);
     }
 
     #[test]
-    fn pick_respects_paused_except_forced() {
+    fn forced_is_picked_but_never_a_held() {
         let items = vec![
             dl("x", DownloadStatus::Queued, Priority::Normal),
             dl("y", DownloadStatus::Queued, Priority::Normal),
             dl("h", DownloadStatus::Held, Priority::Normal),
         ];
-        assert!(pick_to_start(&items, 3, true, None).is_empty());
-        assert_eq!(pick_to_start(&items, 3, true, Some("x")), vec!["x"]);
-        assert!(pick_to_start(&items, 3, true, Some("h")).is_empty());
+        assert_eq!(pick_to_start(&items, 1, Some("y")), vec!["y"]);
+        assert_eq!(pick_to_start(&items, 3, Some("h")), vec!["x", "y"]);
     }
 
     #[test]
-    fn forced_goes_first_when_not_paused() {
+    fn suspended_queue_still_starts_new_queued_items() {
+        // Après « Suspendre la file » : les anciens en attente sont `held`, les actifs `paused`.
+        // Un nouvel élément « Télécharger » (`queued`) démarre ; rien d'autre.
+        let items = vec![
+            dl("h1", DownloadStatus::Held, Priority::High),
+            dl("p1", DownloadStatus::Paused, Priority::High),
+            dl("new", DownloadStatus::Queued, Priority::Low),
+        ];
+        assert_eq!(pick_to_start(&items, 3, None), vec!["new"]);
+    }
+
+    #[test]
+    fn resume_all_after_suspend_starts_paused_items() {
+        // « Tout reprendre » repasse les `paused` en `queued` : ils sont élus, pas les `held`.
+        let items = vec![
+            dl("h1", DownloadStatus::Held, Priority::High),
+            dl("p1", DownloadStatus::Queued, Priority::Normal),
+            dl("p2", DownloadStatus::Queued, Priority::Normal),
+        ];
+        assert_eq!(pick_to_start(&items, 3, None), vec!["p1", "p2"]);
+    }
+
+    #[test]
+    fn forced_goes_first() {
         let items = vec![
             dl("a", DownloadStatus::Queued, Priority::High),
             dl("f", DownloadStatus::Queued, Priority::Low),
         ];
-        assert_eq!(pick_to_start(&items, 1, false, Some("f")), vec!["f"]);
+        assert_eq!(pick_to_start(&items, 1, Some("f")), vec!["f"]);
     }
 
     #[test]
@@ -188,6 +207,6 @@ mod tests {
             dl("y", DownloadStatus::Downloading, Priority::Normal),
             dl("a", DownloadStatus::Queued, Priority::High),
         ];
-        assert_eq!(pick_to_start(&items, 2, false, None), Vec::<String>::new());
+        assert_eq!(pick_to_start(&items, 2, None), Vec::<String>::new());
     }
 }

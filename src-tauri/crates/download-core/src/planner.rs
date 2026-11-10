@@ -109,6 +109,15 @@ pub fn next_start(s: &Schedule, weekday: u8, minute: u16) -> Option<(u8, u16)> {
     None
 }
 
+/// Débit global à appliquer : la limite de la plage si l'on est dans la plage et qu'elle en
+/// définit une, sinon la limite des réglages (0 = illimité).
+pub fn effective_rate(settings_max_bps: u64, s: &Schedule, in_window: bool) -> u64 {
+    match (in_window, s.limit_bps) {
+        (true, Some(limit)) => limit,
+        _ => settings_max_bps,
+    }
+}
+
 pub fn end_action_command(a: EndAction) -> Option<(&'static str, Vec<&'static str>)> {
     match a {
         EndAction::Sleep => Some(("rundll32.exe", vec!["powrprof.dll,SetSuspendState", "0,1,0"])),
@@ -206,6 +215,19 @@ mod tests {
         assert!(validate(&sched("02:00", "02:00", [true; 7])).is_err());
         assert!(validate(&sched("25:00", "02:00", [true; 7])).is_err());
         assert!(validate(&sched("02:00", "07:00", [false; 7])).is_err());
+    }
+
+    #[test]
+    fn effective_rate_cases() {
+        let mut s = Schedule::default();
+        // Sans limite de plage : toujours la limite des réglages.
+        assert_eq!(effective_rate(500, &s, true), 500);
+        assert_eq!(effective_rate(500, &s, false), 500);
+        s.limit_bps = Some(1000);
+        assert_eq!(effective_rate(500, &s, true), 1000);
+        assert_eq!(effective_rate(500, &s, false), 500);
+        assert_eq!(effective_rate(0, &s, true), 1000);
+        assert_eq!(effective_rate(0, &s, false), 0);
     }
 
     #[test]

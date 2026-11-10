@@ -312,6 +312,8 @@ pub fn start_download(app: AppHandle, id: String) -> Result<(), String> {
         }
         state.storage.update_state(&id, d.downloaded_bytes, DownloadStatus::Queued)
             .map_err(|e| e.to_string())?;
+        // Repris à la main : une pause individuelle ultérieure ne sera plus levée par la file.
+        crate::queue::forget_suspend_paused(&state, std::slice::from_ref(&id));
     }
     reevaluate_with(&app, Some(&id));
     Ok(())
@@ -384,7 +386,8 @@ pub fn update_settings(app: AppHandle, max_concurrent: u32, max_speed_bps: u64) 
         let state = app.state::<AppState>();
         let s = Settings { max_concurrent: max_concurrent.max(1), max_speed_bps };
         state.storage.set_settings(&s).map_err(|e| e.to_string())?;
-        state.limiter.set_rate(s.max_speed_bps);
+        // Pendant une plage avec limite, la limite de la plage reste appliquée.
+        crate::queue::apply_effective_rate(&state);
     }
     reevaluate(&app);
     Ok(())
@@ -400,14 +403,23 @@ pub fn pause_all(state: State<AppState>) -> Result<(), String> {
 pub fn resume_all(app: AppHandle) -> Result<(), String> {
     {
         let state = app.state::<AppState>();
-        let downloads = state.storage.list().map_err(|e| e.to_string())?;
-        for d in downloads.iter().filter(|d| d.status == DownloadStatus::Paused) {
-            state.storage.update_state(&d.id, d.downloaded_bytes, DownloadStatus::Queued)
-                .map_err(|e| e.to_string())?;
-        }
+        let ids = requeue_all_paused(&state.storage)?;
+        crate::queue::forget_suspend_paused(&state, &ids);
     }
     reevaluate(&app);
     Ok(())
+}
+
+/// Repasse tous les `paused` en `queued` ; renvoie leurs ids.
+pub(crate) fn requeue_all_paused(storage: &download_core::storage::Storage) -> Result<Vec<String>, String> {
+    let downloads = storage.list().map_err(|e| e.to_string())?;
+    let mut ids = Vec::new();
+    for d in downloads.iter().filter(|d| d.status == DownloadStatus::Paused) {
+        storage.update_state(&d.id, d.downloaded_bytes, DownloadStatus::Queued)
+            .map_err(|e| e.to_string())?;
+        ids.push(d.id.clone());
+    }
+    Ok(ids)
 }
 
 #[tauri::command]
@@ -521,8 +533,7 @@ pub(crate) fn reevaluate(app: &AppHandle) {
     reevaluate_with(app, None);
 }
 
-/// Comme `reevaluate`, mais `forced` (démarrage manuel) passe devant la file,
-/// même suspendue.
+/// Comme `reevaluate`, mais `forced` (démarrage manuel) passe devant la file.
 pub(crate) fn reevaluate_with(app: &AppHandle, forced: Option<&str>) {
     let state = app.state::<AppState>();
     let settings = match state.storage.get_settings() {
@@ -533,8 +544,8 @@ pub(crate) fn reevaluate_with(app: &AppHandle, forced: Option<&str>) {
         Ok(d) => d,
         Err(e) => { eprintln!("reevaluate: list failed: {e}"); return; }
     };
-    let paused = state.storage.queue_paused().unwrap_or(false);
-    let to_start = pick_to_start(&downloads, settings.max_concurrent, paused, forced);
+    // La suspension de file n'est pas un filtre : `pause_queue` a remis les `queued` en `held`.
+    let to_start = pick_to_start(&downloads, settings.max_concurrent, forced);
     if to_start.is_empty() {
         return;
     }
