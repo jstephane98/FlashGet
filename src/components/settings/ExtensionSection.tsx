@@ -34,6 +34,7 @@ export function ExtensionSection() {
     try {
       const token = await api.regenerateBridgeToken();
       setBridge((b) => (b ? { ...b, token } : b));
+      setCopied(false);
     } catch (e) {
       setError(String(e));
     }

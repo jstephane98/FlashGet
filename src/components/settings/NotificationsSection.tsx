@@ -2,7 +2,7 @@ import type { Settings } from "../../types";
 import { t } from "../../i18n";
 import { Card, SectionShell, SettingRow, Switch } from "./controls";
 
-export function NotificationsSection({ settings, save, error }: { settings: Settings; save(p: Partial<Settings>): void; error?: string; rev?: number }) {
+export function NotificationsSection({ settings, save, error }: { settings: Settings; save(p: Partial<Settings>): void; error?: string }) {
   return (
     <SectionShell title={t("set.nav.notifications")} desc={t("set.notifications.desc")} error={error}>
       <Card title={t("set.notifyCard")}>

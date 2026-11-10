@@ -95,6 +95,24 @@ describe("VideoSection", () => {
     fireEvent.change(await screen.findByLabelText("Cookies d'un navigateur"), { target: { value: "edge" } });
     expect(api.setCookiesFromBrowser).toHaveBeenCalledWith("edge");
   });
+
+  it("cookies : Aucun enregistre null", async () => {
+    vi.mocked(api.getCookiesFromBrowser).mockResolvedValue("edge");
+    render(<VideoSection {...props} />);
+    const sel = (await screen.findByLabelText("Cookies d'un navigateur")) as HTMLSelectElement;
+    await waitFor(() => expect(sel.value).toBe("edge"));
+    fireEvent.change(sel, { target: { value: "none" } });
+    expect(api.setCookiesFromBrowser).toHaveBeenCalledWith(null);
+  });
+
+  it("se désabonne de onYoutubeStatus au démontage", async () => {
+    const unsub = vi.fn();
+    vi.mocked(api.onYoutubeStatus).mockResolvedValue(unsub);
+    const { unmount } = render(<VideoSection {...props} />);
+    await screen.findByText("2026.10.30");
+    unmount();
+    await waitFor(() => expect(unsub).toHaveBeenCalled());
+  });
 });
 
 describe("ExtensionSection", () => {

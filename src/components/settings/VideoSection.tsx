@@ -15,7 +15,7 @@ const FORMATS: { value: AudioFormat; label: string }[] = [
 const KBPS = [0, 320, 256, 192, 128];
 const LANGS = ["fr", "en", "es", "de", "it", "pt", "ar", "ja"];
 
-export function VideoSection({ settings, save, error }: { settings: Settings; save(p: Partial<Settings>): void; error?: string; rev?: number }) {
+export function VideoSection({ settings, save, error }: { settings: Settings; save(p: Partial<Settings>): void; error?: string }) {
   const [version, setVersion] = useState<string | null | undefined>(undefined);
   const [ytConnected, setYtConnected] = useState(false);
   const [browser, setBrowser] = useState("");
@@ -62,13 +62,14 @@ export function VideoSection({ settings, save, error }: { settings: Settings; sa
     { value: "edge", label: "Edge" },
     { value: "firefox", label: "Firefox" },
   ];
+  if (browser && !browsers.some((b) => b.value === browser)) browsers.unshift({ value: browser, label: browser });
 
   return (
     <SectionShell title={t("set.nav.video")} desc={t("set.video.desc")} error={error ?? localError}>
       <Card title={t("set.engineCard")}>
-        <SettingRow label={t("set.engineCard")}>
+        <SettingRow label="yt-dlp">
           {version ? (
-            <span className="text-[13px] text-ink-soft">yt-dlp <span className="font-mono text-ink">{version}</span></span>
+            <span className="font-mono text-[13px] text-ink">{version}</span>
           ) : version === null ? (
             <span className="text-[13px] text-ink-mute">{t("set.ytdlpUnknown")}</span>
           ) : null}

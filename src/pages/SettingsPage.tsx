@@ -80,7 +80,7 @@ export function SettingsPage({ onSaved }: { onSaved(s: Settings): void }) {
         {section === "general" ? <GeneralSection {...props} />
           : section === "downloads" ? <DownloadsSection {...props} rev={rev} />
           : section === "folders" ? <FoldersSection />
-          : section === "video" ? <VideoSection {...props} rev={rev} />
+          : section === "video" ? <VideoSection {...props} />
           : section === "extension" ? <ExtensionSection />
           : section === "notifications" ? <NotificationsSection {...props} />
           : section === "updates" ? <UpdatesSection />
