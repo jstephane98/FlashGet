@@ -161,6 +161,7 @@ pub fn run() {
             queue::get_end_action,
             queue::set_end_action,
             queue::run_end_action,
+            ytdlp::get_ytdlp_version,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

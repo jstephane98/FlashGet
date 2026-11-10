@@ -373,11 +373,62 @@ async fn run_yt(
     }
 }
 
+/// Première ligne non vide de la sortie de `yt-dlp --version`, nettoyée.
+pub fn parse_version(stdout: &str) -> Option<String> {
+    stdout.lines().map(str::trim).find(|l| !l.is_empty()).map(str::to_string)
+}
+
+/// Version du yt-dlp embarqué, lue une fois par session. Seul un succès est mis en cache :
+/// une erreur renvoie `None` et sera retentée à l'appel suivant.
+#[tauri::command]
+pub async fn get_ytdlp_version(app: AppHandle) -> Option<String> {
+    let state = app.state::<AppState>();
+    if let Some(v) = state.ytdlp_version.lock().ok()?.clone() {
+        return Some(v);
+    }
+    let cmd = app
+        .shell()
+        .sidecar("yt-dlp")
+        .ok()?
+        .env("PYTHONUTF8", "1")
+        .env("PYTHONIOENCODING", "utf-8");
+    let output = cmd.args(["--version"]).output().await.ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let v = parse_version(&String::from_utf8_lossy(&output.stdout))?;
+    if let Ok(mut g) = state.ytdlp_version.lock() {
+        *g = Some(v.clone());
+    }
+    Some(v)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use download_core::model::RequestHeaders;
 
+    #[test]
+    fn parse_version_strips_crlf() {
+        assert_eq!(parse_version("2026.10.30
+"), Some("2026.10.30".into()));
+    }
+
+    #[test]
+    fn parse_version_empty_is_none() {
+        assert_eq!(parse_version(""), None);
+        assert_eq!(parse_version("  
+
+"), None);
+    }
+
+    #[test]
+    fn parse_version_takes_first_non_empty_line() {
+        assert_eq!(parse_version("
+ 2026.10.30 
+autre
+"), Some("2026.10.30".into()));
+    }
     #[test]
     fn header_args_forwards_cookie_referer_not_user_agent() {
         let h = RequestHeaders {

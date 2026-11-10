@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { Download, Progress, Priority, Settings, Category, CategoryDirs, BridgeInfo } from "./types";
 
@@ -265,4 +266,10 @@ export function runEndAction(): Promise<void> {
 }
 export function onQueueFinished(cb: (e: { action: EndAction }) => void): Promise<UnlistenFn> {
   return listen<{ action: EndAction }>("queue://finished", (e) => cb(e.payload));
+}
+export function getYtdlpVersion(): Promise<string | null> {
+  return invoke<string | null>("get_ytdlp_version");
+}
+export function appVersion(): Promise<string> {
+  return getVersion();
 }

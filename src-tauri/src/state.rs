@@ -20,6 +20,8 @@ pub struct AppState {
     pub pending_links: Mutex<HashMap<String, crate::link::PendingLink>>,
     /// Planificateur et suivi de fin de file. Verrou feuille (voir `queue.rs`).
     pub planner: Mutex<crate::queue::PlannerState>,
+    /// Version de yt-dlp, mise en cache pour la session (succès seulement).
+    pub ytdlp_version: Mutex<Option<String>>,
 }
 
 impl AppState {
@@ -32,6 +34,7 @@ impl AppState {
             bridge_listening: Arc::new(AtomicBool::new(false)),
             pending_links: Mutex::new(HashMap::new()),
             planner: Mutex::new(crate::queue::PlannerState::default()),
+            ytdlp_version: Mutex::new(None),
         }
     }
 }
