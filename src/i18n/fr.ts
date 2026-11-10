@@ -38,6 +38,20 @@ export const fr = {
   "cat.archive": "Archive",
   "cat.music": "Musique",
   "cat.other": "Autre",
+  "dl.title": "Téléchargements",
+  "dl.search": "Rechercher…",
+  "dl.pauseAll": "Tout suspendre",
+  "dl.resumeAll": "Tout reprendre",
+  "dl.addLink": "Ajouter un lien",
+  "dl.addBatch": "Plusieurs liens",
+  "tab.all": "Tous · {n}",
+  "tab.active": "Actifs · {n}",
+  "tab.paused": "En pause · {n}",
+  "tab.error": "Erreurs · {n}",
+  "dl.empty": "Aucun téléchargement en cours.",
+  "done.title": "Terminés",
+  "done.clear": "Vider la liste",
+  "done.empty": "Aucun téléchargement terminé.",
 } as const;
 
 export type MsgKey = keyof typeof fr;
