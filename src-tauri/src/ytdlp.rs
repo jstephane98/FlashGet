@@ -213,22 +213,21 @@ pub async fn run_download(
     app: AppHandle,
     id: &str,
     url: &str,
-    format_id: &str,
-    time_range: Option<String>,
+    job: &download_core::ytdlp::YtdlpJob,
     dest: &Path,
     handle: DownloadHandle,
     headers: &RequestHeaders,
     tx: UnboundedSender<Progress>,
 ) -> Result<(), CoreError> {
     let primary = header_args(headers);
-    match run_yt(&app, id, url, format_id, time_range.clone(), dest, &handle, &tx, &primary).await {
+    match run_yt(&app, id, url, job, dest, &handle, &tx, &primary).await {
         Ok(()) => Ok(()),
         Err(e) => {
             // Repli cookies (YouTube) : seulement si rien n'a été téléchargé et pas pause/annulation.
             if handle.downloaded() == 0 && !handle.is_paused() && !handle.is_cancelled() {
                 if let Some(mut ck) = crate::youtube::account_cookie_args(&app, url) {
                     ck.extend(referer_args(headers));
-                    return run_yt(&app, id, url, format_id, time_range.clone(), dest, &handle, &tx, &ck).await;
+                    return run_yt(&app, id, url, job, dest, &handle, &tx, &ck).await;
                 }
             }
             Err(e)
@@ -241,34 +240,16 @@ async fn run_yt(
     app: &AppHandle,
     id: &str,
     url: &str,
-    format_id: &str,
-    time_range: Option<String>,
+    job: &download_core::ytdlp::YtdlpJob,
     dest: &Path,
     handle: &DownloadHandle,
     tx: &UnboundedSender<Progress>,
     extra: &[String],
 ) -> Result<(), CoreError> {
-    let mut args: Vec<String> = vec![
-        "-f".into(),
-        download_core::ytdlp::build_format_arg(format_id),
-        "--no-playlist".into(),
-        "--newline".into(),
-        "--continue".into(),
-        "--js-runtimes".into(),
-        "node".into(),
-    ];
-    if let Some(range) = time_range {
-        args.push("--download-sections".into());
-        args.push(range);
-    }
-    if format_id == "bestaudio" {
-        args.push("-x".into());
-        args.push("--audio-format".into());
-        args.push("mp3".into());
-    } else {
-        args.push("--merge-output-format".into());
-        args.push("mp4".into());
-    }
+    let mut args: Vec<String> = download_core::ytdlp::job_args(job);
+    args.extend(
+        ["--no-playlist", "--newline", "--continue", "--js-runtimes", "node"].map(String::from),
+    );
     args.extend_from_slice(&[
         "--progress-template".into(),
         format!("{}%(progress.downloaded_bytes)s/%(progress.total_bytes)s", download_core::ytdlp::PROGRESS_PREFIX),

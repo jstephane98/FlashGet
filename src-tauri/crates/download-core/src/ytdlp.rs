@@ -159,7 +159,7 @@ pub fn parse_info(json: &str) -> Result<(MediaInfo, Vec<YtdlpFormat>), CoreError
     });
     let mut subtitle_langs: Vec<String> = info
         .subtitles
-        .map(|m| m.into_keys().collect())
+        .map(|m| m.into_keys().filter(|k| k != "live_chat").collect())
         .unwrap_or_default();
     subtitle_langs.sort();
     let media = MediaInfo {
@@ -398,6 +398,117 @@ pub fn build_format_arg(format_id: &str) -> String {
     format!("{format_id}+bestaudio/{format_id}/best")
 }
 
+/// Mode de téléchargement d'une tâche yt-dlp.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum JobMode {
+    #[default]
+    Av,
+    Video,
+    Audio,
+}
+
+/// Tâche yt-dlp paramétrée, sérialisée dans `Download.media_selection`.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct YtdlpJob {
+    pub format_id: String,
+    #[serde(default)]
+    pub mode: JobMode,
+    #[serde(default)]
+    pub time_range: Option<String>,
+    #[serde(default)]
+    pub subs: Option<Vec<String>>,
+    #[serde(default)]
+    pub convert_mp3: bool,
+}
+
+/// Langues de sous-titres préférées par défaut.
+pub const PREFERRED_SUB_LANGS: &[&str] = &["fr", "en"];
+
+/// Lit `Download.media_selection` (compatible avec les anciennes lignes sans `mode`).
+pub fn job_from_selection(json: Option<&str>) -> YtdlpJob {
+    let default = || YtdlpJob { format_id: "bestvideo".into(), mode: JobMode::Av, time_range: None, subs: None, convert_mp3: false };
+    let Some(raw) = json else { return default() };
+    let Ok(v) = serde_json::from_str::<serde_json::Value>(raw) else { return default() };
+    let Ok(mut job) = serde_json::from_value::<YtdlpJob>(v.clone()) else { return default() };
+    if v.get("mode").is_none() && job.format_id == "bestaudio" {
+        job.mode = JobMode::Audio;
+        job.convert_mp3 = true;
+    }
+    job
+}
+
+/// Options yt-dlp (format, sortie, sous-titres, découpe) pour une tâche.
+pub fn job_args(job: &YtdlpJob) -> Vec<String> {
+    let id = &job.format_id;
+    let mut a: Vec<String> = Vec::new();
+    let mut push = |xs: &[&str]| a.extend(xs.iter().map(|s| s.to_string()));
+    match job.mode {
+        JobMode::Av => {
+            if id == "bestvideo" {
+                push(&["-f", "bestvideo+bestaudio/best"]);
+            } else {
+                push(&["-f", &format!("{id}+bestaudio/{id}/best")]);
+            }
+            push(&["--merge-output-format", "mp4"]);
+        }
+        JobMode::Video => push(&["-f", id, "--remux-video", "mp4"]),
+        JobMode::Audio if job.convert_mp3 => push(&["-f", "bestaudio", "-x", "--audio-format", "mp3", "--audio-quality", "0"]),
+        JobMode::Audio => push(&["-f", id]),
+    }
+    if let Some(subs) = job.subs.as_ref().filter(|s| !s.is_empty()) {
+        push(&["--write-subs", "--sub-langs", &subs.join(","), "--embed-subs"]);
+    }
+    if let Some(range) = &job.time_range {
+        push(&["--download-sections", range]);
+    }
+    a
+}
+
+/// Langues préférées présentes (dans l'ordre des préférées) ; à défaut la première disponible.
+pub fn pick_sub_langs(available: &[String], preferred: &[&str]) -> Vec<String> {
+    let picked: Vec<String> = preferred
+        .iter()
+        .filter(|p| available.iter().any(|a| a == *p))
+        .map(|p| p.to_string())
+        .collect();
+    if !picked.is_empty() {
+        return picked;
+    }
+    available.first().cloned().into_iter().collect()
+}
+
+/// `"90"`, `"1:30"`, `"01:02:03"` → secondes.
+pub fn parse_clock(s: &str) -> Option<u64> {
+    let s = s.trim();
+    if s.is_empty() {
+        return None;
+    }
+    let parts: Vec<&str> = s.split(':').collect();
+    if parts.len() > 3 {
+        return None;
+    }
+    let mut nums = Vec::new();
+    for p in &parts {
+        if p.is_empty() || !p.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        nums.push(p.parse::<u64>().ok()?);
+    }
+    if nums.len() > 1 && nums[1..].iter().any(|n| *n >= 60) {
+        return None;
+    }
+    Some(nums.iter().fold(0, |acc, n| acc * 60 + n))
+}
+
+/// Section yt-dlp `*début-fin` en secondes entières.
+pub fn time_range(start_s: u64, end_s: Option<u64>) -> String {
+    match end_s {
+        Some(e) => format!("*{start_s}-{e}"),
+        None => format!("*{start_s}-inf"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -612,5 +723,42 @@ mod tests {
         let (name, formats) = parse_formats(json).unwrap();
         assert_eq!(name, "Ma Page FB - 987");
         assert_eq!(formats.len(), 1);
+    }
+
+    #[test] fn legacy_bestaudio_selection_is_mp3() { let j = job_from_selection(Some(r#"{"format_id":"bestaudio","time_range":null}"#)); assert_eq!((j.mode, j.convert_mp3), (JobMode::Audio, true)); }
+    #[test] fn legacy_video_selection_is_av() { let j = job_from_selection(Some(r#"{"format_id":"137","time_range":"*0-30"}"#)); assert_eq!(j.mode, JobMode::Av); assert_eq!(j.time_range.as_deref(), Some("*0-30")); }
+    #[test] fn missing_selection_is_best_av() { assert_eq!(job_from_selection(None).format_id, "bestvideo"); assert_eq!(job_from_selection(Some("garbage")).mode, JobMode::Av); }
+    #[test] fn args_legacy_bestvideo() {
+        let j = job_from_selection(Some(r#"{"format_id":"bestvideo","time_range":null}"#));
+        assert_eq!(job_args(&j), ["-f","bestvideo+bestaudio/best","--merge-output-format","mp4"]);
+    }
+    #[test] fn args_av_with_subs_and_cut() {
+        let j = YtdlpJob { format_id: "137".into(), mode: JobMode::Av, time_range: Some("*90-165".into()), subs: Some(vec!["fr".into(), "en".into()]), convert_mp3: false };
+        assert_eq!(job_args(&j), ["-f","137+bestaudio/137/best","--merge-output-format","mp4","--write-subs","--sub-langs","fr,en","--embed-subs","--download-sections","*90-165"]);
+    }
+    #[test] fn args_video_only() {
+        let j = YtdlpJob { format_id: "137".into(), mode: JobMode::Video, time_range: None, subs: None, convert_mp3: false };
+        assert_eq!(job_args(&j), ["-f","137","--remux-video","mp4"]);
+    }
+    #[test] fn args_mp3() {
+        let j = YtdlpJob { format_id: "bestaudio".into(), mode: JobMode::Audio, time_range: None, subs: Some(vec![]), convert_mp3: true };
+        assert_eq!(job_args(&j), ["-f","bestaudio","-x","--audio-format","mp3","--audio-quality","0"]);
+    }
+    #[test] fn args_native_audio() {
+        let j = YtdlpJob { format_id: "140".into(), mode: JobMode::Audio, time_range: None, subs: None, convert_mp3: false };
+        assert_eq!(job_args(&j), ["-f","140"]);
+    }
+    #[test] fn sub_langs() {
+        let a = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(pick_sub_langs(&a(&["de","en","fr"]), PREFERRED_SUB_LANGS), ["fr","en"]);
+        assert_eq!(pick_sub_langs(&a(&["de","it"]), PREFERRED_SUB_LANGS), ["de"]);
+        assert!(pick_sub_langs(&[], PREFERRED_SUB_LANGS).is_empty());
+    }
+    #[test] fn clock() { assert_eq!(parse_clock("90"), Some(90)); assert_eq!(parse_clock("1:30"), Some(90)); assert_eq!(parse_clock("01:02:03"), Some(3723)); assert_eq!(parse_clock("1:75"), None); assert_eq!(parse_clock(""), None); assert_eq!(parse_clock("abc"), None); }
+    #[test] fn range() { assert_eq!(time_range(90, Some(165)), "*90-165"); assert_eq!(time_range(0, None), "*0-inf"); }
+    #[test] fn parse_info_excludes_live_chat() {
+        let j = r#"{"title":"t","subtitles":{"fr":[{"ext":"vtt"}],"live_chat":[{"ext":"json"}]},"formats":[]}"#;
+        let (info, _) = parse_info(j).unwrap();
+        assert_eq!(info.subtitle_langs, vec!["fr"]);
     }
 }

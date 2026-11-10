@@ -198,8 +198,12 @@ async fn add_ytdlp_queued(app: &AppHandle, url: &str, title: &str, audio: bool) 
     if dest_path.parent() != Some(dest_dir.as_path()) {
         return Err("nom de fichier invalide".into());
     }
-    let format_id = if audio { "bestaudio" } else { "bestvideo" };
-    let sel = serde_json::json!({ "format_id": format_id, "time_range": serde_json::Value::Null }).to_string();
+    let job = if audio {
+        download_core::ytdlp::YtdlpJob { format_id: "bestaudio".into(), mode: download_core::ytdlp::JobMode::Audio, time_range: None, subs: None, convert_mp3: true }
+    } else {
+        download_core::ytdlp::YtdlpJob { format_id: "bestvideo".into(), mode: download_core::ytdlp::JobMode::Av, time_range: None, subs: None, convert_mp3: false }
+    };
+    let sel = serde_json::to_string(&job).map_err(|e| e.to_string())?;
     let download = Download {
         id: uuid::Uuid::new_v4().to_string(),
         url: url.to_string(),
@@ -1120,14 +1124,8 @@ fn launch(app: &AppHandle, download: Download, handle: DownloadHandle) {
                 download_core::dash::engine::download_dash(&fetcher, &remux, &id_for_dl, &url, &selection, &dest, handle, limiter, tx, &headers).await
             }
             download_core::model::DownloadKind::Ytdlp => {
-                let (format_id, time_range) = match media_selection.as_deref().and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok()) {
-                    Some(v) => (
-                        v.get("format_id").and_then(|x| x.as_str()).unwrap_or("").to_string(),
-                        v.get("time_range").and_then(|x| x.as_str()).map(String::from),
-                    ),
-                    None => (media_selection.clone().unwrap_or_default(), None), // fallback au cas où c'était un ancien téléchargement
-                };
-                crate::ytdlp::run_download(app_for_dl.clone(), &id_for_dl, &url, &format_id, time_range, &dest, handle, &headers, tx).await
+                let job = download_core::ytdlp::job_from_selection(media_selection.as_deref());
+                crate::ytdlp::run_download(app_for_dl.clone(), &id_for_dl, &url, &job, &dest, handle, &headers, tx).await
                     .map(|()| download_core::engine::Outcome::Completed)
             }
         };
