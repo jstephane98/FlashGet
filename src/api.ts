@@ -162,3 +162,9 @@ export function setNotifyOnComplete(value: boolean): Promise<void> {
 export function onYoutubeStatus(cb: () => void): Promise<UnlistenFn> {
   return listen("youtube://status", () => cb());
 }
+export function getUiPref(key: string): Promise<string | null> {
+  return invoke<string | null>("get_ui_pref", { key });
+}
+export function setUiPref(key: string, value: string): Promise<void> {
+  return invoke("set_ui_pref", { key, value });
+}

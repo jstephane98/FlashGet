@@ -1,5 +1,6 @@
 mod bridge;
 mod commands;
+mod prefs;
 mod remux;
 mod state;
 mod ytdlp;
@@ -122,6 +123,8 @@ pub fn run() {
             youtube::set_cookies_from_browser,
             youtube::get_notify_on_complete,
             youtube::set_notify_on_complete,
+            prefs::get_ui_pref,
+            prefs::set_ui_pref,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
