@@ -97,6 +97,18 @@ export const fr = {
   "new.resumable": "reprise possible",
   "new.accelerated": "accélération",
   "new.options": "Options",
+  "lib.today": "Aujourd'hui",
+  "lib.yesterday": "Hier",
+  "lib.older": "Plus ancien",
+  "lib.todayAt": "aujourd'hui à {time}",
+  "lib.dateAt": "{date} à {time}",
+  "lib.all": "Tout · {n}",
+  "catp.video": "Vidéos · {n}",
+  "catp.music": "Musique · {n}",
+  "catp.document": "Documents · {n}",
+  "catp.program": "Programmes · {n}",
+  "catp.archive": "Archives · {n}",
+  "catp.other": "Autres · {n}",
 } as const;
 
 export type MsgKey = keyof typeof fr;
