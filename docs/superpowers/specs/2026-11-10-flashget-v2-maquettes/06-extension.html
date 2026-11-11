@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maquette — Extension navigateur</title>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  body { margin: 0; padding: 28px 16px 48px; background: #e5e7eb; color: #111827; font-family: Archivo, system-ui, sans-serif; }
+  h2 { max-width: 1180px; margin: 0 auto 6px; font-size: 22px; }
+  .subtitle { max-width: 1180px; margin: 0 auto 18px; color: #4b5563; font-size: 14px; line-height: 1.5; }
+  .label { max-width: 1180px; margin: 26px auto 8px; font-weight: 700; font-size: 13px; color: #374151; text-transform: uppercase; letter-spacing: .06em; }
+  .note { max-width: 1180px; margin: 6px auto 0; color: #4b5563; font-size: 13px; line-height: 1.5; }
+  .fg { font-family: Archivo, system-ui, sans-serif; border-radius: 12px; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,.25); margin: 0 auto 1.25rem; max-width: 1180px; font-size: 13px; line-height: 1.35; background: #0b1120; color: #e2e8f0; }
+  .fg * { box-sizing: border-box; }
+  .fg .mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
+  .fg svg.i { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+  .fg .title { display: flex; align-items: center; height: 36px; padding-left: 14px; gap: 8px; font-weight: 700; font-size: 12px; background: #060a16; color: #94a3b8; }
+  .fg .logo { width: 18px; height: 18px; border-radius: 5px; background: linear-gradient(160deg,#fbbf24,#f59e0b); display: grid; place-items: center; color: #3b1d00; }
+  .fg .logo svg { width: 12px; height: 12px; stroke-width: 3; }
+  .fg .wc { margin-left: auto; display: flex; } .fg .wc span { width: 44px; height: 36px; display: grid; place-items: center; opacity: .7; }
+  .fg .body { display: flex; height: 760px; }
+  .fg .side { width: 210px; padding: 14px 10px; display: flex; flex-direction: column; gap: 2px; background: #0f172a; border-right: 1px solid #1e293b; }
+  .fg .nav { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; font-weight: 500; color: #94a3b8; }
+  .fg .nav.on { background: rgba(245,158,11,.12); color: #fbbf24; }
+  .fg .nav.cta { background: #f59e0b; color: #3b1d00; font-weight: 700; margin-bottom: 8px; }
+  .fg .sub { width: 200px; padding: 18px 10px; border-right: 1px solid #1e293b; display: flex; flex-direction: column; gap: 2px; }
+  .fg .sub h1 { font-size: 20px; font-weight: 800; margin: 0 10px 14px; }
+  .fg .sub .it { display: flex; align-items: center; gap: 9px; padding: 7px 10px; border-radius: 7px; color: #94a3b8; font-weight: 500; }
+  .fg .sub .it.on { background: #1e293b; color: #e2e8f0; }
+  .fg .content { flex: 1; padding: 22px 28px; overflow: hidden; min-width: 0; }
+  .fg h2x { display: block; font-size: 17px; font-weight: 800; }
+  .fg .desc { color: #64748b; margin: 4px 0 18px; }
+  .fg .card { border: 1px solid #1e293b; border-radius: 10px; background: #0f172a; margin-bottom: 14px; }
+  .fg .card .hd { padding: 11px 16px; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: .07em; border-bottom: 1px solid #1a2438; }
+  .fg .set { display: flex; align-items: center; gap: 16px; padding: 12px 16px; border-bottom: 1px solid #1a2438; }
+  .fg .set:last-child { border-bottom: 0; }
+  .fg .set .tx { flex: 1; min-width: 0; }
+  .fg .set .tx b { font-weight: 600; display: block; }
+  .fg .set .tx small { color: #64748b; font-size: 12px; }
+  .fg .ctl { display: flex; align-items: center; gap: 8px; }
+  .fg .btn { display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px; border-radius: 7px; font-weight: 700; white-space: nowrap; background: #f59e0b; color: #3b1d00; }
+  .fg .btn.ghost { background: #111b2e; color: #e2e8f0; border: 1px solid #1e293b; }
+  .fg .btn.sm { padding: 5px 10px; font-size: 12px; }
+  .fg .pill { font-size: 11px; padding: 2px 8px; border-radius: 99px; font-weight: 600; white-space: nowrap; }
+  .fg .pill.ok { background: rgba(52,211,153,.12); color: #6ee7b7; }
+  .fg .pill.wait { background: rgba(148,163,184,.12); color: #cbd5e1; }
+  .fg .pill.err { background: rgba(248,113,113,.12); color: #fca5a5; }
+  .fg .sw { width: 34px; height: 19px; border-radius: 99px; background: #334155; position: relative; flex-shrink: 0; }
+  .fg .sw::after { content: ""; position: absolute; width: 15px; height: 15px; border-radius: 50%; background: #94a3b8; top: 2px; left: 2px; }
+  .fg .sw.on { background: #f59e0b; } .fg .sw.on::after { left: 17px; background: #3b1d00; }
+  .fg .token { padding: 6px 10px; border-radius: 7px; background: #111b2e; border: 1px solid #1e293b; color: #cbd5e1; font-size: 12px; }
+  .fg .step { display: flex; gap: 12px; align-items: center; padding: 12px 16px; border-bottom: 1px solid #1a2438; }
+  .fg .step:last-child { border-bottom: 0; }
+  .fg .num { width: 22px; height: 22px; border-radius: 50%; background: #1e293b; color: #fbbf24; font-weight: 800; font-size: 12px; display: grid; place-items: center; flex-shrink: 0; }
+  .fg .site { display: flex; align-items: center; gap: 10px; padding: 9px 16px; border-bottom: 1px solid #1a2438; }
+  .fg .site .x { margin-left: auto; color: #64748b; }
+  .fg .inp { flex: 1; padding: 7px 10px; border-radius: 7px; background: #111b2e; border: 1px solid #1e293b; color: #64748b; }
+  .fg .addrow { display: flex; gap: 8px; padding: 12px 16px; }
+  .fg .strip { padding: 18px 20px; }
+  .fg .status { display: flex; align-items: center; gap: 14px; height: 30px; padding: 0 14px; background: #060a16; color: #94a3b8; font-size: 12px; border-top: 1px solid #1e293b; }
+  .fg .status .right { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+  .fg .dotg { width: 7px; height: 7px; border-radius: 50%; background: #34d399; }
+  .fg .dotw { width: 7px; height: 7px; border-radius: 50%; border: 1.5px solid #94a3b8; }
+  .fg .dotr { width: 7px; height: 7px; border-radius: 50%; background: #f87171; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; max-width: 1180px; margin: 0 auto; }
+  .grid .fg { margin: 0; max-width: none; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; max-width: 1180px; margin: 0 auto; }
+  .grid3 .fg { margin: 0; max-width: none; }
+  .tag { font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: .07em; margin: 0 0 8px 2px; }
+  /* Popup de l'extension */
+  .pop { width: 320px; margin: 0; }
+  .pop .ph { display: flex; align-items: center; gap: 8px; padding: 12px 14px; border-bottom: 1px solid #1e293b; font-weight: 800; }
+  .pop .ph .st { margin-left: auto; display: flex; align-items: center; gap: 6px; font-weight: 600; font-size: 12px; color: #94a3b8; }
+  .pop .pb { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+  .pop .cta { display: flex; align-items: center; justify-content: center; gap: 8px; padding: 11px; border-radius: 11px; background: linear-gradient(160deg,#fbbf24,#f59e0b); color: #3b1d00; font-weight: 800; }
+  .pop .siteRow { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 9px; background: #111b2e; border: 1px solid #1e293b; }
+  .pop .siteRow .tx { flex: 1; min-width: 0; }
+  .pop .siteRow .tx b { display: block; font-weight: 600; }
+  .pop .siteRow .tx small { color: #64748b; font-size: 11.5px; }
+  .pop .lbl { font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: .07em; }
+  .pops { display: flex; gap: 18px; flex-wrap: wrap; max-width: 1180px; margin: 0 auto; align-items: flex-start; }
+  @media (max-width: 900px) { .grid, .grid3 { grid-template-columns: 1fr; } .fg .sub, .fg .side { display: none; } .fg .body { height: auto; } }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-dl" viewBox="0 0 24 24"><path d="M12 3v12m0 0-5-5m5 5 5-5M5 21h14"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></symbol>
+  <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M12 14 16 9"/><path d="M3.3 19a10 10 0 1 1 17.4 0"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-film" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16"/></symbol>
+  <symbol id="i-puzzle" viewBox="0 0 24 24"><path d="M19 11h-1V7a2 2 0 0 0-2-2h-4V4a2 2 0 1 0-4 0v1H4v5h1a2 2 0 1 1 0 4H4v5h5v-1a2 2 0 1 1 4 0v1h3a2 2 0 0 0 2-2v-3h1a2 2 0 1 0 0-4z"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10 21a2 2 0 0 0 4 0"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></symbol>
+  <symbol id="i-ban" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m5.6 5.6 12.8 12.8"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-min" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+  <symbol id="i-sq" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="1"/></symbol>
+</svg>
+
+<h2>Extension navigateur</h2>
+<p class="subtitle">Phase 7. La section « Extension navigateur » des Paramètres (état réel de la connexion, jeton, aide à l'installation, sites ignorés), la barre d'état, la fenêtre de l'extension et la page Nouveau en cas d'échec. Dis-moi ce qui manque ou ce qui est en trop.</p>
+
+<!-- =============== Section Extension =============== -->
+<div class="label">Section « Extension navigateur » — une extension est connectée</div>
+<div class="fg">
+  <div class="title"><span class="logo"><svg class="i"><use href="#i-dl"/></svg></span>FlashGet<span class="wc"><span><svg class="i"><use href="#i-min"/></svg></span><span><svg class="i"><use href="#i-sq"/></svg></span><span><svg class="i"><use href="#i-x"/></svg></span></span></div>
+  <div class="body">
+    <div class="side">
+      <div class="nav cta"><svg class="i"><use href="#i-plus"/></svg>Nouveau</div>
+      <div class="nav"><svg class="i"><use href="#i-list"/></svg>Téléchargements</div>
+      <div class="nav"><svg class="i"><use href="#i-check"/></svg>Terminés</div>
+      <div class="nav"><svg class="i"><use href="#i-clock"/></svg>File d'attente</div>
+      <div class="nav"><svg class="i"><use href="#i-cal"/></svg>Planificateur</div>
+      <div style="flex:1"></div>
+      <div class="nav on"><svg class="i"><use href="#i-gear"/></svg>Paramètres</div>
+    </div>
+    <div class="sub">
+      <h1>Paramètres</h1>
+      <div class="it"><svg class="i"><use href="#i-sliders"/></svg>Général</div>
+      <div class="it"><svg class="i"><use href="#i-gauge"/></svg>Téléchargements</div>
+      <div class="it"><svg class="i"><use href="#i-folder"/></svg>Dossiers</div>
+      <div class="it"><svg class="i"><use href="#i-film"/></svg>Vidéo &amp; yt-dlp</div>
+      <div class="it on"><svg class="i"><use href="#i-puzzle"/></svg>Extension navigateur</div>
+      <div class="it"><svg class="i"><use href="#i-bell"/></svg>Notifications</div>
+      <div class="it"><svg class="i"><use href="#i-refresh"/></svg>Mises à jour</div>
+      <div class="it"><svg class="i"><use href="#i-info"/></svg>À propos</div>
+    </div>
+    <div class="content">
+      <h2x>Extension navigateur</h2x>
+      <div class="desc">Connexion avec le navigateur, installation et sites ignorés.</div>
+
+      <div class="card">
+        <div class="hd">Connexion</div>
+        <div class="set"><div class="tx"><b>État</b><small>Chrome · extension <span class="mono">2.0.0</span> · active à l'instant</small></div><div class="ctl"><span class="pill ok">Connectée</span></div></div>
+        <div class="set"><div class="tx"><b>Jeton de connexion</b><small>À coller dans les options de l'extension.</small></div><div class="ctl"><span class="token mono">3f9a…c41e</span><span class="btn ghost sm"><svg class="i"><use href="#i-copy"/></svg>Copier</span><span class="btn ghost sm"><svg class="i"><use href="#i-refresh"/></svg>Régénérer</span></div></div>
+      </div>
+
+      <div class="card">
+        <div class="hd">Installation</div>
+        <div class="step"><span class="num">1</span><div class="tx" style="flex:1"><b>Ouvrez la page des extensions du navigateur</b><small style="color:#64748b">Tapez <span class="mono">chrome://extensions</span> (ou <span class="mono">edge://extensions</span>) dans la barre d'adresse.</small></div><span class="btn ghost sm"><svg class="i"><use href="#i-copy"/></svg>Copier l'adresse</span></div>
+        <div class="step"><span class="num">2</span><div class="tx" style="flex:1"><b>Activez le « Mode développeur », puis « Charger l'extension non empaquetée »</b><small style="color:#64748b">Choisissez le dossier de l'extension fourni avec FlashGet.</small></div><span class="btn ghost sm"><svg class="i"><use href="#i-folder"/></svg>Ouvrir le dossier</span></div>
+        <div class="step"><span class="num">3</span><div class="tx" style="flex:1"><b>Collez le jeton dans les options de l'extension</b><small style="color:#64748b">L'état passe à « Connectée » en quelques secondes.</small></div><span class="btn ghost sm"><svg class="i"><use href="#i-copy"/></svg>Copier le jeton</span></div>
+      </div>
+
+      <div class="card">
+        <div class="hd">Sites ignorés</div>
+        <div class="set"><div class="tx"><small>FlashGet ne capture pas automatiquement les téléchargements de ces sites (sous-domaines compris). Le clic droit et le bouton de l'extension restent possibles.</small></div></div>
+        <div class="site"><span class="mono">drive.google.com</span><svg class="i x"><use href="#i-x"/></svg></div>
+        <div class="site"><span class="mono">github.com</span><svg class="i x"><use href="#i-x"/></svg></div>
+        <div class="addrow"><span class="inp">Ajouter un site, ex. exemple.com</span><span class="btn ghost">Ajouter</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="status"><span>0 actifs · 0 en file</span><span>Limite : aucune</span><span class="right"><span class="dotg"></span>Extension : connectée</span></div>
+</div>
+
+<!-- =============== États de la connexion =============== -->
+<div class="label">Les autres états de la ligne « État »</div>
+<div class="grid">
+  <div>
+    <div class="tag">Aucune extension connectée</div>
+    <div class="fg"><div class="strip"><div class="card" style="margin:0">
+      <div class="set"><div class="tx"><b>État</b><small>FlashGet attend l'extension sur le port <span class="mono">15151</span>. Suivez les étapes d'installation ci-dessous.</small></div><div class="ctl"><span class="pill wait">En attente</span></div></div>
+    </div></div></div>
+  </div>
+  <div>
+    <div class="tag">Jeton refusé</div>
+    <div class="fg"><div class="strip"><div class="card" style="margin:0">
+      <div class="set"><div class="tx"><b>État</b><small>Une extension a essayé de se connecter avec un mauvais jeton. Collez le jeton actuel dans ses options.</small></div><div class="ctl"><span class="pill err">Jeton refusé</span></div></div>
+    </div></div></div>
+  </div>
+  <div>
+    <div class="tag">Port occupé</div>
+    <div class="fg"><div class="strip"><div class="card" style="margin:0">
+      <div class="set"><div class="tx"><b>État</b><small>Le port <span class="mono">15151</span> est déjà utilisé par un autre programme. Fermez-le puis redémarrez FlashGet.</small></div><div class="ctl"><span class="pill err">Inactive</span></div></div>
+    </div></div></div>
+  </div>
+  <div>
+    <div class="tag">Barre d'état (en bas de la fenêtre)</div>
+    <div class="fg">
+      <div class="status"><span class="right" style="margin-left:0"><span class="dotg"></span>Extension : connectée</span></div>
+      <div class="status"><span class="right" style="margin-left:0"><span class="dotw"></span>Extension : en attente</span></div>
+      <div class="status"><span class="right" style="margin-left:0"><span class="dotr"></span>Extension : inactive</span></div>
+    </div>
+  </div>
+</div>
+<p class="note">La barre d'état se met à jour toute seule quand l'extension se connecte ou se déconnecte (aujourd'hui elle affiche « prête » dès que FlashGet écoute, même sans extension).</p>
+
+<!-- =============== Fenêtre de l'extension =============== -->
+<div class="label" style="margin-top:2rem">Fenêtre de l'extension (clic sur son icône)</div>
+<div class="pops">
+  <div>
+    <div class="tag">Site capturé</div>
+    <div class="fg pop">
+      <div class="ph"><span class="logo"><svg class="i"><use href="#i-dl"/></svg></span>FlashGet<span class="st"><span class="dotg"></span>Connecté</span></div>
+      <div class="pb">
+        <div class="cta"><svg class="i"><use href="#i-dl"/></svg>Télécharger la vidéo de cette page</div>
+        <div class="siteRow"><div class="tx"><b>Capture automatique</b><small>sur <span class="mono">exemple.com</span></small></div><span class="sw on"></span></div>
+        <div class="lbl">Télécharger un fichier par URL</div>
+        <div class="siteRow" style="color:#64748b">Coller une URL…</div>
+      </div>
+    </div>
+  </div>
+  <div>
+    <div class="tag">Site ignoré</div>
+    <div class="fg pop">
+      <div class="ph"><span class="logo"><svg class="i"><use href="#i-dl"/></svg></span>FlashGet<span class="st"><span class="dotg"></span>Connecté</span></div>
+      <div class="pb">
+        <div class="cta"><svg class="i"><use href="#i-dl"/></svg>Télécharger la vidéo de cette page</div>
+        <div class="siteRow"><svg class="i" style="color:#94a3b8"><use href="#i-ban"/></svg><div class="tx"><b>Capture automatique</b><small><span class="mono">drive.google.com</span> est ignoré</small></div><span class="sw"></span></div>
+        <div class="lbl">Télécharger un fichier par URL</div>
+        <div class="siteRow" style="color:#64748b">Coller une URL…</div>
+      </div>
+    </div>
+  </div>
+  <div>
+    <div class="tag">FlashGet absent ou jeton refusé</div>
+    <div class="fg pop">
+      <div class="ph"><span class="logo"><svg class="i"><use href="#i-dl"/></svg></span>FlashGet<span class="st"><span class="dotr"></span>Non connecté</span></div>
+      <div class="pb">
+        <div style="color:#94a3b8;font-size:12.5px">FlashGet n'est pas lancé, ou le jeton ne correspond plus. Ouvrez FlashGet, puis vérifiez le jeton dans les options.</div>
+        <div style="display:flex;gap:8px"><span class="btn ghost" style="flex:1;justify-content:center">Options</span><span class="btn" style="flex:1;justify-content:center">Réessayer</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+<p class="note">L'interrupteur « Capture automatique » ajoute ou retire le site de la liste des sites ignorés de FlashGet : la liste est la même dans l'application et dans l'extension. La page d'options de l'extension garde le champ « Jeton » et affiche aussi l'état de la connexion ; le champ « Port » disparaît (FlashGet utilise toujours <span style="font-family:'JetBrains Mono',monospace">15151</span>).</p>
+
+<!-- =============== Nouveau : échec =============== -->
+<div class="label" style="margin-top:2rem">Page « Nouveau » — l'analyse d'un lien capturé a échoué</div>
+<div class="fg" style="max-width:760px">
+  <div class="strip">
+    <div class="card" style="margin:0">
+      <div class="set"><div class="tx"><b>Analyse impossible</b><small>Lien inaccessible : HTTP <span class="mono">403</span></small><small style="display:block;margin-top:4px">Envoyé par l'extension depuis <span class="mono">exemple.com</span> : « Réessayer » renvoie aussi les cookies et la page d'origine.</small></div><div class="ctl"><span class="btn ghost"><svg class="i"><use href="#i-refresh"/></svg>Réessayer</span></div></div>
+    </div>
+  </div>
+</div>
+<p class="note">Aujourd'hui, « Réessayer » relance l'analyse sans les cookies ni la page d'origine envoyés par l'extension : les sites protégés échouent alors à nouveau.</p>
+
+</body>
+</html>
