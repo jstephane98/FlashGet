@@ -21,21 +21,40 @@ pub fn legacy_dir(new_dir: &Path) -> PathBuf {
     new_dir.parent().map(|p| p.join(LEGACY_IDENTIFIER)).unwrap_or_else(|| PathBuf::from(LEGACY_IDENTIFIER))
 }
 
+/// Fichier temporaire du snapshot : renommé en `downloads.sqlite` seulement une fois complet.
+const TMP_DB_NAME: &str = "downloads.sqlite.migrating";
+
 /// Fichiers annexes SQLite de la base : déjà pris en compte par le snapshot, jamais copiés.
 fn is_db_side_file(name: &str) -> bool {
-    [DB_NAME].iter().any(|db| {
-        name.strip_prefix(db)
-            .map(|suffix| matches!(suffix, "-wal" | "-shm" | "-journal"))
-            .unwrap_or(false)
-    })
+    name == TMP_DB_NAME
+        || [".sqlite-wal", ".sqlite-shm", ".sqlite-journal"]
+            .iter()
+            .any(|suffix| name.strip_suffix(suffix) == Some("downloads"))
 }
 
-/// Copie récursive sans écraser. Renvoie le nombre de fichiers copiés.
-fn copy_tree(src: &Path, dst: &Path, top_level: bool) -> std::io::Result<usize> {
-    std::fs::create_dir_all(dst)?;
+/// Copie récursive sans écraser, sans suivre les liens symboliques. Une erreur sur une entrée
+/// n'interrompt pas la copie : elle est ajoutée à `errors`. Renvoie le nombre de fichiers copiés.
+fn copy_tree(src: &Path, dst: &Path, top_level: bool, errors: &mut Vec<String>) -> usize {
+    if let Err(e) = std::fs::create_dir_all(dst) {
+        errors.push(format!("{}: {e}", dst.display()));
+        return 0;
+    }
+    let entries = match std::fs::read_dir(src) {
+        Ok(it) => it,
+        Err(e) => {
+            errors.push(format!("{}: {e}", src.display()));
+            return 0;
+        }
+    };
     let mut count = 0;
-    for entry in std::fs::read_dir(src)? {
-        let entry = entry?;
+    for entry in entries {
+        let entry = match entry {
+            Ok(e) => e,
+            Err(e) => {
+                errors.push(e.to_string());
+                continue;
+            }
+        };
         let name = entry.file_name();
         let name_str = name.to_string_lossy();
         if top_level && (name_str == DB_NAME || is_db_side_file(&name_str)) {
@@ -43,37 +62,62 @@ fn copy_tree(src: &Path, dst: &Path, top_level: bool) -> std::io::Result<usize> 
         }
         let from = entry.path();
         let to = dst.join(&name);
-        if entry.file_type()?.is_dir() {
-            count += copy_tree(&from, &to, false)?;
+        let ty = match entry.file_type() {
+            Ok(t) => t,
+            Err(e) => {
+                errors.push(format!("{}: {e}", from.display()));
+                continue;
+            }
+        };
+        if ty.is_symlink() {
+            continue;
+        }
+        if ty.is_dir() {
+            count += copy_tree(&from, &to, false, errors);
         } else if !to.exists() {
-            std::fs::copy(&from, &to)?;
-            count += 1;
+            match std::fs::copy(&from, &to) {
+                Ok(_) => count += 1,
+                Err(e) => errors.push(format!("{}: {e}", from.display())),
+            }
         }
     }
-    Ok(count)
+    count
 }
 
 /// Reprend les données de `old_dir` dans `new_dir` au premier lancement. Ne fait rien si
-/// `new_dir` contient déjà une base ou si `old_dir` n'existe pas.
+/// `new_dir` contient déjà une base, ou si `old_dir` n'a pas de base. Les fichiers sont copiés
+/// d'abord ; la base, copiée en dernier de façon atomique, sert de marqueur de fin : si elle
+/// manque, le prochain lancement réessaie (sans rien écraser).
 pub fn migrate_legacy_data(new_dir: &Path, old_dir: &Path) -> MigrationOutcome {
     let new_db = new_dir.join(DB_NAME);
-    if new_db.exists() || !old_dir.is_dir() {
+    let old_db = old_dir.join(DB_NAME);
+    if new_db.exists() || !old_db.is_file() {
         return MigrationOutcome::NotNeeded;
     }
-    let run = || -> Result<usize, String> {
-        std::fs::create_dir_all(new_dir).map_err(|e| e.to_string())?;
-        let mut files = 0;
-        let old_db = old_dir.join(DB_NAME);
-        if old_db.is_file() {
-            Storage::snapshot_to(&old_db, &new_db).map_err(|e| e.to_string())?;
+    if let Err(e) = std::fs::create_dir_all(new_dir) {
+        return MigrationOutcome::Failed(e.to_string());
+    }
+    let tmp = new_dir.join(TMP_DB_NAME);
+    let _ = std::fs::remove_file(&tmp);
+
+    let mut errors = Vec::new();
+    let mut files = copy_tree(old_dir, new_dir, true, &mut errors);
+    for e in &errors {
+        eprintln!("migration des données : copie ignorée ({e})");
+    }
+
+    let result = Storage::snapshot_to(&old_db, &tmp)
+        .map_err(|e| e.to_string())
+        .and_then(|_| std::fs::rename(&tmp, &new_db).map_err(|e| e.to_string()));
+    match result {
+        Ok(()) => {
             files += 1;
+            MigrationOutcome::Migrated { files }
         }
-        files += copy_tree(old_dir, new_dir, true).map_err(|e| e.to_string())?;
-        Ok(files)
-    };
-    match run() {
-        Ok(files) => MigrationOutcome::Migrated { files },
-        Err(e) => MigrationOutcome::Failed(e),
+        Err(e) => {
+            let _ = std::fs::remove_file(&tmp);
+            MigrationOutcome::Failed(e)
+        }
     }
 }
 
@@ -168,5 +212,71 @@ mod tests {
             legacy_dir(Path::new("C:/x/Roaming/com.jstephane98.flashget")),
             Path::new("C:/x/Roaming").join("com.steph.tauri-app")
         );
+    }
+
+    #[test]
+    fn existing_files_are_not_overwritten() {
+        let root = tempfile::tempdir().unwrap();
+        let old = root.path().join(LEGACY_IDENTIFIER);
+        let new = root.path().join("new");
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::create_dir_all(&new).unwrap();
+        Storage::open(&old.join(DB_NAME)).unwrap();
+        std::fs::write(old.join("youtube-cookies.txt"), "old").unwrap();
+        std::fs::write(new.join("youtube-cookies.txt"), "new").unwrap();
+        assert!(matches!(migrate_legacy_data(&new, &old), MigrationOutcome::Migrated { .. }));
+        assert_eq!(std::fs::read_to_string(new.join("youtube-cookies.txt")).unwrap(), "new");
+        assert!(new.join(DB_NAME).exists());
+        assert!(!new.join(TMP_DB_NAME).exists());
+    }
+
+    #[test]
+    fn old_dir_without_database_is_not_needed() {
+        let root = tempfile::tempdir().unwrap();
+        let old = root.path().join(LEGACY_IDENTIFIER);
+        let new = root.path().join("new");
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::write(old.join("youtube-cookies.txt"), "c").unwrap();
+        assert_eq!(migrate_legacy_data(&new, &old), MigrationOutcome::NotNeeded);
+        assert!(!new.join("youtube-cookies.txt").exists());
+    }
+
+    #[test]
+    fn failed_snapshot_leaves_no_database_and_retry_succeeds() {
+        let root = tempfile::tempdir().unwrap();
+        let old = root.path().join(LEGACY_IDENTIFIER);
+        let new = root.path().join("new");
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::write(old.join(DB_NAME), "ceci n'est pas une base SQLite, loin de là").unwrap();
+        std::fs::write(old.join("youtube-cookies.txt"), "c").unwrap();
+        assert!(matches!(migrate_legacy_data(&new, &old), MigrationOutcome::Failed(_)));
+        assert!(!new.join(DB_NAME).exists());
+        assert!(!new.join(TMP_DB_NAME).exists());
+        // Nouvelle tentative avec une base valide.
+        std::fs::remove_file(old.join(DB_NAME)).unwrap();
+        {
+            let s = Storage::open(&old.join(DB_NAME)).unwrap();
+            s.upsert(&sample("a")).unwrap();
+        }
+        assert!(matches!(migrate_legacy_data(&new, &old), MigrationOutcome::Migrated { .. }));
+        assert_eq!(Storage::open(&new.join(DB_NAME)).unwrap().list().unwrap().len(), 1);
+        assert!(new.join("youtube-cookies.txt").exists());
+    }
+
+    #[test]
+    fn copy_errors_are_not_fatal() {
+        let root = tempfile::tempdir().unwrap();
+        let old = root.path().join(LEGACY_IDENTIFIER);
+        let new = root.path().join("new");
+        std::fs::create_dir_all(old.join("d")).unwrap();
+        std::fs::create_dir_all(&new).unwrap();
+        std::fs::write(old.join("d").join("x.txt"), "x").unwrap();
+        std::fs::write(old.join("ok.txt"), "ok").unwrap();
+        Storage::open(&old.join(DB_NAME)).unwrap();
+        // Un fichier occupe la place du sous-dossier `d` : sa copie échoue, le reste continue.
+        std::fs::write(new.join("d"), "bloqueur").unwrap();
+        assert!(matches!(migrate_legacy_data(&new, &old), MigrationOutcome::Migrated { .. }));
+        assert!(new.join("ok.txt").exists());
+        assert!(new.join(DB_NAME).exists());
     }
 }
