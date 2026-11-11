@@ -21,7 +21,7 @@ import { applyUpdated } from "./components/settings/ytdlpUpdateStore";
 type ExternalPayload =
   | { kind: "probing"; url: string }
   | { kind: "probed"; probe: api.LinkProbe }
-  | { kind: "error"; url: string; message: string }
+  | { kind: "error"; url: string; message: string; captureId?: string; origin?: string }
   | { kind: "analyze"; url: string };
 
 export default function App() {
@@ -83,7 +83,8 @@ export default function App() {
     const unProbing = api.onLinkProbing(({ url }) => showExternal({ kind: "probing", url }));
     const unProbed = api.onLinkProbed((probe) => showExternal({ kind: "probed", probe }));
     const unFinished = api.onQueueFinished(({ action }) => setEndAction(action));
-    const unLinkErr = api.onLinkError(({ url, message }) => showExternal({ kind: "error", url, message }));
+    const unLinkErr = api.onLinkError(({ url, message, capture_id, origin }) =>
+      showExternal({ kind: "error", url, message, captureId: capture_id ?? undefined, origin: origin ?? undefined }));
     api.getBridgeStatus().then(setBridgeStatus).catch(() => {});
     const unBridge = api.onBridgeStatus(setBridgeStatus);
     const unApp = api.onAppUpdateAvailable((app) => setUpdates((u) => ({ ...u, app })));

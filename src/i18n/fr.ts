@@ -68,6 +68,8 @@ export const fr = {
   "new.probing": "Recherche des formats disponibles…",
   "new.cancel": "Annuler",
   "new.retry": "Réessayer",
+  "new.captureNote": "Envoyé par l'extension depuis {origin} : « Réessayer » renvoie aussi les cookies et la page d'origine.",
+  "new.captureNoteNoOrigin": "Envoyé par l'extension : « Réessayer » renvoie aussi les cookies et la page d'origine.",
   "new.batchPh": "Un lien par ligne…",
   "new.batchMode": "Type",
   "new.batchDirect": "Fichiers directs",
