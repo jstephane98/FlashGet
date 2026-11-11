@@ -27,6 +27,8 @@ $env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = "..."
 
 Le script vérifie seulement que la clé est définie ; Tauri lit le mot de passe lui-même.
 
+Attention : à cause de `createUpdaterArtifacts`, même un `npx tauri build` direct exige ces variables de signature. `tauri dev` n'est pas concerné.
+
 ## 3. Changer le numéro de version
 
 Mettez la même version dans :

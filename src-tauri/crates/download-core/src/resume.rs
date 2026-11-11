@@ -20,7 +20,15 @@ pub fn sidecar_path(dest: &Path) -> PathBuf {
 
 pub fn save(dest: &Path, state: &ResumeState) -> Result<(), CoreError> {
     let json = serde_json::to_vec_pretty(state)?;
-    std::fs::write(sidecar_path(dest), json)?;
+    let target = sidecar_path(dest);
+    let mut tmp = target.clone().into_os_string();
+    tmp.push(".tmp");
+    let tmp = PathBuf::from(tmp);
+    std::fs::write(&tmp, json)?;
+    if let Err(e) = std::fs::rename(&tmp, &target) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e.into());
+    }
     Ok(())
 }
 
@@ -49,6 +57,18 @@ mod tests {
         };
         save(&dest, &state).unwrap();
         assert_eq!(load(&dest), Some(state));
+    }
+
+    #[test]
+    fn save_leaves_no_tmp_behind() {
+        let dir = tempdir().unwrap();
+        let dest = dir.path().join("file.bin");
+        let state = ResumeState { url: "u".into(), total_bytes: 1, segments: vec![(0, 0, 0)] };
+        save(&dest, &state).unwrap();
+        save(&dest, &state).unwrap();
+        let names: Vec<String> = std::fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        assert!(names.iter().all(|n| !n.ends_with(".tmp")), "{names:?}");
+        assert_eq!(names.len(), 1);
     }
 
     #[test]

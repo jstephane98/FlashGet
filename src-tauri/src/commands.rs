@@ -579,6 +579,9 @@ pub(crate) fn reevaluate(app: &AppHandle) {
 /// Comme `reevaluate`, mais `forced` (démarrage manuel) passe devant la file.
 pub(crate) fn reevaluate_with(app: &AppHandle, forced: Option<&str>) {
     let state = app.state::<AppState>();
+    if crate::app_update::launches_blocked(&state) {
+        return;
+    }
     let settings = match state.storage.get_settings() {
         Ok(s) => s,
         Err(e) => { eprintln!("reevaluate: get_settings failed: {e}"); return; }
@@ -594,6 +597,10 @@ pub(crate) fn reevaluate_with(app: &AppHandle, forced: Option<&str>) {
     }
     // Verrou tenu pour rendre pick+launch atomique (évite un double-démarrage concurrent).
     let mut handles = state.handles.lock().unwrap();
+    // Re-vérifié sous le verrou : l'installation prend `handles` après avoir levé le drapeau.
+    if crate::app_update::launches_blocked(&state) {
+        return;
+    }
     let mut free = settings.max_concurrent.saturating_sub(handles.len() as u32);
     for id in to_start {
         if free == 0 {

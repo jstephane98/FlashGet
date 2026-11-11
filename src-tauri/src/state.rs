@@ -27,6 +27,10 @@ pub struct AppState {
     /// `Update` trouvée par la dernière vérification de FlashGet.
     pub checked_update: Mutex<Option<tauri_plugin_updater::Update>>,
     /// Mise à jour de FlashGet téléchargée (et signée), prête à installer sur clic.
+    /// `true` de la mise en pause avant installation jusqu'à son échec : plus aucun lancement.
+    pub app_installing: AtomicBool,
+    /// `true` pendant un téléchargement ou une installation de FlashGet.
+    pub app_update_busy: AtomicBool,
     pub pending_update: Mutex<Option<(tauri_plugin_updater::Update, Vec<u8>)>>,
 }
 
@@ -44,6 +48,8 @@ impl AppState {
             ytdlp_updating: AtomicBool::new(false),
             checked_update: Mutex::new(None),
             pending_update: Mutex::new(None),
+            app_installing: AtomicBool::new(false),
+            app_update_busy: AtomicBool::new(false),
         }
     }
 }

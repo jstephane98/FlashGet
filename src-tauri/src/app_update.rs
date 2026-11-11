@@ -6,6 +6,7 @@ use crate::state::AppState;
 use download_core::model::DownloadStatus;
 use download_core::storage::Storage;
 use serde::Serialize;
+use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_updater::UpdaterExt;
@@ -15,6 +16,7 @@ const RESUME_IDS_KEY: &str = "app_update.resume_ids";
 const CHECK_ERR: &str = "Impossible de rechercher les mises à jour";
 const DOWNLOAD_ERR: &str = "Échec du téléchargement de la mise à jour";
 const INSTALL_ERR: &str = "Échec de l'installation de la mise à jour";
+const BUSY: &str = "Mise à jour déjà en cours";
 const NONE_DOWNLOADED: &str = "Aucune mise à jour téléchargée";
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -94,6 +96,9 @@ async fn run_check(app: &AppHandle) -> Result<Option<AppUpdateInfo>, String> {
     })?;
     let st = app.state::<AppState>();
     let info = found.as_ref().map(info_of);
+    if found.is_none() {
+        *st.pending_update.lock().unwrap() = None;
+    }
     *st.checked_update.lock().unwrap() = found;
     // Une version déjà téléchargée mais dépassée n'est plus la bonne.
     if let Some(i) = &info {
@@ -119,6 +124,10 @@ pub fn get_app_last_check(app: AppHandle) -> Option<i64> {
 #[tauri::command]
 pub async fn download_app_update(app: AppHandle) -> Result<(), String> {
     let st = app.state::<AppState>();
+    if st.app_update_busy.swap(true, AtomicOrdering::SeqCst) {
+        return Err(BUSY.to_string());
+    }
+    let _busy = FlagGuard(&st.app_update_busy);
     if st.pending_update.lock().unwrap().is_some() {
         return Ok(());
     }
@@ -155,32 +164,65 @@ pub async fn download_app_update(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Identifiants des lignes actives qui ont un handle.
-fn active_ids(st: &AppState) -> Vec<String> {
+/// `true` tant que l'installation est en cours : aucun nouveau lancement n'est permis.
+pub(crate) fn launches_blocked(st: &AppState) -> bool {
+    st.app_installing.load(AtomicOrdering::SeqCst)
+}
+
+/// Remet un drapeau à faux quelle que soit la sortie.
+struct FlagGuard<'a>(&'a AtomicBool);
+impl Drop for FlagGuard<'_> {
+    fn drop(&mut self) {
+        self.0.store(false, AtomicOrdering::SeqCst);
+    }
+}
+
+/// Sous un seul verrou `handles` : met en pause les téléchargements actifs (leurs ids sont à
+/// reprendre) et arrête les enregistrements en direct (finalisés, jamais repris).
+/// Renvoie `(à_reprendre, enregistrements_arrêtés)`.
+pub(crate) fn capture_active(st: &AppState) -> (Vec<String>, Vec<String>) {
     let handles = st.handles.lock().unwrap();
-    st.storage
-        .list()
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|d| matches!(d.status, DownloadStatus::Downloading | DownloadStatus::Recording) && handles.contains_key(&d.id))
-        .map(|d| d.id)
-        .collect()
+    let mut resume = Vec::new();
+    let mut stopped = Vec::new();
+    for d in st.storage.list().unwrap_or_default() {
+        let Some(h) = handles.get(&d.id) else { continue };
+        if h.is_paused() || h.is_cancelled() {
+            continue;
+        }
+        match d.status {
+            DownloadStatus::Downloading => {
+                h.pause();
+                resume.push(d.id);
+            }
+            DownloadStatus::Recording => {
+                h.stop();
+                stopped.push(d.id);
+            }
+            _ => {}
+        }
+    }
+    (resume, stopped)
 }
 
 #[tauri::command]
 pub async fn install_app_update(app: AppHandle) -> Result<(), String> {
     let st = app.state::<AppState>();
+    if st.app_update_busy.swap(true, AtomicOrdering::SeqCst) {
+        return Err(BUSY.to_string());
+    }
+    let _busy = FlagGuard(&st.app_update_busy);
     let taken = st.pending_update.lock().unwrap().take();
     let Some((update, bytes)) = taken else {
         return Err(NONE_DOWNLOADED.to_string());
     };
-    let ids = active_ids(&st);
-    crate::queue::pause_active(&st);
+    // Gèle la file : plus aucun lancement, y compris ceux du planificateur.
+    st.app_installing.store(true, AtomicOrdering::SeqCst);
+    let (ids, stopped) = capture_active(&st);
     let deadline = Instant::now() + Duration::from_secs(5);
     while Instant::now() < deadline {
         let gone = {
             let handles = st.handles.lock().unwrap();
-            ids.iter().all(|id| !handles.contains_key(id))
+            ids.iter().chain(stopped.iter()).all(|id| !handles.contains_key(id))
         };
         if gone {
             break;
@@ -192,6 +234,10 @@ pub async fn install_app_update(app: AppHandle) -> Result<(), String> {
     if let Err(e) = update.install(&bytes) {
         eprintln!("mise à jour de FlashGet : installation : {e}");
         *st.pending_update.lock().unwrap() = Some((update, bytes));
+        remember_resume_ids(&st.storage, &[]);
+        requeue_ids(&st.storage, &ids);
+        st.app_installing.store(false, AtomicOrdering::SeqCst);
+        crate::commands::reevaluate(&app);
         return Err(INSTALL_ERR.to_string());
     }
     Ok(())
@@ -258,5 +304,63 @@ mod tests {
         s.set_pref(RESUME_IDS_KEY, "pas du json").unwrap();
         assert!(take_resume_ids(&s).is_empty());
         assert!(take_resume_ids(&s).is_empty());
+    }
+
+    fn state_with(rows: &[(&str, DownloadStatus)]) -> AppState {
+        let storage = Storage::open_in_memory().unwrap();
+        for (id, st) in rows {
+            storage.upsert(&dl(id, *st)).unwrap();
+        }
+        AppState::new(storage, 0)
+    }
+
+    #[test]
+    fn capture_only_live_unpaused_handles() {
+        use download_core::engine::DownloadHandle;
+        let st = state_with(&[
+            ("run", DownloadStatus::Downloading),
+            ("nohandle", DownloadStatus::Downloading),
+            ("paused_row", DownloadStatus::Paused),
+            ("already", DownloadStatus::Downloading),
+            ("cancelled", DownloadStatus::Downloading),
+            ("rec", DownloadStatus::Recording),
+        ]);
+        let (run, already, cancelled, rec, prow) =
+            (DownloadHandle::new(), DownloadHandle::new(), DownloadHandle::new(), DownloadHandle::new(), DownloadHandle::new());
+        already.pause();
+        cancelled.cancel();
+        {
+            let mut h = st.handles.lock().unwrap();
+            h.insert("run".into(), run.clone());
+            h.insert("already".into(), already);
+            h.insert("cancelled".into(), cancelled);
+            h.insert("rec".into(), rec.clone());
+            h.insert("paused_row".into(), prow);
+        }
+        let (resume, stopped) = capture_active(&st);
+        assert_eq!(resume, vec!["run".to_string()]);
+        assert_eq!(stopped, vec!["rec".to_string()]);
+        assert!(run.is_paused());
+        assert!(rec.is_stopped() && !rec.is_paused());
+    }
+
+    #[test]
+    fn launches_blocked_follows_flag() {
+        let st = state_with(&[]);
+        assert!(!launches_blocked(&st));
+        st.app_installing.store(true, AtomicOrdering::SeqCst);
+        assert!(launches_blocked(&st));
+    }
+
+    #[test]
+    fn interrupted_row_is_requeued_after_update_even_without_auto_resume() {
+        let s = Storage::open_in_memory().unwrap();
+        s.upsert(&dl("a", DownloadStatus::Downloading)).unwrap();
+        remember_resume_ids(&s, &["a".to_string()]);
+        // Récupération au démarrage avec reprise automatique désactivée : `downloading` -> `paused`.
+        s.update_state("a", 0, DownloadStatus::Paused).unwrap();
+        let ids = take_resume_ids(&s);
+        assert_eq!(requeue_ids(&s, &ids), 1);
+        assert_eq!(status_of(&s, "a"), DownloadStatus::Queued);
     }
 }
