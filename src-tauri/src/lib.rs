@@ -11,6 +11,7 @@ mod retry;
 mod state;
 mod ytdlp;
 mod ytdlp_bin;
+mod ytdlp_update;
 mod youtube;
 
 use download_core::storage::Storage;
@@ -61,6 +62,7 @@ pub fn run() {
             let requeued = commands::recover_interrupted_downloads(app.handle());
             // Charge les marques et fait un premier passage synchrone avant de rendre la main.
             queue::start_planner_loop(app.handle().clone());
+            ytdlp_update::start_ytdlp_auto_check(app.handle().clone());
             // Reprise automatique : relancer la file après ce premier passage, pour que les
             // téléchargements récupérés ne démarrent pas hors de la plage horaire.
             if requeued > 0 {
@@ -182,6 +184,9 @@ pub fn run() {
             queue::set_end_action,
             queue::run_end_action,
             ytdlp::get_ytdlp_version,
+            ytdlp_update::check_ytdlp_update,
+            ytdlp_update::update_ytdlp,
+            ytdlp_update::get_ytdlp_last_check,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

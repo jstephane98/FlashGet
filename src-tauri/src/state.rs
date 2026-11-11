@@ -22,6 +22,8 @@ pub struct AppState {
     pub planner: Mutex<crate::queue::PlannerState>,
     /// Version de yt-dlp, mise en cache pour la session (succès seulement).
     pub ytdlp_version: Mutex<Option<String>>,
+    /// `true` pendant une mise à jour de yt-dlp (refuse un second appel concurrent).
+    pub ytdlp_updating: AtomicBool,
 }
 
 impl AppState {
@@ -35,6 +37,7 @@ impl AppState {
             pending_links: Mutex::new(HashMap::new()),
             planner: Mutex::new(crate::queue::PlannerState::default()),
             ytdlp_version: Mutex::new(None),
+            ytdlp_updating: AtomicBool::new(false),
         }
     }
 }
