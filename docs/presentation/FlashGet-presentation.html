@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FlashGet, gestionnaire de téléchargements pour Windows</title>
+<meta name="description" content="FlashGet accélère vos téléchargements, récupère les vidéos de plus de mille sites, reprend après une coupure et range tout dans une bibliothèque. Pour Windows 10 et 11.">
+<meta property="og:title" content="FlashGet 2.0">
+<meta property="og:description" content="Le gestionnaire de téléchargements pour Windows : plusieurs connexions par fichier, vidéos, file d'attente, planificateur et extension navigateur.">
+<meta property="og:image" content="assets/hero-telechargements.webp">
+<link rel="icon" href="assets/flashget-256.png">
+<link rel="preload" as="image" href="assets/hero-telechargements.webp">
+<script src="https://unpkg.com/@phosphor-icons/web@2.1.1"></script>
+<style>
+  /* Polices de l'application, servies avec la page. */
+  @font-face { font-family: Archivo; font-weight: 500; font-display: swap; src: url(assets/fonts/archivo-latin-500-normal.woff2) format("woff2"); }
+  @font-face { font-family: Archivo; font-weight: 600; font-display: swap; src: url(assets/fonts/archivo-latin-600-normal.woff2) format("woff2"); }
+  @font-face { font-family: Archivo; font-weight: 700; font-display: swap; src: url(assets/fonts/archivo-latin-700-normal.woff2) format("woff2"); }
+  @font-face { font-family: Archivo; font-weight: 800; font-display: swap; src: url(assets/fonts/archivo-latin-800-normal.woff2) format("woff2"); }
+  @font-face { font-family: Archivo; font-weight: 900; font-display: swap; src: url(assets/fonts/archivo-latin-900-normal.woff2) format("woff2"); }
+  @font-face { font-family: "JetBrains Mono"; font-weight: 500; font-display: swap; src: url(assets/fonts/jetbrains-mono-latin-500-normal.woff2) format("woff2"); }
+  @font-face { font-family: "JetBrains Mono"; font-weight: 700; font-display: swap; src: url(assets/fonts/jetbrains-mono-latin-700-normal.woff2) format("woff2"); }
+
+  /* Thème unique, sombre, comme l'application. Rayons : boutons 10px, images 12px, blocs 20px. */
+  :root {
+    --bg: #070a12;
+    --bg-2: #0b0f1a;
+    --tile: #0e1422;
+    --line: rgba(148, 163, 184, .12);
+    --line-strong: rgba(148, 163, 184, .22);
+    --ink: #e8edf5;
+    --ink-2: #a3aec2;
+    --ink-3: #6b778c;
+    --amber: #f5a524;
+    --amber-hi: #fbbf3c;
+    --amber-ink: #2b1500;
+    --r-btn: 10px;
+    --r-img: 12px;
+    --r-block: 20px;
+    --ease: cubic-bezier(.16, 1, .3, 1);
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.6 Archivo, system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+  img { display: block; max-width: 100%; height: auto; }
+  a { color: inherit; text-decoration: none; }
+  a:focus-visible, button:focus-visible, summary:focus-visible { outline: 2px solid var(--amber-hi); outline-offset: 3px; border-radius: 6px; }
+  .mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
+  .wrap { width: min(1240px, 100% - 40px); margin-inline: auto; }
+  .ph { line-height: 1; }
+
+  /* ---------- Boutons ---------- */
+  .btn { display: inline-flex; align-items: center; gap: 10px; padding: 14px 22px; border-radius: var(--r-btn); font-weight: 800; font-size: 16px; white-space: nowrap; transition: transform .25s var(--ease), background .25s var(--ease), box-shadow .25s var(--ease); }
+  .btn .ph { font-size: 19px; }
+  .btn:active { transform: translateY(1px) scale(.99); }
+  .btn-primary { background: var(--amber); color: var(--amber-ink); box-shadow: 0 10px 34px -10px rgba(245,165,36,.7), inset 0 1px 0 rgba(255,255,255,.35); }
+  .btn-primary:hover { background: var(--amber-hi); transform: translateY(-1px); }
+  .btn-quiet { color: var(--ink); border: 1px solid var(--line-strong); background: rgba(255,255,255,.02); }
+  .btn-quiet:hover { border-color: rgba(148,163,184,.4); }
+
+  /* ---------- Navigation ---------- */
+  .nav { position: sticky; top: 0; z-index: 30; backdrop-filter: blur(14px) saturate(140%); -webkit-backdrop-filter: blur(14px) saturate(140%); background: rgba(7,10,18,.72); border-bottom: 1px solid var(--line); }
+  .nav .wrap { display: flex; align-items: center; height: 66px; gap: 34px; }
+  .brand { display: flex; align-items: center; gap: 11px; font-weight: 900; font-size: 19px; letter-spacing: -.02em; }
+  .brand img { width: 30px; height: 30px; border-radius: 8px; }
+  .nav nav { display: flex; gap: 26px; font-size: 15px; color: var(--ink-2); font-weight: 600; }
+  .nav nav a:hover { color: var(--ink); }
+  .nav .btn { margin-left: auto; padding: 10px 16px; font-size: 15px; }
+
+  /* ---------- Hero ---------- */
+  .hero { position: relative; overflow: hidden; padding: 72px 0 40px; }
+  .hero::before { content: ""; position: absolute; width: 1100px; height: 700px; right: -260px; top: -120px; background: radial-gradient(closest-side, rgba(245,165,36,.22), transparent 72%); pointer-events: none; }
+  .hero .wrap { position: relative; display: grid; grid-template-columns: minmax(0, 590px) minmax(0, 1fr); gap: 40px; align-items: center; min-height: calc(100dvh - 66px - 112px); }
+  h1 { font-size: clamp(40px, 4.3vw, 60px); line-height: 1.04; letter-spacing: -.04em; font-weight: 900; margin: 0 0 22px; white-space: nowrap; }
+  h1 span { color: var(--amber); }
+  .hero p { font-size: 19px; color: var(--ink-2); margin: 0 0 34px; max-width: 30ch; }
+  .hero .actions { display: flex; gap: 12px; flex-wrap: wrap; }
+  .shot-hero { position: relative; perspective: 2200px; width: calc(100% + 360px); max-width: 1180px; }
+  .shot-hero img { border-radius: var(--r-img); border: 1px solid var(--line-strong); box-shadow: 0 50px 120px -30px rgba(0,0,0,.85), 0 0 0 1px rgba(255,255,255,.03); transform: rotateY(-9deg) rotateX(3deg) translateZ(0); transform-origin: left center; transition: transform 1.2s var(--ease); }
+  .shot-hero:hover img { transform: rotateY(-5deg) rotateX(2deg); }
+
+  /* ---------- Sections ---------- */
+  section { padding: 120px 0; }
+  h2 { font-size: clamp(32px, 4vw, 52px); line-height: 1.06; letter-spacing: -.03em; font-weight: 900; margin: 0 0 18px; max-width: 18ch; }
+  .lead { font-size: 19px; color: var(--ink-2); max-width: 52ch; margin: 0; }
+  .kicker { display: inline-flex; align-items: center; gap: 8px; color: var(--amber-hi); font-weight: 700; font-size: 15px; margin-bottom: 18px; }
+
+  /* ---------- Grille asymétrique de l'application ---------- */
+  .bento { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); grid-auto-rows: minmax(0, auto); gap: 18px; margin-top: 56px; }
+  .tile { position: relative; overflow: hidden; border-radius: var(--r-block); background: var(--tile); border: 1px solid var(--line); display: flex; flex-direction: column; }
+  .tile .txt { padding: 28px 30px 0; }
+  .tile h3 { margin: 0 0 8px; font-size: 23px; font-weight: 800; letter-spacing: -.02em; }
+  .tile p { margin: 0; color: var(--ink-2); font-size: 16px; max-width: 44ch; }
+  .tile .pic { margin-top: auto; padding: 26px 0 0 30px; }
+  .tile .pic img { border-radius: var(--r-img) 0 0 0; border: 1px solid var(--line-strong); border-right: 0; border-bottom: 0; }
+  .t-lib { grid-column: span 7; grid-row: span 2; background: radial-gradient(120% 80% at 100% 100%, rgba(245,165,36,.10), transparent 60%), var(--tile); }
+  .t-new { grid-column: span 5; }
+  .t-resume { grid-column: span 5; background: linear-gradient(150deg, #f7b437, #e88f12); color: var(--amber-ink); border: 0; justify-content: space-between; padding: 30px; }
+  .t-resume h3 { font-size: 30px; line-height: 1.05; color: #1e0f00; }
+  .t-resume p { color: rgba(43,21,0,.78); }
+  .t-resume .big { font-size: 64px; color: rgba(43,21,0,.85); }
+  .t-queue { grid-column: span 6; }
+  .t-light { grid-column: span 6; background: linear-gradient(180deg, var(--tile), #121a2b); }
+  .t-queue .pic, .t-light .pic { padding-left: 30px; }
+
+  /* ---------- Extension ---------- */
+  .ext { display: grid; grid-template-columns: minmax(0, 6fr) minmax(0, 5fr); gap: 64px; align-items: center; }
+  .ext .shot img { border-radius: var(--r-img); border: 1px solid var(--line-strong); box-shadow: 0 40px 90px -30px rgba(0,0,0,.8); }
+  .flow { list-style: none; padding: 0; margin: 40px 0 0; display: grid; gap: 4px; counter-reset: f; }
+  .flow li { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 16px; padding: 16px 0; border-top: 1px solid var(--line); }
+  .flow li:first-child { border-top: 0; }
+  .flow .ph { font-size: 24px; color: var(--amber-hi); width: 44px; height: 44px; display: grid; place-items: center; border-radius: 12px; background: rgba(245,165,36,.10); }
+  .flow b { display: block; font-size: 17px; margin-bottom: 2px; }
+  .flow span { color: var(--ink-2); font-size: 15.5px; }
+
+  /* ---------- Réglages : défilement horizontal ---------- */
+  .ext h2 { max-width: none; font-size: clamp(32px, 3.2vw, 44px); }
+  .rail { display: grid; grid-auto-flow: column; grid-auto-columns: min(420px, 82vw); gap: 18px; overflow-x: auto; scroll-snap-type: x mandatory; padding: 48px max(20px, calc((100vw - 1240px) / 2)) 26px; scrollbar-width: thin; scrollbar-color: #1d2638 transparent; }
+  .rail figure { margin: 0; scroll-snap-align: start; }
+  .rail img { border-radius: var(--r-img); border: 1px solid var(--line-strong); background: var(--tile); }
+  .rail figcaption { margin-top: 14px; font-size: 15px; color: var(--ink-2); }
+  .rail figcaption b { color: var(--ink); display: block; font-size: 17px; margin-bottom: 2px; }
+  .rail-wide { grid-column: span 1; }
+
+  /* ---------- Capacités ---------- */
+  .caps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0 56px; margin-top: 56px; }
+  .caps h3 { font-size: 15px; font-weight: 800; color: var(--amber-hi); margin: 0 0 14px; }
+  .caps ul { list-style: none; padding: 0; margin: 0; }
+  .caps li { display: flex; gap: 12px; padding: 13px 0; border-top: 1px solid var(--line); color: var(--ink-2); font-size: 16px; }
+  .caps li .ph { color: var(--ink); font-size: 20px; margin-top: 1px; }
+  .caps li b { color: var(--ink); font-weight: 700; }
+
+  /* ---------- Téléchargement ---------- */
+  .get { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: 18px; margin-top: 56px; }
+  .get-main { border-radius: var(--r-block); padding: 44px; background: radial-gradient(90% 120% at 0% 0%, rgba(245,165,36,.18), transparent 60%), var(--tile); border: 1px solid rgba(245,165,36,.28); display: flex; flex-direction: column; gap: 26px; }
+  .get-main .os { display: flex; align-items: center; gap: 14px; font-size: 28px; font-weight: 900; letter-spacing: -.02em; }
+  .get-main .os .ph { font-size: 40px; color: var(--amber-hi); }
+  .specs { display: flex; gap: 28px; flex-wrap: wrap; color: var(--ink-2); font-size: 15px; }
+  .specs b { display: block; color: var(--ink); font-family: "JetBrains Mono", monospace; font-size: 16px; font-weight: 700; }
+  .get-side { display: grid; gap: 18px; }
+  .get-card { border-radius: var(--r-block); padding: 28px 30px; background: var(--tile); border: 1px solid var(--line); display: flex; gap: 18px; align-items: flex-start; }
+  .get-card .ph { font-size: 28px; color: var(--amber-hi); }
+  .get-card b { display: block; font-size: 18px; margin-bottom: 4px; }
+  .get-card p { margin: 0 0 10px; color: var(--ink-2); font-size: 15.5px; }
+  .get-card a { color: var(--amber-hi); font-weight: 700; font-size: 15.5px; display: inline-flex; gap: 6px; align-items: center; }
+
+  /* ---------- Questions ---------- */
+  .faq { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 7fr); gap: 64px; }
+  .faq .side { position: sticky; top: 110px; align-self: start; }
+  details { border-top: 1px solid var(--line); }
+  details:last-child { border-bottom: 1px solid var(--line); }
+  summary { cursor: pointer; list-style: none; display: flex; gap: 16px; align-items: center; padding: 24px 0; font-weight: 700; font-size: 18px; }
+  summary::-webkit-details-marker { display: none; }
+  summary .ph { margin-left: auto; font-size: 20px; color: var(--ink-3); transition: transform .3s var(--ease); }
+  details[open] summary .ph { transform: rotate(45deg); color: var(--amber-hi); }
+  details p { margin: -6px 0 24px; color: var(--ink-2); max-width: 62ch; }
+
+  footer { border-top: 1px solid var(--line); padding: 40px 0 56px; color: var(--ink-3); font-size: 14px; }
+  footer .wrap { display: grid; grid-template-columns: auto 1fr; gap: 28px; align-items: start; }
+  footer .brand { color: var(--ink); }
+  footer p { margin: 0 0 6px; }
+
+  /* ---------- Apparition au défilement ---------- */
+  @media (prefers-reduced-motion: no-preference) {
+    .reveal { opacity: 0; transform: translateY(28px); transition: opacity .9s var(--ease), transform .9s var(--ease); transition-delay: var(--d, 0s); }
+    .reveal.in { opacity: 1; transform: none; }
+    .hero .shot-hero { animation: rise 1.4s var(--ease) both .15s; }
+    @keyframes rise { from { opacity: 0; transform: translateY(40px); } to { opacity: 1; transform: none; } }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    .shot-hero img { transform: none; }
+  }
+
+  /* ---------- Écrans moyens et petits ---------- */
+  @media (max-width: 1080px) {
+    .hero .wrap { grid-template-columns: 1fr; min-height: 0; gap: 48px; }
+    .shot-hero { width: calc(100% + 60px); }
+    .ext, .faq, .get { grid-template-columns: 1fr; gap: 44px; }
+    .faq .side { position: static; }
+  }
+  @media (max-width: 860px) {
+    .nav nav { display: none; }
+    .bento { grid-template-columns: 1fr; }
+    .t-lib, .t-new, .t-resume, .t-queue, .t-light { grid-column: auto; grid-row: auto; }
+    .caps { grid-template-columns: 1fr; gap: 36px; }
+    footer .wrap { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 560px) {
+    body { font-size: 16px; }
+    .wrap { width: calc(100% - 32px); }
+    section { padding: 84px 0; }
+    .hero { padding-top: 44px; }
+    h1 { white-space: normal; }
+    .hero p { font-size: 17px; }
+    .shot-hero { width: calc(100% + 16px); }
+    .shot-hero img { transform: none; }
+    .nav .btn span { display: none; }
+    .tile .txt { padding: 24px 22px 0; }
+    .tile .pic { padding: 22px 0 0 22px; }
+    .t-resume { padding: 24px 22px; }
+    .get-main { padding: 28px 22px; }
+    .get-main .os { font-size: 23px; }
+    .btn { padding: 13px 18px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="nav">
+  <div class="wrap">
+    <a class="brand" href="#"><img src="assets/flashget-256.png" alt="" width="30" height="30">FlashGet</a>
+    <nav aria-label="Navigation principale">
+      <a href="#application">Application</a>
+      <a href="#extension">Extension</a>
+      <a href="#reglages">Réglages</a>
+      <a href="#questions">Questions</a>
+    </nav>
+    <a class="btn btn-primary" href="#telecharger"><i class="ph ph-download-simple" aria-hidden="true"></i><span>Télécharger</span></a>
+  </div>
+</header>
+
+<main>
+  <!-- ======================= Hero ======================= -->
+  <section class="hero" aria-labelledby="titre">
+    <div class="wrap">
+      <div>
+        <h1 id="titre">Téléchargez tout,<br><span>sans surveiller.</span></h1>
+        <p>Fichiers, vidéos, playlists : FlashGet accélère, reprend après une coupure et range tout pour vous.</p>
+        <div class="actions">
+          <a class="btn btn-primary" href="#telecharger"><i class="ph ph-windows-logo" aria-hidden="true"></i>Télécharger pour Windows</a>
+          <a class="btn btn-quiet" href="#application">Découvrir l'application</a>
+        </div>
+      </div>
+      <div class="shot-hero">
+        <img src="assets/hero-telechargements.webp" width="1440" height="900" alt="FlashGet pendant trois téléchargements : chaque fichier avance sur huit connexions, avec la vitesse et le temps restant">
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= Application ======================= -->
+  <section id="application" aria-labelledby="t-app" style="padding-top:80px">
+    <div class="wrap">
+      <h2 id="t-app" class="reveal">Une vraie application, pas un bouton de plus.</h2>
+      <p class="lead reveal" style="--d:.08s">Chaque écran a un rôle : préparer, suivre, retrouver. Ce sont de vraies captures de FlashGet 2.0.</p>
+
+      <div class="bento">
+        <article class="tile t-lib reveal">
+          <div class="txt">
+            <h3>Vos téléchargements deviennent une bibliothèque</h3>
+            <p>Vignettes, durées, tailles, classement par jour. Retrouvez une vidéo d'hier en deux secondes.</p>
+          </div>
+          <div class="pic"><img src="assets/bibliotheque.webp" width="1440" height="900" loading="lazy" alt="La bibliothèque Terminés en grille de vignettes, filtrable par type"></div>
+        </article>
+
+        <article class="tile t-new reveal" style="--d:.06s">
+          <div class="txt">
+            <h3>Choisissez avant de télécharger</h3>
+            <p>Collez un lien : formats, qualités et tailles s'affichent. Votre qualité préférée est déjà cochée.</p>
+          </div>
+          <div class="pic"><img src="assets/nouveau.webp" width="1440" height="900" loading="lazy" alt="La page Nouveau : 19 formats détectés pour une vidéo, de 144p à 2160p, le 1080p recommandé"></div>
+        </article>
+
+        <article class="tile t-resume reveal" style="--d:.12s">
+          <i class="ph ph-arrows-clockwise big" aria-hidden="true"></i>
+          <div>
+            <h3>Coupure réseau ?<br>Il reprend tout seul.</h3>
+            <p>FlashGet réessaie avec un délai croissant et repart exactement là où il s'était arrêté.</p>
+          </div>
+        </article>
+
+        <article class="tile t-queue reveal">
+          <div class="txt">
+            <h3>Une file que vous ordonnez</h3>
+            <p>Glissez pour changer l'ordre, donnez la priorité à l'urgent, lancez tout d'un clic.</p>
+          </div>
+          <div class="pic"><img src="assets/file-attente.webp" width="982" height="384" loading="lazy" alt="La file d'attente avec quatre téléchargements, leurs priorités et leurs tailles"></div>
+        </article>
+
+        <article class="tile t-light reveal" style="--d:.06s">
+          <div class="txt">
+            <h3>Sombre, clair, ou comme Windows</h3>
+            <p>Le thème suit vos goûts, ou celui du système.</p>
+          </div>
+          <div class="pic"><img src="assets/theme-clair.webp" width="872" height="434" loading="lazy" alt="La bibliothèque Terminés en thème clair"></div>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= Extension ======================= -->
+  <section id="extension" aria-labelledby="t-ext">
+    <div class="wrap ext">
+      <div class="shot reveal"><img src="assets/extension.webp" width="772" height="776" loading="lazy" alt="Paramètres de l'extension : connectée à Chrome, jeton, installation en trois étapes et sites ignorés"></div>
+      <div>
+        <span class="kicker reveal"><i class="ph ph-puzzle-piece" aria-hidden="true"></i>Extension pour Chrome, Edge et Brave</span>
+        <h2 class="reveal" style="--d:.05s">Le navigateur télécharge, FlashGet prend le relais.</h2>
+        <p class="lead reveal" style="--d:.1s">Les téléchargements arrivent dans FlashGet avec les cookies de la page, pour les sites où il faut être connecté.</p>
+        <ol class="flow">
+          <li class="reveal" style="--d:.12s"><i class="ph ph-cursor-click" aria-hidden="true"></i><div><b>Vous cliquez</b><span>sur un lien, un bouton de téléchargement ou une vidéo.</span></div></li>
+          <li class="reveal" style="--d:.18s"><i class="ph ph-magnifying-glass" aria-hidden="true"></i><div><b>FlashGet analyse</b><span>fichier direct, flux HLS ou DASH, ou page vidéo.</span></div></li>
+          <li class="reveal" style="--d:.24s"><i class="ph ph-check-circle" aria-hidden="true"></i><div><b>Vous confirmez</b><span>le format, le dossier et le nom.</span></div></li>
+          <li class="reveal" style="--d:.3s"><i class="ph ph-prohibit" aria-hidden="true"></i><div><b>Vous gardez la main</b><span>sur les sites à ignorer, depuis FlashGet ou l'extension.</span></div></li>
+        </ol>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= Réglages ======================= -->
+  <section id="reglages" aria-labelledby="t-reg" style="padding-bottom:90px">
+    <div class="wrap">
+      <h2 id="t-reg" class="reveal">Réglé une fois, tranquille ensuite.</h2>
+      <p class="lead reveal" style="--d:.08s">Huit sections claires. Chaque changement est enregistré tout de suite, sans bouton « Appliquer ».</p>
+    </div>
+    <div class="rail" tabindex="0" aria-label="Captures des réglages, à faire défiler horizontalement">
+      <figure class="reveal"><img src="assets/reglages-telechargements.webp" width="772" height="704" loading="lazy" alt="Réglages des téléchargements : simultanés, connexions par fichier, limite de vitesse, nouvelles tentatives"><figcaption><b>Vitesse et fiabilité</b>Jusqu'à 32 connexions par fichier, nouvelles tentatives, reprise au démarrage.</figcaption></figure>
+      <figure class="reveal" style="--d:.06s"><img src="assets/reglages-video.webp" width="772" height="800" loading="lazy" alt="Réglages vidéo : moteur yt-dlp, qualité préférée, format audio, sous-titres et comptes"><figcaption><b>Vidéo et audio</b>Qualité préférée, MP3, M4A ou Opus, langues de sous-titres.</figcaption></figure>
+      <figure class="reveal" style="--d:.12s"><img src="assets/planificateur.webp" width="1222" height="724" loading="lazy" alt="Le planificateur : plage horaire, jours, limite de vitesse et action quand tout est terminé"><figcaption><b>Planificateur</b>Lancez la file aux heures creuses, puis mettez le PC en veille.</figcaption></figure>
+      <figure class="reveal" style="--d:.18s"><img src="assets/reglages-dossiers.webp" width="772" height="644" loading="lazy" alt="Un dossier de destination par catégorie : vidéos, documents, programmes, archives, musique"><figcaption><b>Un dossier par type</b>Les vidéos d'un côté, les programmes de l'autre, automatiquement.</figcaption></figure>
+      <figure class="reveal" style="--d:.24s"><img src="assets/reglages-maj.webp" width="772" height="484" loading="lazy" alt="Section Mises à jour : version installée et recherche d'une nouvelle version"><figcaption><b>Mises à jour signées</b>FlashGet vous prévient. Rien ne s'installe sans votre clic.</figcaption></figure>
+    </div>
+  </section>
+
+  <!-- ======================= Capacités ======================= -->
+  <section aria-labelledby="t-caps" style="padding-top:60px">
+    <div class="wrap">
+      <h2 id="t-caps" class="reveal">Ce qu'il sait faire.</h2>
+      <div class="caps">
+        <div class="reveal">
+          <h3>Télécharger vite</h3>
+          <ul>
+            <li><i class="ph ph-lightning" aria-hidden="true"></i><span><b>Plusieurs connexions</b> par fichier, jusqu'à 32.</span></li>
+            <li><i class="ph ph-gauge" aria-hidden="true"></i><span><b>Limite de vitesse</b> globale, ou seulement la nuit.</span></li>
+            <li><i class="ph ph-stack" aria-hidden="true"></i><span><b>Plusieurs liens</b> collés d'un coup.</span></li>
+            <li><i class="ph ph-copy" aria-hidden="true"></i><span><b>Fichier déjà présent</b> : renommé, ou l'ancien part à la Corbeille.</span></li>
+          </ul>
+        </div>
+        <div class="reveal" style="--d:.08s">
+          <h3>Vidéo et audio</h3>
+          <ul>
+            <li><i class="ph ph-film-strip" aria-hidden="true"></i><span><b>Plus de mille sites</b> grâce à yt-dlp, mis à jour seul.</span></li>
+            <li><i class="ph ph-playlist" aria-hidden="true"></i><span><b>Playlists</b> entières en une fois.</span></li>
+            <li><i class="ph ph-broadcast" aria-hidden="true"></i><span><b>Directs HLS</b> enregistrés pendant la diffusion.</span></li>
+            <li><i class="ph ph-scissors" aria-hidden="true"></i><span><b>Extrait</b> découpé, sous-titres intégrés.</span></li>
+          </ul>
+        </div>
+        <div class="reveal" style="--d:.16s">
+          <h3>Vivre avec</h3>
+          <ul>
+            <li><i class="ph ph-tray" aria-hidden="true"></i><span><b>Zone de notification</b> : il continue fenêtre fermée.</span></li>
+            <li><i class="ph ph-bell-ringing" aria-hidden="true"></i><span><b>Notifications</b> à la fin ou en cas d'échec.</span></li>
+            <li><i class="ph ph-power" aria-hidden="true"></i><span><b>Fin de file</b> : veille ou arrêt, avec 60 s pour annuler.</span></li>
+            <li><i class="ph ph-shield-check" aria-hidden="true"></i><span><b>Installation</b> sans droits administrateur.</span></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= Télécharger ======================= -->
+  <section id="telecharger" aria-labelledby="t-get">
+    <div class="wrap">
+      <span class="kicker reveal"><i class="ph ph-download-simple" aria-hidden="true"></i>Version 2.0.0</span>
+      <h2 id="t-get" class="reveal" style="--d:.05s">Installez FlashGet en une minute.</h2>
+      <div class="get">
+        <div class="get-main reveal">
+          <div class="os"><i class="ph ph-windows-logo" aria-hidden="true"></i>Windows 10 et 11</div>
+          <div class="specs">
+            <div><b>x64</b>Architecture</div>
+            <div><b>.exe</b>Installeur</div>
+            <div><b>Aucun</b>Droit administrateur</div>
+          </div>
+          <div><a class="btn btn-primary" href="https://github.com/jstephane98/FlashGet/releases/latest"><i class="ph ph-download-simple" aria-hidden="true"></i>Télécharger pour Windows</a></div>
+        </div>
+        <div class="get-side">
+          <div class="get-card reveal" style="--d:.06s"><i class="ph ph-puzzle-piece" aria-hidden="true"></i><div><b>L'extension est incluse</b><p>Elle est installée avec FlashGet. Paramètres, puis Extension navigateur : trois étapes guidées.</p></div></div>
+          <div class="get-card reveal" style="--d:.12s"><i class="ph ph-list-checks" aria-hidden="true"></i><div><b>Nouveautés de la 2.0</b><p>Toutes les versions et leurs notes sont sur GitHub.</p><a href="https://github.com/jstephane98/FlashGet/releases">Voir les versions<i class="ph ph-arrow-up-right" aria-hidden="true"></i></a></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= Questions ======================= -->
+  <section id="questions" aria-labelledby="t-faq" style="padding-top:40px">
+    <div class="wrap faq">
+      <div class="side">
+        <h2 id="t-faq" class="reveal">Questions fréquentes</h2>
+        <p class="lead reveal" style="--d:.06s">Une autre question ? Ouvrez un ticket sur GitHub.</p>
+      </div>
+      <div class="reveal">
+        <details>
+          <summary>J'ai déjà FlashGet 0.1.0. Je perds mes téléchargements ?<i class="ph ph-plus" aria-hidden="true"></i></summary>
+          <p>Non. Fermez l'ancien FlashGet puis installez la 2.0 : vos téléchargements, vos réglages, le jeton de l'extension et votre connexion YouTube sont repris au premier lancement. Rechargez ensuite l'extension dans votre navigateur.</p>
+        </details>
+        <details>
+          <summary>Pourquoi Windows affiche un avertissement ?<i class="ph ph-plus" aria-hidden="true"></i></summary>
+          <p>L'installeur n'est pas encore signé par un certificat Windows, alors SmartScreen le signale par précaution. Choisissez « Informations complémentaires » puis « Exécuter quand même ». Les mises à jour de FlashGet, elles, sont signées et vérifiées avant installation.</p>
+        </details>
+        <details>
+          <summary>Les mises à jour s'installent toutes seules ?<i class="ph ph-plus" aria-hidden="true"></i></summary>
+          <p>FlashGet vous prévient, et rien ne s'installe sans votre clic. Seul yt-dlp, le moteur vidéo, se met à jour automatiquement, une fois par jour, parce que les sites changent souvent. Vous pouvez le désactiver.</p>
+        </details>
+        <details>
+          <summary>Quels sites vidéo sont pris en charge ?<i class="ph ph-plus" aria-hidden="true"></i></summary>
+          <p>Les flux HLS et DASH, à la demande ou en direct, et plus d'un millier de sites grâce à yt-dlp. Les plateformes protégées par un DRM, comme Netflix ou Disney+, ne le sont pas.</p>
+        </details>
+        <details>
+          <summary>L'extension envoie mes données quelque part ?<i class="ph ph-plus" aria-hidden="true"></i></summary>
+          <p>Non. Elle ne parle qu'à FlashGet, sur votre ordinateur, et seulement avec le jeton que vous lui avez donné. Les sites que vous ignorez ne sont jamais capturés automatiquement.</p>
+        </details>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <a class="brand" href="#"><img src="assets/flashget-256.png" alt="" width="30" height="30">FlashGet</a>
+    <div>
+      <p>Composants intégrés : yt-dlp et FFmpeg.</p>
+      <p>Les captures montrent des données de démonstration. Image de <i>Big Buck Bunny</i> © Blender Foundation, sous licence CC BY 3.0.</p>
+    </div>
+  </div>
+</footer>
+
+<script>
+  // Apparition des blocs à l'entrée dans l'écran (une seule fois).
+  (function () {
+    var items = document.querySelectorAll(".reveal");
+    if (!("IntersectionObserver" in window)) { items.forEach(function (el) { el.classList.add("in"); }); return; }
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } });
+    }, { rootMargin: "0px 0px -8% 0px", threshold: 0.12 });
+    items.forEach(function (el) { io.observe(el); });
+  })();
+</script>
+</body>
+</html>
