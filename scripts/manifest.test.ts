@@ -1,0 +1,33 @@
+// @ts-expect-error module .mjs sans déclaration de types
+import { buildManifest } from "./manifest.mjs";
+
+const base = {
+  version: "2.0.0",
+  notes: "Première version",
+  pubDate: new Date("2026-11-11T10:00:00Z"),
+  signature: "c2lnbmF0dXJl\n",
+  fileName: "FlashGet_2.0.0_x64-setup.exe",
+  repo: "jstephane98/FlashGet",
+};
+
+describe("buildManifest", () => {
+  it("construit l'URL exacte de l'installeur", () => {
+    const m = buildManifest(base);
+    expect(m.platforms["windows-x86_64"].url).toBe(
+      "https://github.com/jstephane98/FlashGet/releases/download/v2.0.0/FlashGet_2.0.0_x64-setup.exe",
+    );
+    expect(m.version).toBe("2.0.0");
+    expect(m.notes).toBe("Première version");
+  });
+
+  it("retire le saut de ligne final de la signature", () => {
+    const m = buildManifest(base);
+    expect(m.platforms["windows-x86_64"].signature).toBe("c2lnbmF0dXJl");
+  });
+
+  it("formate pub_date en RFC 3339", () => {
+    const m = buildManifest(base);
+    expect(m.pub_date).toBe("2026-11-11T10:00:00.000Z");
+    expect(m.pub_date).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/);
+  });
+});
