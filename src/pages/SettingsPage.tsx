@@ -98,7 +98,7 @@ export function SettingsPage({ onSaved, updates, onUpdatesChanged, recording }: 
         {section === "general" ? <GeneralSection {...props} />
           : section === "downloads" ? <DownloadsSection {...props} rev={rev} />
           : section === "folders" ? <FoldersSection />
-          : section === "video" ? <VideoSection {...props} />
+          : section === "video" ? <VideoSection {...props} updates={updates} onUpdatesChanged={onUpdatesChanged} />
           : section === "extension" ? <ExtensionSection />
           : section === "notifications" ? <NotificationsSection {...props} />
           : section === "updates" ? <UpdatesSection {...props} updates={updates} onUpdatesChanged={onUpdatesChanged} recording={recording} />

@@ -4,6 +4,8 @@ import type { AudioFormat, Settings } from "../../types";
 import { t } from "../../i18n";
 import type { MsgKey } from "../../i18n";
 import { Card, SectionShell, Select, SettingRow, ghostBtn } from "./controls";
+import { YtdlpEngineCard } from "./YtdlpEngineCard";
+import type { UpdateFlags } from "./UpdatesSection";
 
 const HEIGHTS = [2160, 1440, 1080, 720, 480, 360];
 const FORMATS: { value: AudioFormat; label: string }[] = [
@@ -15,8 +17,10 @@ const FORMATS: { value: AudioFormat; label: string }[] = [
 const KBPS = [0, 320, 256, 192, 128];
 const LANGS = ["fr", "en", "es", "de", "it", "pt", "ar", "ja"];
 
-export function VideoSection({ settings, save, error }: { settings: Settings; save(p: Partial<Settings>): void; error?: string }) {
-  const [version, setVersion] = useState<string | null | undefined>(undefined);
+export function VideoSection({ settings, save, error, updates, onUpdatesChanged }: {
+  settings: Settings; save(p: Partial<Settings>): void; error?: string;
+  updates?: UpdateFlags; onUpdatesChanged?(patch: Partial<UpdateFlags>): void;
+}) {
   const [ytConnected, setYtConnected] = useState(false);
   const [browser, setBrowser] = useState("");
   const [localError, setLocalError] = useState<string>();
@@ -24,7 +28,6 @@ export function VideoSection({ settings, save, error }: { settings: Settings; sa
   useEffect(() => {
     let alive = true;
     const refresh = () => api.youtubeStatus().then((v) => { if (alive) setYtConnected(v); }).catch(() => {});
-    api.getYtdlpVersion().then((v) => { if (alive) setVersion(v); }).catch(() => { if (alive) setVersion(null); });
     api.getCookiesFromBrowser().then((b) => { if (alive) setBrowser(b ?? ""); }).catch(() => {});
     refresh();
     const unsub = api.onYoutubeStatus(refresh);
@@ -66,15 +69,8 @@ export function VideoSection({ settings, save, error }: { settings: Settings; sa
 
   return (
     <SectionShell title={t("set.nav.video")} desc={t("set.video.desc")} error={error ?? localError}>
-      <Card title={t("set.engineCard")}>
-        <SettingRow label="yt-dlp">
-          {version ? (
-            <span className="font-mono text-[13px] text-ink">{version}</span>
-          ) : version === null ? (
-            <span className="text-[13px] text-ink-mute">{t("set.ytdlpUnknown")}</span>
-          ) : null}
-        </SettingRow>
-      </Card>
+      <YtdlpEngineCard settings={settings} save={save} latest={updates?.ytdlp ?? null}
+        onUpdated={(v) => onUpdatesChanged?.({ ytdlp: v })} />
       <Card title={t("set.formatsCard")}>
         <SettingRow label={t("set.quality")} hint={t("set.qualityHint")}>
           <Select label={t("set.quality")} value={String(settings.video_max_height)}
