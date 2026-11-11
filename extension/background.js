@@ -312,7 +312,7 @@ chrome.downloads.onDeterminingFilename.addListener((item) => {
 // Messages depuis le popup.
 chrome.runtime.onMessage.addListener((req, _sender, sendResponse) => {
   if (req.cmd === "status") {
-    sendResponse({ connected, state: connectionState, ignoredSites });
+    sendResponse({ connected, state: connectionState, ignoredSites, version: chrome.runtime.getManifest().version });
     return false;
   }
   if (req.cmd === "send" && req.url) {

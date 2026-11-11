@@ -284,3 +284,15 @@ hr{
   color:var(--ink-soft);
 }
 .note-text{ color:var(--ink-soft); font-size:12.5px; margin:0 0 10px; }
+
+/* Extension non rechargée après une mise à jour */
+.stale{
+  margin:0;
+  padding:10px 12px;
+  border-radius:9px;
+  border:1px solid var(--accent);
+  background:rgba(245,158,11,.10);
+  color:var(--accent-soft);
+  font-size:12px;
+  line-height:1.4;
+}

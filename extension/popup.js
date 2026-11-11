@@ -1,4 +1,5 @@
 import { hostOf, matchingSite } from "./site-rules.js";
+import { isStaleBackground } from "./popup-state.js";
 
 const dot = document.getElementById("dot");
 const statusText = document.getElementById("statusText");
@@ -11,6 +12,7 @@ const siteRow = document.getElementById("siteRow");
 const siteBan = document.getElementById("siteBan");
 const siteText = document.getElementById("siteText");
 const siteSwitch = document.getElementById("siteSwitch");
+const staleNotice = document.getElementById("staleNotice");
 let matched = null; // entrée de la liste qui ignore l'onglet actif (peut être un site parent)
 let activeHost = null; // hôte de l'onglet actif (null si l'onglet n'est pas en http/https)
 
@@ -37,7 +39,8 @@ function renderSite(sites) {
   const host = document.createElement("span");
   host.className = "mono";
   host.textContent = ignored ? matched : activeHost;
-  siteText.append(ignored ? "" : "sur ", host, ignored ? " est ignoré" : "");
+  // Espaces insécables : un espace en bord de nœud texte peut disparaître au rendu.
+  siteText.append(ignored ? "" : "sur ", host, ignored ? " est ignoré" : "");
 }
 
 async function refresh(retry = true) {
@@ -50,7 +53,12 @@ async function refresh(retry = true) {
   chrome.runtime.sendMessage({ cmd: "status" }, (res) => {
     const ok = Boolean(res && res.connected);
     render(ok, res && res.state);
-    renderSite((res && res.ignoredSites) || []);
+    // Ancien service d'arrière-plan encore en mémoire (extension non rechargée après une mise
+    // à jour) : il ne connaît pas la liste, la ligne « Capture automatique » serait fausse.
+    const stale = isStaleBackground(res, chrome.runtime.getManifest().version);
+    staleNotice.classList.toggle("hidden", !stale);
+    if (stale) siteRow.classList.add("hidden");
+    else renderSite((res && res.ignoredSites) || []);
     // Réveil à froid du service worker : la connexion n'est pas encore établie.
     if (!ok && retry) setTimeout(() => refresh(false), 800);
   });

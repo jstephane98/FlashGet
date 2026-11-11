@@ -56,6 +56,7 @@
       "../extension/site-rules.js": "extension/site-rules.js",
       "../extension/browser-info.js": "extension/browser-info.js",
       "../extension/popup.js": "extension/popup.js",
+      "../extension/popup-state.js": "extension/popup-state.js",
       "../extension/options.js": "extension/options.js",
       "../extension/popup.html": "extension/popup.html",
       "../extension/options.html": "extension/options.html",
