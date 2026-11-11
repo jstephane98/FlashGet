@@ -419,12 +419,17 @@ fn exit_window(app: &AppHandle, schedule: &Schedule, launched: HashSet<String>) 
 
 /// Boucle du planificateur : recharge les marques persistées, puis un passage immédiat et
 /// toutes les 30 s (le premier passage applique une sortie de plage manquée).
+/// Le premier passage est synchrone, avant de rendre la main : l'appelant peut relancer la
+/// file ensuite sans que des téléchargements récupérés démarrent hors de la plage horaire.
 pub(crate) fn start_planner_loop(app: AppHandle) {
     load_planner_marks(&app.state::<AppState>());
+    planner_tick(&app);
     tauri::async_runtime::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(TICK_SECS));
+        // Le premier `tick` d'un intervalle est immédiat : on le consomme, le passage initial
+        // a déjà eu lieu. Aucun verrou n'est tenu à travers l'`await`.
+        interval.tick().await;
         loop {
-            // Le premier `tick` est immédiat. Aucun verrou n'est tenu à travers l'`await`.
             interval.tick().await;
             planner_tick(&app);
         }

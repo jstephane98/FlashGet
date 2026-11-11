@@ -87,7 +87,10 @@ pub async fn download<F: ByteFetcher>(
     let probe = fetcher.probe(url, headers).await?;
     // Une réponse d'erreur au sondage (page 503, 403…) ne décrit pas le fichier : on
     // échoue avant de toucher au fichier ou au sidecar d'une tentative précédente.
-    if probe.status >= 400 {
+    // 416 fait exception, comme à l'analyse du lien : le sondage demande `bytes=0-0`, qu'un
+    // serveur refuse pour un fichier vide ; la taille est alors inconnue (0) et le flux
+    // unique termine avec un fichier vide.
+    if probe.status >= 400 && probe.status != 416 {
         return Err(if probe.status == 404 || probe.status == 410 {
             CoreError::NotFound(format!("HTTP {} pour {url}", probe.status))
         } else {
@@ -691,6 +694,22 @@ mod tests {
             .unwrap_err();
         assert!(matches!(err, CoreError::NotFound(_)), "obtenu {err:?}");
         assert!(!dest.exists());
+    }
+
+    /// Fichier vide : le serveur répond 416 au sondage `bytes=0-0` ; le téléchargement
+    /// aboutit à un fichier vide au lieu d'une erreur.
+    #[tokio::test]
+    async fn probe_416_on_empty_file_completes() {
+        let dir = tempdir().unwrap();
+        let dest = collect_dest(&dir);
+        let mut f = FakeFetcher::new(Vec::new(), false);
+        f.probe_status = 416;
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let outcome = download(&f, "c6", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default(), 4)
+            .await
+            .unwrap();
+        assert_eq!(outcome, Outcome::Completed);
+        assert_eq!(std::fs::read(&dest).unwrap(), Vec::<u8>::new());
     }
 
     #[tokio::test]

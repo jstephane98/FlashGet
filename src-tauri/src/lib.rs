@@ -38,13 +38,10 @@ pub fn run() {
             bridge::start(app.handle().clone());
             commands::recover_interrupted_recordings(app.handle());
             let requeued = commands::recover_interrupted_downloads(app.handle());
+            // Charge les marques et fait un premier passage synchrone avant de rendre la main.
             queue::start_planner_loop(app.handle().clone());
-            // Un passage du planificateur, synchrone, avant la reprise : les téléchargements
-            // récupérés ne démarrent pas hors de la plage horaire (le passage de la boucle
-            // qui suit est sans effet, les transitions étant idempotentes).
-            queue::planner_tick(app.handle());
-            // Reprise automatique : relancer la file une fois les marques du planificateur
-            // rechargées (`start_planner_loop` les charge avant de rendre la main).
+            // Reprise automatique : relancer la file après ce premier passage, pour que les
+            // téléchargements récupérés ne démarrent pas hors de la plage horaire.
             if requeued > 0 {
                 commands::reevaluate(app.handle());
             }
