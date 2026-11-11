@@ -26,10 +26,10 @@ describe("Sidebar", () => {
 
 describe("StatusBar", () => {
   it("barre d'état", () => {
-    render(<StatusBar active={3} queued={1} maxSpeedBps={0} bridgeListening totalSpeedBps={14260633} />);
+    render(<StatusBar active={3} queued={1} maxSpeedBps={0} bridgeState="connected" totalSpeedBps={14260633} />);
     expect(screen.getByText("3 actifs · 1 en file")).toBeTruthy();
     expect(screen.getByText("Limite : aucune")).toBeTruthy();
-    expect(screen.getByText("Extension : prête")).toBeTruthy();
+    expect(screen.getByText("Extension : connectée")).toBeTruthy();
     expect(screen.getByText("↓ 13,6 Mo/s")).toBeTruthy();
   });
 });

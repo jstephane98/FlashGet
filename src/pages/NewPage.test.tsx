@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, cleanup, act } from "@testing-library/react";
 import type { LinkProbe, MediaFormat } from "../api";
 
 vi.mock("../api");
@@ -30,7 +30,7 @@ async function analyze() {
   await screen.findByText("Concert Live");
 }
 
-beforeEach(() => { vi.mocked(api.probeLink).mockReset(); vi.mocked(api.confirmLink).mockReset(); vi.mocked(api.addBatchDownloads).mockReset(); });
+beforeEach(() => { vi.mocked(api.retryCapture).mockReset(); vi.mocked(api.probeLink).mockReset(); vi.mocked(api.confirmLink).mockReset(); vi.mocked(api.addBatchDownloads).mockReset(); });
 afterEach(cleanup);
 
 describe("NewPage", () => {
@@ -141,5 +141,73 @@ describe("NewPage", () => {
     setup({ startInBatch: true });
     expect(screen.getByPlaceholderText("Un lien par ligne…")).not.toBeNull();
     expect(screen.getByRole("button", { name: "Un seul lien" })).not.toBeNull();
+  });
+});
+
+describe("NewPage : échec d'une capture de l'extension", () => {
+  const err = (o: Record<string, unknown> = {}): ExternalEvent =>
+    ({ seq: 1, kind: "error", url: URL1, message: "HTTP 403", captureId: "cap-1", origin: "exemple.com", ...o }) as ExternalEvent;
+  const show = (ev: ExternalEvent) => {
+    const { rerender, onDone } = setup();
+    rerender(<NewPage external={ev} startInBatch={false} onDone={onDone} />);
+    return { rerender, onDone };
+  };
+
+  it("affiche l'origine en mono et le texte explicatif", async () => {
+    show(err());
+    await screen.findByText("HTTP 403");
+    expect(screen.getByText(/Envoyé par l'extension depuis/)).toBeTruthy();
+    expect(screen.getByText("exemple.com").className).toContain("font-mono");
+    expect(screen.getByText(/renvoie aussi les cookies et la page d'origine/)).toBeTruthy();
+  });
+
+  it("sans origine : variante sans « depuis »", async () => {
+    show(err({ origin: undefined }));
+    await screen.findByText("HTTP 403");
+    expect(screen.getByText(/Envoyé par l'extension/)).toBeTruthy();
+    expect(screen.queryByText(/depuis/)).toBeNull();
+  });
+
+  it("Réessayer appelle retryCapture, pas probeLink, et attend les événements", async () => {
+    vi.mocked(api.retryCapture).mockResolvedValue(probe);
+    show(err());
+    fireEvent.click(await screen.findByRole("button", { name: "Réessayer" }));
+    await waitFor(() => expect(api.retryCapture).toHaveBeenCalledWith("cap-1", URL1));
+    expect(api.probeLink).not.toHaveBeenCalled();
+    await screen.findByText("Recherche des formats disponibles…");
+  });
+
+  it("l'échec de retryCapture est affiché", async () => {
+    vi.mocked(api.retryCapture).mockRejectedValue("Capture expirée");
+    show(err());
+    fireEvent.click(await screen.findByRole("button", { name: "Réessayer" }));
+    await screen.findByText("Capture expirée");
+  });
+
+  it("un échec tardif d'un ancien essai n'écrase pas le nouvel essai", async () => {
+    let rejectFirst: (e: unknown) => void = () => {};
+    vi.mocked(api.retryCapture)
+      .mockImplementationOnce(() => new Promise((_, rej) => { rejectFirst = rej; }))
+      .mockImplementationOnce(() => new Promise(() => {}));
+    const { rerender, onDone } = setup();
+    rerender(<NewPage external={err()} startInBatch={false} onDone={onDone} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Réessayer" }));
+    await screen.findByText("Recherche des formats disponibles…");
+    rerender(<NewPage external={err({ seq: 2, message: "HTTP 500" })} startInBatch={false} onDone={onDone} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Réessayer" }));
+    await screen.findByText("Recherche des formats disponibles…");
+    await act(async () => { rejectFirst("Capture expirée"); });
+    expect(screen.queryByText("Capture expirée")).toBeNull();
+    expect(screen.getByText("Recherche des formats disponibles…")).toBeTruthy();
+  });
+
+  it("sans captureId : ancien chemin et pas de texte", async () => {
+    vi.mocked(api.probeLink).mockResolvedValue(probe);
+    show(err({ captureId: undefined, origin: undefined }));
+    await screen.findByText("HTTP 403");
+    expect(screen.queryByText(/Envoyé par l'extension/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Réessayer" }));
+    await waitFor(() => expect(api.probeLink).toHaveBeenCalledWith(URL1));
+    expect(api.retryCapture).not.toHaveBeenCalled();
   });
 });

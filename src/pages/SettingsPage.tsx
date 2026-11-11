@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import * as api from "../api";
-import type { Settings } from "../types";
+import type { BridgeStatus, Settings } from "../types";
 import { t } from "../i18n";
 import { SettingsNav, type SectionId } from "../components/settings/SettingsNav";
 import { GeneralSection } from "../components/settings/GeneralSection";
@@ -19,9 +19,10 @@ interface SettingsPageProps {
   onUpdatesChanged(patch: Partial<UpdateFlags>): void;
   /** Vrai si un enregistrement en direct est en cours (avertissement avant l'installation). */
   recording: boolean;
+  bridgeStatus: BridgeStatus | null;
 }
 
-export function SettingsPage({ onSaved, updates, onUpdatesChanged, recording }: SettingsPageProps) {
+export function SettingsPage({ onSaved, updates, onUpdatesChanged, recording, bridgeStatus }: SettingsPageProps) {
   const [section, setSection] = useState<SectionId>("general");
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -99,7 +100,7 @@ export function SettingsPage({ onSaved, updates, onUpdatesChanged, recording }: 
           : section === "downloads" ? <DownloadsSection {...props} rev={rev} />
           : section === "folders" ? <FoldersSection />
           : section === "video" ? <VideoSection {...props} updates={updates} onUpdatesChanged={onUpdatesChanged} />
-          : section === "extension" ? <ExtensionSection />
+          : section === "extension" ? <ExtensionSection status={bridgeStatus} />
           : section === "notifications" ? <NotificationsSection {...props} />
           : section === "updates" ? <UpdatesSection {...props} updates={updates} onUpdatesChanged={onUpdatesChanged} recording={recording} />
           : <AboutSection />}

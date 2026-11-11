@@ -85,3 +85,15 @@ export interface BridgeInfo {
   port: number;
   listening: boolean;
 }
+
+export type BridgeState = "connected" | "waiting" | "rejected" | "inactive";
+
+export interface BridgeStatus {
+  state: BridgeState;
+  browser: string | null;
+  version: string | null;
+  /** Dernier message reçu de l'extension, en secondes Unix. */
+  last_seen: number | null;
+  clients: number;
+  port: number;
+}

@@ -485,6 +485,16 @@ pub fn open_folder(app: AppHandle, id: String) -> Result<(), String> {
     }
 }
 
+/// Ouvre le dossier de l'extension navigateur fourni avec l'application.
+#[tauri::command]
+pub fn open_extension_folder(app: AppHandle) -> Result<(), String> {
+    let dir = app.path().resource_dir().map_err(|e| e.to_string())?.join("extension");
+    if !dir.is_dir() {
+        return Err("Dossier de l'extension introuvable".into());
+    }
+    app.opener().open_path(dir.to_string_lossy(), None::<&str>).map_err(|e| e.to_string())
+}
+
 /// Que faire pour « Ouvrir le dossier » : révéler le fichier s'il existe,
 /// sinon ouvrir son dossier parent (fichier pas encore créé : file, HLS, .part...).
 #[derive(Debug, PartialEq)]
@@ -1082,6 +1092,25 @@ pub fn get_bridge_info(state: State<AppState>) -> Result<BridgeInfo, String> {
         port: crate::bridge::PORT,
         listening: state.bridge_listening.load(std::sync::atomic::Ordering::Relaxed),
     })
+}
+
+/// État réel de la connexion avec l'extension.
+#[tauri::command]
+pub fn get_bridge_status(app: AppHandle) -> crate::bridge::status::BridgeStatus {
+    crate::bridge::server::current_status(&app)
+}
+
+/// Sites ignorés par l'extension (liste partagée avec elle).
+#[tauri::command]
+pub fn get_ignored_sites(app: AppHandle) -> Vec<String> {
+    crate::bridge::server::load_sites(&app)
+}
+
+/// Remplace la liste des sites ignorés. Une entrée invalide refuse toute la liste.
+#[tauri::command]
+pub fn set_ignored_sites(app: AppHandle, sites: Vec<String>) -> Result<Vec<String>, String> {
+    let list = crate::bridge::sites::clean_list(&sites)?;
+    crate::bridge::server::update_sites(&app, |_| Ok(list))
 }
 
 /// Régénère le jeton du bridge et renvoie la nouvelle valeur.

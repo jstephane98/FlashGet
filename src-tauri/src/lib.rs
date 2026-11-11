@@ -148,6 +148,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::add_batch_downloads,
+            commands::open_extension_folder,
+            link::retry_capture,
             commands::list_downloads,
             commands::start_download,
             commands::pause_download,
@@ -168,6 +170,9 @@ pub fn run() {
             library::allow_playback,
             library::delete_download,
             commands::get_bridge_info,
+            commands::get_bridge_status,
+            commands::get_ignored_sites,
+            commands::set_ignored_sites,
             commands::regenerate_bridge_token,
             commands::get_autostart,
             commands::set_autostart,

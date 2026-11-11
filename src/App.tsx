@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "./index.css";
 import { X } from "lucide-react";
-import type { Download, Priority } from "./types";
+import type { BridgeStatus, Download, Priority } from "./types";
 import * as api from "./api";
 import { t } from "./i18n";
 import type { PageId } from "./navigation";
@@ -16,12 +16,13 @@ import { EndOfQueueDialog } from "./components/EndOfQueueDialog";
 import { NewPage, type ExternalEvent } from "./pages/NewPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import type { UpdateFlags } from "./components/settings/UpdatesSection";
+import { useBridgePolling } from "./bridge/useBridgePolling";
 import { applyUpdated } from "./components/settings/ytdlpUpdateStore";
 
 type ExternalPayload =
   | { kind: "probing"; url: string }
   | { kind: "probed"; probe: api.LinkProbe }
-  | { kind: "error"; url: string; message: string }
+  | { kind: "error"; url: string; message: string; captureId?: string; origin?: string }
   | { kind: "analyze"; url: string };
 
 export default function App() {
@@ -36,7 +37,7 @@ export default function App() {
   const extSeq = useRef(0);
   const [segs, setSegs] = useState<Record<string, { done: number; total: number }>>({});
   const [maxSpeedBps, setMaxSpeedBps] = useState(0);
-  const [bridgeListening, setBridgeListening] = useState(false);
+  const [bridgeStatus, setBridgeStatus] = useState<BridgeStatus | null>(null);
   const [maxConcurrent, setMaxConcurrent] = useState(3);
   const [schedule, setSchedule] = useState<api.Schedule | null>(null);
   const [queuePaused, setQueuePaused] = useState(false);
@@ -47,10 +48,9 @@ export default function App() {
     setDownloads(await api.listDownloads());
   }
 
-  // Données de la barre d'état : limite de vitesse et état du pont extension.
+  // Données de la barre d'état : limite de vitesse.
   function refreshStatusInfo() {
     api.getSettings().then((s) => { setMaxSpeedBps(s.max_speed_bps); setMaxConcurrent(s.max_concurrent); }).catch(() => {});
-    api.getBridgeInfo().then((b) => setBridgeListening(b.listening)).catch(() => {});
   }
 
   // La page Nouveau s'ouvre, préremplie ; rien ne démarre avant confirmation.
@@ -84,7 +84,10 @@ export default function App() {
     const unProbing = api.onLinkProbing(({ url }) => showExternal({ kind: "probing", url }));
     const unProbed = api.onLinkProbed((probe) => showExternal({ kind: "probed", probe }));
     const unFinished = api.onQueueFinished(({ action }) => setEndAction(action));
-    const unLinkErr = api.onLinkError(({ url, message }) => showExternal({ kind: "error", url, message }));
+    const unLinkErr = api.onLinkError(({ url, message, capture_id, origin }) =>
+      showExternal({ kind: "error", url, message, captureId: capture_id ?? undefined, origin: origin ?? undefined }));
+    api.getBridgeStatus().then(setBridgeStatus).catch(() => {});
+    const unBridge = api.onBridgeStatus(setBridgeStatus);
     const unApp = api.onAppUpdateAvailable((app) => setUpdates((u) => ({ ...u, app })));
     const unYtAvail = api.onYtdlpUpdateAvailable(({ latest }) => setUpdates((u) => ({ ...u, ytdlp: latest })));
     const unYtDone = api.onYtdlpUpdated((p) => {
@@ -93,11 +96,13 @@ export default function App() {
       void applyUpdated(p, () => {});
     });
     return () => {
-      unApp.then((f) => f()); unYtAvail.then((f) => f()); unYtDone.then((f) => f());
+      unBridge.then((f) => f()); unApp.then((f) => f()); unYtAvail.then((f) => f()); unYtDone.then((f) => f());
       un.then((f) => f());
       unProbing.then((f) => f()); unProbed.then((f) => f()); unLinkErr.then((f) => f()); unFinished.then((f) => f());
     };
   }, []);
+
+  useBridgePolling(bridgeStatus?.state, page === "settings", setBridgeStatus);
 
   function refreshQueueInfo() {
     api.getQueuePaused().then(setQueuePaused).catch(() => {});
@@ -221,6 +226,7 @@ export default function App() {
                 updates={updates}
                 onUpdatesChanged={(patch) => setUpdates((u) => ({ ...u, ...patch }))}
                 recording={downloads.some((d) => d.status === "recording")}
+                bridgeStatus={bridgeStatus}
               />
             ) : page === "completed" ? (
               <CompletedPage
@@ -250,7 +256,7 @@ export default function App() {
             active={stats.active}
             queued={stats.queued}
             maxSpeedBps={maxSpeedBps}
-            bridgeListening={bridgeListening}
+            bridgeState={bridgeStatus?.state ?? "waiting"}
             totalSpeedBps={stats.totalSpeed}
           />
         </main>

@@ -1,4 +1,5 @@
 // Logique pure et testable des règles de capture automatique (aucun chrome.*).
+import { isIgnored } from "./site-rules.js";
 
 // Liste blanche par défaut (basée sur le catégoriseur du cœur + types IDM courants).
 export const DEFAULT_CAPTURE_TYPES =
@@ -29,11 +30,16 @@ export function parseCaptureTypes(text) {
 }
 
 // Décide si un download doit être capturé. PURE — la garde "connected" est gérée par l'appelant.
-// item = { url, filename? }, settings = { autoCapture: bool, types: string[] }
-export function shouldCapture(item, settings) {
+// item = { url, requestUrl?, filename?, referrer? }, settings = { autoCapture: bool, types: string[] },
+// ignoredSites = hôtes normalisés : un téléchargement dont l'URL ou le référent est sur
+// l'un d'eux n'est pas capturé.
+export function shouldCapture(item, settings, ignoredSites = []) {
   if (!settings || !settings.autoCapture) return false;
   const url = String((item && item.url) ?? "");
   if (!/^https?:\/\//i.test(url)) return false; // exclut blob:/data:/file:/chrome:
+  if (isIgnored(url, ignoredSites)) return false;
+  if (item && item.requestUrl && isIgnored(item.requestUrl, ignoredSites)) return false; // avant redirection
+  if (item && item.referrer && isIgnored(item.referrer, ignoredSites)) return false;
   const ext = extensionOf(item && item.filename) || extensionOf(url);
   if (!ext) return false;
   return settings.types.includes(ext);

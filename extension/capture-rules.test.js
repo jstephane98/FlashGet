@@ -49,4 +49,23 @@ describe("shouldCapture", () => {
     expect(shouldCapture({ url: "data:text/plain;base64,AAAA" }, settings)).toBe(false);
     expect(shouldCapture({ url: "file:///c:/x.zip" }, settings)).toBe(false);
   });
+  it("rejects an ignored site, by url or by referrer", () => {
+    const ignored = ["exemple.com"];
+    expect(shouldCapture({ url: "https://cdn.exemple.com/f.zip" }, settings, ignored)).toBe(false);
+    expect(shouldCapture({ url: "https://h/f.zip", referrer: "https://www.exemple.com/p" }, settings, ignored)).toBe(false);
+    expect(shouldCapture({ url: "https://h/f.zip", referrer: "https://autre.com/p" }, settings, ignored)).toBe(true);
+    expect(shouldCapture({ url: "https://h/f.zip" }, settings, undefined)).toBe(true);
+  });
+  it("rejects a referrer that is a subdomain of an ignored site", () => {
+    expect(shouldCapture({ url: "https://h/f.zip", referrer: "https://a.b.exemple.com/p" }, settings, ["exemple.com"])).toBe(false);
+  });
+  it("rejects when the pre-redirect request url is ignored", () => {
+    expect(shouldCapture({ url: "https://h/f.zip", requestUrl: "https://exemple.com/dl" }, settings, ["exemple.com"])).toBe(false);
+  });
+  it("treats an invalid referrer as not ignored", () => {
+    expect(shouldCapture({ url: "https://h/f.zip", referrer: "nope" }, settings, ["exemple.com"])).toBe(true);
+  });
+  it("stays false when auto-capture is off, even with an ignored site", () => {
+    expect(shouldCapture({ url: "https://exemple.com/f.zip" }, { autoCapture: false, types: ["zip"] }, ["exemple.com"])).toBe(false);
+  });
 });

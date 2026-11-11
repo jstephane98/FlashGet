@@ -46,6 +46,31 @@
         "displayLanguageSelector": false
       }
     },
+    "resources": {
+      "../extension/manifest.json": "extension/manifest.json",
+      "../extension/background.js": "extension/background.js",
+      "../extension/buildCapture.js": "extension/buildCapture.js",
+      "../extension/capture-rules.js": "extension/capture-rules.js",
+      "../extension/media-rules.js": "extension/media-rules.js",
+      "../extension/stream-store.js": "extension/stream-store.js",
+      "../extension/site-rules.js": "extension/site-rules.js",
+      "../extension/browser-info.js": "extension/browser-info.js",
+      "../extension/popup.js": "extension/popup.js",
+      "../extension/popup-state.js": "extension/popup-state.js",
+      "../extension/options.js": "extension/options.js",
+      "../extension/popup.html": "extension/popup.html",
+      "../extension/options.html": "extension/options.html",
+      "../extension/ui.css": "extension/ui.css",
+      "../extension/icons/16.png": "extension/icons/16.png",
+      "../extension/icons/32.png": "extension/icons/32.png",
+      "../extension/icons/48.png": "extension/icons/48.png",
+      "../extension/icons/128.png": "extension/icons/128.png",
+      "../extension/fonts/archivo-500.woff2": "extension/fonts/archivo-500.woff2",
+      "../extension/fonts/archivo-700.woff2": "extension/fonts/archivo-700.woff2",
+      "../extension/fonts/archivo-800.woff2": "extension/fonts/archivo-800.woff2",
+      "../extension/fonts/jetbrains-mono-500.woff2": "extension/fonts/jetbrains-mono-500.woff2",
+      "../extension/fonts/jetbrains-mono-700.woff2": "extension/fonts/jetbrains-mono-700.woff2"
+    },
     "externalBin": ["bin/ffmpeg", "bin/yt-dlp"],
     "icon": [
       "icons/32x32.png",

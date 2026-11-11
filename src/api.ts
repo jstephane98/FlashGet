@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { Download, Progress, Priority, Settings, Category, CategoryDirs, BridgeInfo } from "./types";
+import type { Download, Progress, Priority, Settings, Category, CategoryDirs, BridgeInfo, BridgeStatus } from "./types";
 
 export type FormatKind = "av" | "video" | "audio";
 
@@ -77,8 +77,20 @@ export function onLinkProbed(cb: (p: LinkProbe) => void): Promise<UnlistenFn> {
   return listen<LinkProbe>("link://probed", (e) => cb(e.payload));
 }
 
-export function onLinkError(cb: (e: { url: string; message: string }) => void): Promise<UnlistenFn> {
-  return listen<{ url: string; message: string }>("link://error", (e) => cb(e.payload));
+export interface LinkErrorPayload {
+  url: string;
+  message: string;
+  capture_id: string | null;
+  origin: string | null;
+}
+
+export function onLinkError(cb: (e: LinkErrorPayload) => void): Promise<UnlistenFn> {
+  return listen<LinkErrorPayload>("link://error", (e) => cb(e.payload));
+}
+
+/** Renvoie une capture de l'extension avec ses cookies ; la page suit les événements link://. */
+export function retryCapture(captureId: string, url: string): Promise<LinkProbe> {
+  return invoke<LinkProbe>("retry_capture", { captureId, url });
 }
 
 export interface BatchSummary {
@@ -168,6 +180,30 @@ export function getBridgeInfo(): Promise<BridgeInfo> {
 
 export function regenerateBridgeToken(): Promise<string> {
   return invoke<string>("regenerate_bridge_token");
+}
+
+export function getBridgeStatus(): Promise<BridgeStatus> {
+  return invoke<BridgeStatus>("get_bridge_status");
+}
+
+export function onBridgeStatus(cb: (s: BridgeStatus) => void): Promise<UnlistenFn> {
+  return listen<BridgeStatus>("bridge-status", (e) => cb(e.payload));
+}
+
+export function getIgnoredSites(): Promise<string[]> {
+  return invoke<string[]>("get_ignored_sites");
+}
+
+export function setIgnoredSites(sites: string[]): Promise<string[]> {
+  return invoke<string[]>("set_ignored_sites", { sites });
+}
+
+export function onIgnoredSitesChanged(cb: (sites: string[]) => void): Promise<UnlistenFn> {
+  return listen<string[]>("ignored-sites-changed", (e) => cb(e.payload));
+}
+
+export function openExtensionFolder(): Promise<void> {
+  return invoke("open_extension_folder");
 }
 
 export function getAutostart(): Promise<boolean> {

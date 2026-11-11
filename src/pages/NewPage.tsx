@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ClipboardPaste, Layers, Link, Loader2, RotateCcw } from "lucide-react";
 import * as api from "../api";
 import type { ConfirmLink, LinkProbe } from "../api";
-import { t } from "../i18n";
+import { t, tNodes } from "../i18n";
 import { useLinkProbe } from "../newlink/useLinkProbe";
 import { BatchPanel, type BatchMode } from "../components/newlink/BatchPanel";
 import { FilePanel } from "../components/newlink/FilePanel";
@@ -11,7 +11,7 @@ import { MediaPanel, type MediaChoice } from "../components/newlink/MediaPanel";
 export type ExternalEvent = { seq: number } & (
   | { kind: "probing"; url: string }
   | { kind: "probed"; probe: LinkProbe }
-  | { kind: "error"; url: string; message: string }
+  | { kind: "error"; url: string; message: string; captureId?: string; origin?: string }
   | { kind: "analyze"; url: string }
 );
 
@@ -20,6 +20,12 @@ const secondaryBtn =
 
 const errText = (e: unknown) => (typeof e === "string" ? e : String((e as { message?: unknown })?.message ?? e));
 const isUrl = (s: string) => /^https?:\/\//i.test(s.trim());
+
+/** Explication sous l'erreur d'une capture ; l'origine (domaine) est en mono. */
+function captureNote(origin?: string) {
+  if (!origin) return t("new.captureNoteNoOrigin");
+  return tNodes("new.captureNote", { origin: <span className="font-mono">{origin}</span> });
+}
 
 export function NewPage({
   external, startInBatch, onDone,
@@ -35,14 +41,19 @@ export function NewPage({
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [batchError, setBatchError] = useState<string | null>(null);
   const lastSeq = useRef<number | null>(null);
+  const retrySeq = useRef(0);
+  // Capture de l'extension en échec : « Réessayer » la renvoie avec son contexte (cookies, page d'origine).
+  const [capture, setCapture] = useState<{ id: string; origin?: string; url: string } | null>(null);
 
   useEffect(() => { setBatch(startInBatch); }, [startInBatch]);
 
   useEffect(() => {
     if (!external || external.seq === lastSeq.current) return;
     lastSeq.current = external.seq;
+    retrySeq.current += 1;
     setBatch(false);
     setConfirmError(null);
+    setCapture(null);
     if (external.kind === "probing") {
       setUrl(external.url);
       showProbing(external.url);
@@ -54,13 +65,23 @@ export function NewPage({
       analyze(external.url);
     } else {
       setUrl(external.url);
+      if (external.captureId) setCapture({ id: external.captureId, origin: external.origin, url: external.url });
       fail(external.url, external.message);
     }
   }, [external, showProbing, load, fail, analyze]);
 
   function start(value: string) {
+    retrySeq.current += 1;
     setConfirmError(null);
+    setCapture(null);
     analyze(value);
+  }
+
+  // Les résultats arrivent par les événements link:// ; showProbing garde le délai de 90 s.
+  function retryFromCapture(c: { id: string; url: string }) {
+    const seq = ++retrySeq.current;
+    showProbing(c.url);
+    api.retryCapture(c.id, c.url).catch((e) => { if (seq === retrySeq.current) fail(c.url, errText(e)); });
   }
 
   async function pasteFromClipboard() {
@@ -176,8 +197,17 @@ export function NewPage({
           )}
           {state.status === "error" && (
             <div className="flex items-center gap-3 text-[13px]">
-              <span role="alert" className="text-err">{state.message}</span>
-              <button type="button" className={secondaryBtn} onClick={() => start(state.url)}>
+              <div className="flex flex-col gap-1">
+                <span role="alert" className="text-err">{state.message}</span>
+                {capture && capture.url === state.url && (
+                  <span className="text-[12px] text-ink-mute">{captureNote(capture.origin)}</span>
+                )}
+              </div>
+              <button
+                type="button"
+                className={secondaryBtn}
+                onClick={() => (capture && capture.url === state.url ? retryFromCapture(capture) : start(state.url))}
+              >
                 <RotateCcw size={14} />
                 {t("new.retry")}
               </button>

@@ -1,13 +1,16 @@
 import { buildCapture } from "./buildCapture.js";
 import { shouldCapture, parseCaptureTypes, DEFAULT_CAPTURE_TYPES } from "./capture-rules.js";
 import { isHlsUrl, isHlsContentType, isDashUrl, isDashContentType } from "./media-rules.js";
+import { browserName } from "./browser-info.js";
 import { recordStream, getStreams, clearStreams } from "./stream-store.js";
 
-const DEFAULT_PORT = 15151;
+const PORT = 15151; // port fixe du serveur local de FlashGet (un port enregistré par une ancienne version est ignoré)
 const KEEPALIVE_ALARM = "flashget-keepalive";
 const PENDING_TTL_MS = 60000; // une capture en file de plus de 60 s est abandonnée
 let socket = null;
 let connected = false;
+let connectionState = "offline"; // "connected" | "rejected" (jeton refusé) | "offline"
+let ignoredSites = []; // cache de la liste reçue de FlashGet (aussi dans chrome.storage.local)
 let reconnectTimer = null;
 let connecting = false;
 let pending = []; // captures en attente d'une connexion authentifiée : [{ url, referrer, filename, ts }]
@@ -88,20 +91,27 @@ function basename(name) {
 async function getConfig() {
   const {
     token = "",
-    port = DEFAULT_PORT,
     autoCapture = true,
     captureTypes = DEFAULT_CAPTURE_TYPES,
-  } = await chrome.storage.local.get(["token", "port", "autoCapture", "captureTypes"]);
+    ignoredSites: cached = [],
+  } = await chrome.storage.local.get(["token", "autoCapture", "captureTypes", "ignoredSites"]);
   return {
     token,
-    port: Number(port) || DEFAULT_PORT,
     autoCapture: autoCapture !== false,
     types: parseCaptureTypes(captureTypes),
+    ignoredSites: Array.isArray(cached) ? cached : [],
   };
 }
 
-function setConnected(value) {
+// Enregistre la liste des sites ignorés reçue de FlashGet (cache pour la capture hors connexion).
+function applyIgnoredSites(list, persist = true) {
+  ignoredSites = Array.isArray(list) ? list.filter((x) => typeof x === "string") : [];
+  if (persist) chrome.storage.local.set({ ignoredSites }).catch(() => {});
+}
+
+function setConnected(value, state) {
   connected = value;
+  connectionState = value ? "connected" : state || "offline";
   // Pastille verte/grise sur l'icône.
   chrome.action.setBadgeText({ text: value ? "●" : "" });
   chrome.action.setBadgeBackgroundColor({ color: value ? "#22c55e" : "#9ca3af" });
@@ -114,9 +124,11 @@ async function connect() {
     return;
   }
   connecting = true;
-  let token, port;
+  let token;
   try {
-    ({ token, port } = await getConfig());
+    const cfg = await getConfig();
+    token = cfg.token;
+    ignoredSites = cfg.ignoredSites;
   } catch (_e) {
     connecting = false;
     scheduleReconnect();
@@ -128,17 +140,29 @@ async function connect() {
     return;
   }
   try {
-    socket = new WebSocket(`ws://127.0.0.1:${port}`);
+    socket = new WebSocket(`ws://127.0.0.1:${PORT}`);
   } catch (_e) {
     connecting = false;
     scheduleReconnect();
     return;
   }
   connecting = false;
+  const sock = socket;
+  let opened = false;
   socket.onopen = () => {
-    socket.send(JSON.stringify({ type: "auth", token }));
+    opened = true;
+    connectionState = "offline"; // jusqu'à `authed` ou `error` : pas d'ancien « rejected »
+    socket.send(
+      JSON.stringify({
+        type: "auth",
+        token,
+        browser: browserName(navigator.userAgentData, navigator.userAgent, Boolean(navigator.brave)),
+        version: chrome.runtime.getManifest().version,
+      }),
+    );
   };
   socket.onmessage = (event) => {
+    if (sock !== socket) return;
     let msg;
     try {
       msg = JSON.parse(event.data);
@@ -147,16 +171,21 @@ async function connect() {
     }
     if (msg.type === "authed") {
       setConnected(true);
+    } else if (msg.type === "config") {
+      applyIgnoredSites(msg.ignored_sites);
     } else if (msg.type === "error" && (msg.error === "auth_failed" || msg.error === "need_auth")) {
-      setConnected(false);
+      setConnected(false, "rejected");
     }
   };
   socket.onclose = () => {
-    setConnected(false);
+    if (sock !== socket) return; // ancienne socket remplacée par une reconnexion
+    // Un refus de jeton reste affiché tant que la connexion n'a pas abouti ; si le serveur
+    // n'a jamais répondu (jamais ouvert), c'est que FlashGet n'est pas lancé.
+    setConnected(false, opened && connectionState === "rejected" ? "rejected" : "offline");
     scheduleReconnect();
   };
   socket.onerror = () => {
-    setConnected(false);
+    if (sock === socket && !opened) setConnected(false, "offline");
   };
 }
 
@@ -185,41 +214,6 @@ async function sendCapture(url, referrer, filename) {
   if (pending.length > 20) pending.shift(); // borne anti-accumulation
   connect();
   return true; // acceptée : sera envoyée dès la (re)connexion
-}
-
-// Envoie une capture HLS ou DASH. Comme sendCapture mais marque le type média.
-async function sendMedia(url, referrer, title) {
-  const kind = isDashUrl(url) ? "dash" : "hls";
-  if (socket && socket.readyState === WebSocket.OPEN && connected) {
-    try {
-      const headers = await gatherHeaders(url, referrer);
-      socket.send(JSON.stringify(buildCapture(url, { ...headers, kind, filename: title })));
-      return true;
-    } catch (_e) {
-      return false;
-    }
-  }
-  pending.push({ url, referrer, kind, filename: title, ts: Date.now() });
-  if (pending.length > 20) pending.shift();
-  connect();
-  return true;
-}
-
-// Envoie la page courante vers l'extracteur yt-dlp (kind "page").
-async function sendPage(url, referrer) {
-  if (socket && socket.readyState === WebSocket.OPEN && connected) {
-    try {
-      const headers = await gatherHeaders(url, referrer);
-      socket.send(JSON.stringify(buildCapture(url, { ...headers, kind: "page" })));
-      return true;
-    } catch (_e) {
-      return false;
-    }
-  }
-  pending.push({ url, referrer, kind: "page", ts: Date.now() });
-  if (pending.length > 20) pending.shift();
-  connect();
-  return true;
 }
 
 // Bouton vidéo intelligent : envoie l'URL de page (yt-dlp d'abord côté app) + un flux
@@ -253,7 +247,16 @@ function ensureKeepalive() {
 }
 
 chrome.alarms.onAlarm.addListener((alarm) => {
-  if (alarm.name === KEEPALIVE_ALARM) connect();
+  if (alarm.name !== KEEPALIVE_ALARM) return;
+  connect();
+  // Un message toutes les 30 s : FlashGet met à jour « dernière activité » à chaque réception.
+  if (socket && socket.readyState === WebSocket.OPEN && connected) {
+    try {
+      socket.send(JSON.stringify({ type: "ping" }));
+    } catch (_e) {
+      // socket en cours de fermeture : la reconnexion s'en charge
+    }
+  }
 });
 
 // Menu contextuel sur liens/images/vidéos/audio.
@@ -285,8 +288,8 @@ chrome.downloads.onDeterminingFilename.addListener((item) => {
     if (!connected) return; // app injoignable : ne pas intercepter
     const cfg = await getConfig();
     const url = item.finalUrl || item.url;
-    if (!shouldCapture({ url, filename: item.filename }, { autoCapture: cfg.autoCapture, types: cfg.types })) {
-      return; // type non listé / schéma non récupérable : laisser le navigateur
+    if (!shouldCapture({ url, requestUrl: item.url, filename: item.filename, referrer: item.referrer }, { autoCapture: cfg.autoCapture, types: cfg.types }, ignoredSites)) {
+      return; // type non listé / site ignoré / schéma non récupérable : laisser le navigateur
     }
     try {
       await chrome.downloads.cancel(item.id);
@@ -309,7 +312,7 @@ chrome.downloads.onDeterminingFilename.addListener((item) => {
 // Messages depuis le popup.
 chrome.runtime.onMessage.addListener((req, _sender, sendResponse) => {
   if (req.cmd === "status") {
-    sendResponse({ connected });
+    sendResponse({ connected, state: connectionState, ignoredSites, version: chrome.runtime.getManifest().version });
     return false;
   }
   if (req.cmd === "send" && req.url) {
@@ -327,46 +330,31 @@ chrome.runtime.onMessage.addListener((req, _sender, sendResponse) => {
     return true; // réponse asynchrone
   }
   if (req.cmd === "reconnect") {
+    // Nouveau jeton : abandonner une socket non authentifiée pour repartir avec le jeton enregistré.
+    if (socket && !connected) {
+      try {
+        socket.close();
+      } catch (_e) {
+        // déjà fermée
+      }
+      socket = null;
+    }
     connect();
     sendResponse({ ok: true });
     return false;
   }
-  if (req.cmd === "listMedia") {
-    (async () => {
-      const streams = await getStreams(chrome.storage.session, req.tabId);
-      sendResponse({ streams });
-    })();
-    return true; // réponse asynchrone
-  }
-  if (req.cmd === "sendMedia" && req.url) {
-    (async () => {
-      let referrer;
-      let title;
-      try {
-        const tab = await chrome.tabs.get(req.tabId);
-        referrer = tab && tab.url;
-        title = tab && tab.title; // titre de la page = nom de fichier proposé
-      } catch (_e) {
-        // pas de referer / titre : Rust retombera sur "video"
-      }
-      const ok = await sendMedia(req.url, referrer, title);
-      sendResponse({ ok });
-    })();
-    return true; // réponse asynchrone
-  }
-  if (req.cmd === "sendPage" && req.url) {
-    (async () => {
-      let referrer;
-      try {
-        const tab = await chrome.tabs.get(req.tabId);
-        referrer = tab && tab.url;
-      } catch (_e) {
-        // pas de referer
-      }
-      const ok = await sendPage(req.url, referrer);
-      sendResponse({ ok });
-    })();
-    return true; // réponse asynchrone
+  if (req.cmd === "setSiteIgnored" && typeof req.host === "string") {
+    if (socket && socket.readyState === WebSocket.OPEN && connected) {
+      socket.send(JSON.stringify({ type: "set_site_ignored", host: req.host, ignored: Boolean(req.ignored) }));
+      // Mise à jour optimiste ; FlashGet renvoie ensuite la liste de référence (`config`).
+      const host = req.host;
+      const rest = ignoredSites.filter((h) => h !== host);
+      applyIgnoredSites(req.ignored ? [...rest, host] : rest, false); // mémoire seulement
+      sendResponse({ ok: true });
+    } else {
+      sendResponse({ ok: false });
+    }
+    return false;
   }
   if (req.cmd === "smartDownload" && req.tabId != null) {
     (async () => {

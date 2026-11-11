@@ -25,6 +25,14 @@
         <button id="downloadVideo" class="fg-cta"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>Télécharger la vidéo de cette page</button>
         <div id="toast"></div>
 
+        <p id="staleNotice" class="stale hidden">L'extension a été mise à jour : rechargez-la depuis la page des extensions du navigateur (bouton ⟳ de FlashGet), puis rouvrez cette fenêtre.</p>
+
+        <div id="siteRow" class="site-row hidden">
+          <svg id="siteBan" class="ic hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m5.6 5.6 12.8 12.8"/></svg>
+          <div class="tx"><b>Capture automatique</b><small id="siteText"></small></div>
+          <button id="siteSwitch" class="sw" role="switch" aria-checked="true" aria-label="Capture automatique sur ce site"></button>
+        </div>
+
         <div class="url-section-label">Télécharger un fichier par URL</div>
         <input id="url" class="fg-input" type="text" placeholder="Coller une URL…" />
         <button id="sendUrl" class="fg-btn">Envoyer</button>
@@ -32,7 +40,7 @@
 
       <!-- Disconnected view -->
       <div id="disconnectedView" class="hidden">
-        <p class="muted">FlashGet non détecté. Lancez l'application.</p>
+        <p id="disconnectedText" class="note-text">FlashGet n'est pas lancé. Ouvrez l'application, puis réessayez.</p>
         <button id="openOptions" class="fg-btn">Options</button>
         <button id="retry" class="fg-btn">Réessayer</button>
       </div>

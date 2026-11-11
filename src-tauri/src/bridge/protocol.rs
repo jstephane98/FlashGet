@@ -6,7 +6,8 @@ use serde::Deserialize;
 /// Message reçu du client (extension). `Unknown` = JSON invalide ou type inconnu.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ClientMessage {
-    Auth { token: String },
+    Auth { token: String, browser: Option<String>, version: Option<String> },
+    Ping,
     Capture {
         url: String,
         filename: Option<String>,
@@ -17,6 +18,7 @@ pub enum ClientMessage {
         fallback_url: Option<String>,
         fallback_kind: Option<String>,
     },
+    SetSiteIgnored { host: String, ignored: bool },
     Unknown,
 }
 
@@ -26,6 +28,7 @@ pub enum ServerReply {
     Authed,
     AuthFailed,
     NeedAuth,
+    Pong,
     CaptureRequested {
         url: String,
         filename: Option<String>,
@@ -36,13 +39,21 @@ pub enum ServerReply {
         fallback_url: Option<String>,
         fallback_kind: Option<String>,
     },
+    SetSiteIgnoredRequested { host: String, ignored: bool },
     Error { msg: String },
 }
 
 #[derive(Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 enum RawMessage {
-    Auth { token: String },
+    Auth {
+        token: String,
+        #[serde(default)]
+        browser: Option<String>,
+        #[serde(default)]
+        version: Option<String>,
+    },
+    Ping,
     Capture {
         url: String,
         #[serde(default)]
@@ -60,15 +71,19 @@ enum RawMessage {
         #[serde(default)]
         fallback_kind: Option<String>,
     },
+    #[serde(rename = "set_site_ignored")]
+    SetSiteIgnored { host: String, ignored: bool },
 }
 
 /// Parse un texte JSON en `ClientMessage`. Tout échec ⇒ `Unknown`.
 pub fn parse_client_message(text: &str) -> ClientMessage {
     match serde_json::from_str::<RawMessage>(text) {
-        Ok(RawMessage::Auth { token }) => ClientMessage::Auth { token },
+        Ok(RawMessage::Auth { token, browser, version }) => ClientMessage::Auth { token, browser, version },
+        Ok(RawMessage::Ping) => ClientMessage::Ping,
         Ok(RawMessage::Capture { url, filename, referrer, cookie, user_agent, kind, fallback_url, fallback_kind }) => {
             ClientMessage::Capture { url, filename, referrer, cookie, user_agent, kind, fallback_url, fallback_kind }
         }
+        Ok(RawMessage::SetSiteIgnored { host, ignored }) => ClientMessage::SetSiteIgnored { host, ignored },
         Err(_) => ClientMessage::Unknown,
     }
 }
@@ -81,7 +96,14 @@ pub fn handle_message(
     msg: ClientMessage,
 ) -> (bool, ServerReply) {
     match msg {
-        ClientMessage::Auth { token } => {
+        ClientMessage::Ping => {
+            if authed {
+                (authed, ServerReply::Pong)
+            } else {
+                (authed, ServerReply::NeedAuth)
+            }
+        }
+        ClientMessage::Auth { token, .. } => {
             if !expected_token.is_empty() && token == expected_token {
                 (true, ServerReply::Authed)
             } else {
@@ -91,6 +113,13 @@ pub fn handle_message(
         ClientMessage::Capture { url, filename, referrer, cookie, user_agent, kind, fallback_url, fallback_kind } => {
             if authed {
                 (authed, ServerReply::CaptureRequested { url, filename, referrer, cookie, user_agent, kind, fallback_url, fallback_kind })
+            } else {
+                (authed, ServerReply::NeedAuth)
+            }
+        }
+        ClientMessage::SetSiteIgnored { host, ignored } => {
+            if authed {
+                (authed, ServerReply::SetSiteIgnoredRequested { host, ignored })
             } else {
                 (authed, ServerReply::NeedAuth)
             }
@@ -166,6 +195,42 @@ mod tests {
     }
 
     #[test]
+    fn auth_without_browser_fields() {
+        match parse_client_message(r#"{"type":"auth","token":"t"}"#) {
+            ClientMessage::Auth { token, browser, version } => {
+                assert_eq!(token, "t");
+                assert_eq!(browser, None);
+                assert_eq!(version, None);
+            }
+            other => panic!("attendu Auth, obtenu {other:?}"),
+        }
+    }
+
+    #[test]
+    fn auth_with_browser_fields() {
+        match parse_client_message(r#"{"type":"auth","token":"t","browser":"chrome","version":"0.2.0"}"#) {
+            ClientMessage::Auth { browser, version, .. } => {
+                assert_eq!(browser.as_deref(), Some("chrome"));
+                assert_eq!(version.as_deref(), Some("0.2.0"));
+            }
+            other => panic!("attendu Auth, obtenu {other:?}"),
+        }
+    }
+
+    #[test]
+    fn ping_pong() {
+        let msg = parse_client_message(r#"{"type":"ping"}"#);
+        assert_eq!(msg, ClientMessage::Ping);
+        let (authed, reply) = handle_message(true, "secret", msg.clone());
+        assert!(authed);
+        assert_eq!(reply, ServerReply::Pong);
+        // Avant l'auth : need_auth, comme une capture.
+        let (authed, reply) = handle_message(false, "secret", msg);
+        assert!(!authed);
+        assert_eq!(reply, ServerReply::NeedAuth);
+    }
+
+    #[test]
     fn capture_carries_cookie_and_user_agent() {
         let msg = parse_client_message(
             r#"{"type":"capture","url":"http://x/f.zip","referrer":"http://x/page","cookie":"sid=1","user_agent":"UA/1"}"#,
@@ -220,5 +285,17 @@ mod tests {
             }
             other => panic!("attendu CaptureRequested, obtenu {other:?}"),
         }
+    }
+
+    #[test]
+    fn set_site_ignored_requires_auth() {
+        let msg = parse_client_message(r#"{"type":"set_site_ignored","host":"a.com","ignored":true}"#);
+        assert_eq!(msg, ClientMessage::SetSiteIgnored { host: "a.com".into(), ignored: true });
+        let (authed, reply) = handle_message(false, "secret", msg.clone());
+        assert!(!authed);
+        assert_eq!(reply, ServerReply::NeedAuth);
+        let (authed, reply) = handle_message(true, "secret", msg);
+        assert!(authed);
+        assert_eq!(reply, ServerReply::SetSiteIgnoredRequested { host: "a.com".into(), ignored: true });
     }
 }
