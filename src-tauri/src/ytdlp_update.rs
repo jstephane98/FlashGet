@@ -18,6 +18,10 @@ const API_LATEST: &str = "https://api.github.com/repos/yt-dlp/yt-dlp/releases/la
 const DOWNLOAD_BASE: &str = "https://github.com/yt-dlp/yt-dlp/releases/download";
 const INVALID: &str = "fichier téléchargé invalide";
 const CHECK_INTERVAL_SECS: i64 = 86_400;
+const NET: &str = "Impossible de joindre GitHub";
+const MAX_BYTES: u64 = 200 * 1024 * 1024;
+const DOWNLOAD_FILE: &str = "yt-dlp.download.exe";
+const NEXT_FILE: &str = "yt-dlp.next.exe";
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum InstallOutcome {
@@ -25,6 +29,13 @@ pub enum InstallOutcome {
     Replaced(String),
     /// La cible est verrouillée : la nouvelle version attend en `yt-dlp.next.exe`.
     Pending(String),
+}
+
+#[derive(Serialize)]
+pub struct YtdlpUpdateResult {
+    pub version: String,
+    /// `true` : la version attend en `yt-dlp.next.exe` et servira au prochain démarrage.
+    pub pending: bool,
 }
 
 #[derive(Serialize)]
@@ -71,6 +82,19 @@ pub fn should_drop_data_copy(bundled: Option<&str>, data: Option<&str>) -> bool 
     }
 }
 
+/// Taille reçue conforme à l'annonce du serveur (inconnue : acceptée).
+pub fn length_ok(total: Option<u64>, len: usize) -> bool {
+    total.map_or(true, |t| t == len as u64)
+}
+
+/// Tolérant à l'horloge : la vérification est due sauf si `0 <= now - last < 86400`.
+pub fn check_is_stale(now: i64, last: Option<i64>) -> bool {
+    match last {
+        Some(l) => !(0..CHECK_INTERVAL_SECS).contains(&(now - l)),
+        None => true,
+    }
+}
+
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
@@ -85,9 +109,13 @@ pub fn install_from_bytes(
     run_version: impl Fn(&Path) -> Option<String>,
 ) -> Result<InstallOutcome, String> {
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    let download = dir.join("yt-dlp.download");
+    let download = dir.join(DOWNLOAD_FILE);
     // `fs::write` referme le fichier avant le renommage.
-    std::fs::write(&download, bytes).map_err(|e| e.to_string())?;
+    if let Err(e) = std::fs::write(&download, bytes) {
+        eprintln!("mise à jour de yt-dlp : écriture : {e}");
+        let _ = std::fs::remove_file(&download);
+        return Err(INVALID.to_string());
+    }
     let verified = if hex(&Sha256::digest(bytes)).eq_ignore_ascii_case(expected_sha.trim()) {
         run_version(&download)
     } else {
@@ -97,14 +125,17 @@ pub fn install_from_bytes(
         let _ = std::fs::remove_file(&download);
         return Err(INVALID.to_string());
     };
+    let next = dir.join(NEXT_FILE);
     if std::fs::rename(&download, dir.join("yt-dlp.exe")).is_ok() {
+        // Une ancienne version en attente écraserait celle-ci au prochain démarrage.
+        let _ = std::fs::remove_file(&next);
         return Ok(InstallOutcome::Replaced(version));
     }
-    let next = dir.join("yt-dlp.next.exe");
     let _ = std::fs::remove_file(&next);
     if let Err(e) = std::fs::rename(&download, &next) {
+        eprintln!("mise à jour de yt-dlp : {e}");
         let _ = std::fs::remove_file(&download);
-        return Err(e.to_string());
+        return Err(INVALID.to_string());
     }
     Ok(InstallOutcome::Pending(version))
 }
@@ -128,8 +159,12 @@ fn http_client() -> Result<reqwest::Client, String> {
     reqwest::Client::builder()
         .user_agent("FlashGet")
         .connect_timeout(Duration::from_secs(30))
+        .read_timeout(Duration::from_secs(30))
         .build()
-        .map_err(|e| e.to_string())
+        .map_err(|e| {
+            eprintln!("mise à jour de yt-dlp : client HTTP : {e}");
+            NET.to_string()
+        })
 }
 
 /// Version affichée par `path --version`.
@@ -144,8 +179,7 @@ async fn sidecar_version(app: &AppHandle) -> Option<String> {
 }
 
 async fn fetch_latest(client: &reqwest::Client) -> Result<String, String> {
-    const NET: &str = "Impossible de joindre GitHub";
-    let resp = client.get(API_LATEST).send().await.map_err(|_| NET.to_string())?;
+    let resp = client.get(API_LATEST).timeout(Duration::from_secs(30)).send().await.map_err(|_| NET.to_string())?;
     if !resp.status().is_success() {
         return Err(NET.to_string());
     }
@@ -161,12 +195,16 @@ pub async fn check_ytdlp_update(app: AppHandle) -> Result<YtdlpUpdateInfo, Strin
         let data_v = exe_version(&app, &path).await;
         let bundled_v = sidecar_version(&app).await;
         if should_drop_data_copy(bundled_v.as_deref(), data_v.as_deref()) && std::fs::remove_file(&path).is_ok() {
+            if let Some(dir) = path.parent() {
+                let _ = std::fs::remove_file(dir.join(NEXT_FILE));
+            }
             if let Ok(mut g) = app.state::<AppState>().ytdlp_version.lock() {
                 *g = None;
             }
             current = bundled_v;
         } else {
-            current = data_v.or(bundled_v);
+            // Copie illisible : version inconnue, pour qu'une mise à jour puisse la réparer.
+            current = data_v;
         }
     } else {
         current = sidecar_version(&app).await;
@@ -190,33 +228,23 @@ impl Drop for UpdatingGuard<'_> {
     }
 }
 
-#[tauri::command]
-pub async fn update_ytdlp(app: AppHandle) -> Result<String, String> {
-    let state = app.state::<AppState>();
-    if state.ytdlp_updating.swap(true, AtomicOrdering::SeqCst) {
-        return Err("Mise à jour déjà en cours".into());
-    }
-    let _guard = UpdatingGuard(&state.ytdlp_updating);
-
-    const NET: &str = "Impossible de joindre GitHub";
-    let client = http_client()?;
-    let tag = fetch_latest(&client).await?;
-    let sums = client.get(format!("{DOWNLOAD_BASE}/{tag}/SHA2-256SUMS")).send().await.map_err(|_| NET.to_string())?;
-    if !sums.status().is_success() {
-        return Err(NET.into());
-    }
-    let sums = sums.text().await.map_err(|_| NET.to_string())?;
-    let expected = parse_sha256sums(&sums, "yt-dlp.exe").ok_or_else(|| INVALID.to_string())?;
-
+/// Télécharge `yt-dlp.exe` en mémoire (plafonné), en signalant la progression.
+async fn download_exe(app: &AppHandle, client: &reqwest::Client, tag: &str) -> Result<Vec<u8>, String> {
     let mut resp = client.get(format!("{DOWNLOAD_BASE}/{tag}/yt-dlp.exe")).send().await.map_err(|_| NET.to_string())?;
     if !resp.status().is_success() {
         return Err(NET.into());
     }
     let total = resp.content_length();
-    let mut bytes: Vec<u8> = Vec::with_capacity(total.unwrap_or(0).min(512 * 1024 * 1024) as usize);
-    let mut last_emit = Instant::now() - Duration::from_secs(1);
+    if total.is_some_and(|t| t > MAX_BYTES) {
+        return Err(INVALID.into());
+    }
+    let mut bytes: Vec<u8> = Vec::with_capacity(total.unwrap_or(0).min(MAX_BYTES) as usize);
+    let mut last_emit = Instant::now().checked_sub(Duration::from_secs(1)).unwrap_or_else(|| Instant::now());
     while let Some(chunk) = resp.chunk().await.map_err(|_| NET.to_string())? {
         bytes.extend_from_slice(&chunk);
+        if bytes.len() as u64 > MAX_BYTES {
+            return Err(INVALID.into());
+        }
         if last_emit.elapsed() >= Duration::from_millis(100) {
             last_emit = Instant::now();
             let _ = app.emit("ytdlp-update-progress", serde_json::json!({ "downloaded": bytes.len(), "total": total }));
@@ -224,11 +252,35 @@ pub async fn update_ytdlp(app: AppHandle) -> Result<String, String> {
     }
     let _ = app.emit("ytdlp-update-progress", serde_json::json!({ "downloaded": bytes.len(), "total": total }));
     // Un fichier tronqué est écarté ici : la somme ne correspondrait de toute façon pas.
-    if total.is_some_and(|t| t != bytes.len() as u64) {
+    if !length_ok(total, bytes.len()) {
         return Err(INVALID.into());
     }
+    Ok(bytes)
+}
 
-    let dir = data_bin_dir(&app).ok_or_else(|| "dossier de données introuvable".to_string())?;
+#[tauri::command]
+pub async fn update_ytdlp(app: AppHandle) -> Result<YtdlpUpdateResult, String> {
+    let state = app.state::<AppState>();
+    if state.ytdlp_updating.swap(true, AtomicOrdering::SeqCst) {
+        return Err("Mise à jour déjà en cours".into());
+    }
+    let _guard = UpdatingGuard(&state.ytdlp_updating);
+
+    let client = http_client()?;
+    let tag = fetch_latest(&client).await?;
+    let sums = client.get(format!("{DOWNLOAD_BASE}/{tag}/SHA2-256SUMS")).timeout(Duration::from_secs(30)).send().await.map_err(|_| NET.to_string())?;
+    if !sums.status().is_success() {
+        return Err(NET.into());
+    }
+    let sums = sums.text().await.map_err(|_| NET.to_string())?;
+    let expected = parse_sha256sums(&sums, "yt-dlp.exe").ok_or_else(|| INVALID.to_string())?;
+
+    let bytes = download_exe(&app, &client, &tag).await?;
+
+    let dir = data_bin_dir(&app).ok_or_else(|| {
+        eprintln!("mise à jour de yt-dlp : dossier de données introuvable");
+        INVALID.to_string()
+    })?;
     // `install_from_bytes` est synchrone ; la vérification `--version` passe par le plugin shell
     // (asynchrone), pilotée depuis un thread bloquant avec `block_on`.
     let app2 = app.clone();
@@ -236,23 +288,27 @@ pub async fn update_ytdlp(app: AppHandle) -> Result<String, String> {
         install_from_bytes(&dir, &bytes, &expected, |p| tauri::async_runtime::block_on(exe_version(&app2, p)))
     })
     .await
-    .map_err(|e| e.to_string())??;
+    .map_err(|e| {
+        eprintln!("mise à jour de yt-dlp : {e}");
+        INVALID.to_string()
+    })??;
 
-    let version = match outcome {
-        InstallOutcome::Replaced(v) | InstallOutcome::Pending(v) => v,
+    let (version, pending) = match outcome {
+        InstallOutcome::Replaced(v) => (v, false),
+        InstallOutcome::Pending(v) => (v, true),
     };
     if let Ok(mut g) = state.ytdlp_version.lock() {
         *g = None;
     }
     record_last_check(&app);
-    Ok(version)
+    Ok(YtdlpUpdateResult { version, pending })
 }
 
 /// Vérification quotidienne 10 s après l'ouverture ; n'ouvre jamais de message en cas d'échec.
 pub fn start_ytdlp_auto_check(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(Duration::from_secs(10)).await;
-        if read_last_check(&app).is_some_and(|t| now_secs() - t < CHECK_INTERVAL_SECS) {
+        if !check_is_stale(now_secs(), read_last_check(&app)) {
             return;
         }
         let info = match check_ytdlp_update(app.clone()).await {
@@ -265,10 +321,13 @@ pub fn start_ytdlp_auto_check(app: AppHandle) {
         let auto = app.state::<AppState>().storage.get_settings().map(|s| s.ytdlp_auto_update).unwrap_or(true);
         if auto {
             match update_ytdlp(app.clone()).await {
-                Ok(version) => {
-                    let _ = app.emit("ytdlp-updated", serde_json::json!({ "version": version }));
+                Ok(r) => {
+                    let _ = app.emit("ytdlp-updated", serde_json::json!({ "version": r.version }));
                 }
-                Err(e) => eprintln!("mise à jour de yt-dlp : {e}"),
+                Err(e) => {
+                    eprintln!("mise à jour de yt-dlp : {e}");
+                    let _ = app.emit("ytdlp-update-available", serde_json::json!({ "current": info.current, "latest": info.latest }));
+                }
             }
         } else {
             let _ = app.emit("ytdlp-update-available", serde_json::json!({ "current": info.current, "latest": info.latest }));
@@ -317,10 +376,15 @@ mod tests {
     fn install_rejects_bad_checksum() {
         let d = tmp("badsum");
         std::fs::write(d.join("yt-dlp.exe"), b"old").unwrap();
-        let r = install_from_bytes(&d, b"new", &sha(b"autre"), |_| Some("1".into()));
+        let called = std::cell::Cell::new(false);
+        let r = install_from_bytes(&d, b"new", &sha(b"autre"), |_| {
+            called.set(true);
+            Some("1".into())
+        });
+        assert!(!called.get(), "run_version ne doit pas être appelé avant la somme");
         assert_eq!(r, Err("fichier téléchargé invalide".to_string()));
         assert_eq!(std::fs::read(d.join("yt-dlp.exe")).unwrap(), b"old");
-        assert!(!d.join("yt-dlp.download").exists());
+        assert!(!d.join("yt-dlp.download.exe").exists());
         let _ = std::fs::remove_dir_all(&d);
     }
 
@@ -331,7 +395,7 @@ mod tests {
         let r = install_from_bytes(&d, b"new", &sha(b"new"), |_| None);
         assert_eq!(r, Err("fichier téléchargé invalide".to_string()));
         assert_eq!(std::fs::read(d.join("yt-dlp.exe")).unwrap(), b"old");
-        assert!(!d.join("yt-dlp.download").exists());
+        assert!(!d.join("yt-dlp.download.exe").exists());
         let _ = std::fs::remove_dir_all(&d);
     }
 
@@ -339,14 +403,16 @@ mod tests {
     fn install_replaces() {
         let d = tmp("replace");
         std::fs::write(d.join("yt-dlp.exe"), b"old").unwrap();
+        std::fs::write(d.join("yt-dlp.next.exe"), b"older").unwrap();
         let upper = sha(b"new").to_uppercase();
         let r = install_from_bytes(&d, b"new", &upper, |p| {
-            assert!(p.ends_with("yt-dlp.download"));
+            assert!(p.ends_with("yt-dlp.download.exe"));
             Some("2026.11.08".into())
         });
         assert_eq!(r, Ok(InstallOutcome::Replaced("2026.11.08".into())));
         assert_eq!(std::fs::read(d.join("yt-dlp.exe")).unwrap(), b"new");
-        assert!(!d.join("yt-dlp.download").exists());
+        assert!(!d.join("yt-dlp.next.exe").exists());
+        assert!(!d.join("yt-dlp.download.exe").exists());
         let _ = std::fs::remove_dir_all(&d);
     }
 
@@ -370,13 +436,48 @@ mod tests {
         let r = install_from_bytes(&d, b"new", &sha(b"new"), |_| Some("2026.11.08".into()));
         assert_eq!(r, Ok(InstallOutcome::Pending("2026.11.08".into())));
         assert_eq!(std::fs::read(d.join("yt-dlp.next.exe")).unwrap(), b"new");
-        assert!(!d.join("yt-dlp.download").exists());
+        assert!(!d.join("yt-dlp.download.exe").exists());
         #[cfg(windows)]
         {
             drop(_lock);
             assert_eq!(std::fs::read(&target).unwrap(), b"old");
         }
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn download_removed_when_next_rename_fails() {
+        let d = tmp("nextfail");
+        let target = d.join("yt-dlp.exe");
+        std::fs::write(&target, b"old").unwrap();
+        // `.next` est un dossier non vide : ni suppression ni renommage possibles.
+        std::fs::create_dir(d.join("yt-dlp.next.exe")).unwrap();
+        std::fs::write(d.join("yt-dlp.next.exe").join("x"), b"x").unwrap();
+        #[cfg(windows)]
+        let _lock = {
+            use std::os::windows::fs::OpenOptionsExt;
+            std::fs::OpenOptions::new().read(true).share_mode(0).open(&target).unwrap()
+        };
+        #[cfg(not(windows))]
+        {
+            std::fs::remove_file(&target).unwrap();
+            std::fs::create_dir(&target).unwrap();
+        }
+        let r = install_from_bytes(&d, b"new", &sha(b"new"), |_| Some("1".into()));
+        assert_eq!(r, Err("fichier téléchargé invalide".to_string()));
+        assert!(!d.join("yt-dlp.download.exe").exists());
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn length_and_staleness_rules() {
+        assert!(length_ok(None, 5));
+        assert!(length_ok(Some(5), 5));
+        assert!(!length_ok(Some(6), 5));
+        assert!(!check_is_stale(1000, Some(500)));
+        assert!(check_is_stale(100_000, Some(500)));
+        assert!(check_is_stale(500, Some(1000)), "horloge reculée");
+        assert!(check_is_stale(500, None));
     }
 
     #[test]
