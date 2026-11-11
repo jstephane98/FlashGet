@@ -11,7 +11,7 @@ Le design couvre plusieurs sous-systèmes indépendants. Chaque phase a son prop
 | **3. Terminés (bibliothèque)** | Liste groupée par jour et grille, filtres par catégorie, panneau de détail, lecteur intégré, Retirer / Supprimer vers la corbeille, Re-télécharger | 4.5, 8.2 | à écrire |
 | **4. File d'attente et Planificateur** | Rang de file persistant, glisser-déposer, Suspendre / Tout démarrer, plage horaire et jours, limite pendant la plage, action en fin de plage, action de fin de file (veille, arrêt…) avec compte à rebours | 4.6, 4.7, 7.2, 8.4, 8.6 | à écrire |
 | **5. Paramètres** | Page en 8 sections, et les réglages moteur : connexions par fichier, nouvelles tentatives, reprise auto, conflit de nom, formats par défaut, sous-titres | 4.8, 5 | à écrire |
-| **6. Mises à jour et installeur** | Mise à jour de yt-dlp (dossier de données en priorité), updater Tauri + GitHub Releases + clé de signature, installeur NSIS par utilisateur, nouvel identifiant d'application avec migration des données | 7.3, 8.7, 8.8, 5 | à écrire |
+| **6. Mises à jour et installeur** | Mise à jour de yt-dlp (dossier de données en priorité), updater Tauri + GitHub Releases + clé de signature, installeur NSIS par utilisateur, nouvel identifiant d'application avec migration des données | 7.3, 8.7, 8.8, 5 | [plan](2026-11-11-flashget-v2-phase-6-mises-a-jour.md) |
 | **7. Extension navigateur** | Ouverture de la page Nouveau à la capture, sites ignorés, état de connexion réel, aide à l'installation | 7.4, 8.9, 4.8 §5 | à écrire |
 
 **Ordre :** les phases 2 à 5 dépendent toutes de la coque (phase 1). La phase 4 utilise l'état « en attente de la file » créé en phase 2. La phase 6 peut se faire à tout moment après la phase 1. La phase 7 suit la phase 2.
