@@ -2,8 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ClipboardPaste, Layers, Link, Loader2, RotateCcw } from "lucide-react";
 import * as api from "../api";
 import type { ConfirmLink, LinkProbe } from "../api";
-import { t } from "../i18n";
-import { fr } from "../i18n/fr";
+import { t, tNodes } from "../i18n";
 import { useLinkProbe } from "../newlink/useLinkProbe";
 import { BatchPanel, type BatchMode } from "../components/newlink/BatchPanel";
 import { FilePanel } from "../components/newlink/FilePanel";
@@ -25,9 +24,7 @@ const isUrl = (s: string) => /^https?:\/\//i.test(s.trim());
 /** Explication sous l'erreur d'une capture ; l'origine (domaine) est en mono. */
 function captureNote(origin?: string) {
   if (!origin) return t("new.captureNoteNoOrigin");
-  return fr["new.captureNote"].split("{origin}").flatMap((part, i) =>
-    i === 0 ? [part] : [<span key={i} className="font-mono">{origin}</span>, part],
-  );
+  return tNodes("new.captureNote", { origin: <span className="font-mono">{origin}</span> });
 }
 
 export function NewPage({
@@ -44,6 +41,7 @@ export function NewPage({
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [batchError, setBatchError] = useState<string | null>(null);
   const lastSeq = useRef<number | null>(null);
+  const retrySeq = useRef(0);
   // Capture de l'extension en échec : « Réessayer » la renvoie avec son contexte (cookies, page d'origine).
   const [capture, setCapture] = useState<{ id: string; origin?: string; url: string } | null>(null);
 
@@ -52,6 +50,7 @@ export function NewPage({
   useEffect(() => {
     if (!external || external.seq === lastSeq.current) return;
     lastSeq.current = external.seq;
+    retrySeq.current += 1;
     setBatch(false);
     setConfirmError(null);
     setCapture(null);
@@ -72,6 +71,7 @@ export function NewPage({
   }, [external, showProbing, load, fail, analyze]);
 
   function start(value: string) {
+    retrySeq.current += 1;
     setConfirmError(null);
     setCapture(null);
     analyze(value);
@@ -79,8 +79,9 @@ export function NewPage({
 
   // Les résultats arrivent par les événements link:// ; showProbing garde le délai de 90 s.
   function retryFromCapture(c: { id: string; url: string }) {
+    const seq = ++retrySeq.current;
     showProbing(c.url);
-    api.retryCapture(c.id, c.url).catch((e) => fail(c.url, errText(e)));
+    api.retryCapture(c.id, c.url).catch((e) => { if (seq === retrySeq.current) fail(c.url, errText(e)); });
   }
 
   async function pasteFromClipboard() {

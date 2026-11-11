@@ -313,6 +313,7 @@ export const fr = {
   "set.extTokenHint": "À coller dans les options de l'extension.",
   "set.copy": "Copier",
   "set.copied": "Copié",
+  "set.copyError": "Copie impossible : le presse-papiers est indisponible.",
   "set.regen": "Régénérer",
   "set.regenConfirm": "L'extension devra être reconnectée avec le nouveau jeton. Continuer ?",
   "set.extInstallCard": "Installation",

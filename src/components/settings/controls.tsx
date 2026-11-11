@@ -24,7 +24,7 @@ export function Card({ title, children }: { title: string; children: ReactNode }
   );
 }
 
-export function SettingRow({ label, hint, children }: { label: string; hint?: string; children?: ReactNode }) {
+export function SettingRow({ label, hint, children }: { label: string; hint?: ReactNode; children?: ReactNode }) {
   return (
     <div className="flex items-center gap-4 px-4 py-3 border-b border-line last:border-b-0">
       <div className="flex-1 min-w-0">

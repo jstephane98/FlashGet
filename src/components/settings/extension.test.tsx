@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, cleanup, waitFor, act } from "@testing-library/react";
+import { useState } from "react";
 import type { BridgeStatus } from "../../types";
 
 vi.mock("../../api");
 import * as api from "../../api";
 import { ExtensionSection } from "./ExtensionSection";
 import { formatLastSeen } from "./extensionFormat";
+import { useBridgePolling } from "../../bridge/useBridgePolling";
 import { StatusBar } from "../shell/StatusBar";
 
 const NOW = 1_800_000_000;
@@ -91,6 +93,15 @@ describe("ExtensionSection connexion", () => {
   });
 });
 
+describe("ExtensionSection mise en page", () => {
+  it("la description de l'état est l'indication sous « État »", async () => {
+    render(<ExtensionSection status={st()} />);
+    const hint = (await screen.findByText(/Chrome/)).closest("div") as HTMLElement;
+    expect(hint.previousElementSibling?.textContent).toBe("État");
+    expect(hint.className).not.toContain("text-right");
+  });
+});
+
 describe("ExtensionSection jeton", () => {
   it("copie le jeton", async () => {
     render(<ExtensionSection status={st()} />);
@@ -114,7 +125,9 @@ describe("ExtensionSection jeton", () => {
     render(<ExtensionSection status={st()} />);
     await screen.findByText("tok-abc");
     fireEvent.click(screen.getByRole("button", { name: "Copier" }));
-    expect((await screen.findByRole("alert")).textContent).toContain("refusé");
+    const msg = (await screen.findByRole("alert")).textContent;
+    expect(msg).toContain("presse-papiers");
+    expect(msg).not.toContain("refusé");
   });
 });
 
@@ -123,12 +136,14 @@ describe("ExtensionSection installation", () => {
     render(<ExtensionSection status={st()} />);
     fireEvent.click(await screen.findByRole("button", { name: "Copier l'adresse" }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("chrome://extensions"));
+    expect(await screen.findByRole("button", { name: "Copié" })).toBeTruthy();
   });
   it("copie le jeton depuis l'étape 3", async () => {
     render(<ExtensionSection status={st()} />);
     await screen.findByText("tok-abc");
     fireEvent.click(screen.getByRole("button", { name: "Copier le jeton" }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("tok-abc"));
+    expect(await screen.findByRole("button", { name: "Copié" })).toBeTruthy();
   });
   it("ouvre le dossier, et affiche l'erreur", async () => {
     render(<ExtensionSection status={st()} />);
@@ -176,11 +191,57 @@ describe("ExtensionSection sites ignorés", () => {
     await waitFor(() => expect(api.setIgnoredSites).toHaveBeenCalledWith([]));
     await waitFor(() => expect(screen.queryByText("github.com")).toBeNull());
   });
+  it("éditions sérialisées : boutons désactivés pendant l'enregistrement", async () => {
+    let release: (s: string[]) => void = () => {};
+    vi.mocked(api.setIgnoredSites).mockImplementation(() => new Promise<string[]>((r) => { release = r; }));
+    render(<ExtensionSection status={st()} />);
+    await screen.findByText("github.com");
+    fireEvent.click(screen.getByRole("button", { name: "Retirer github.com" }));
+    await waitFor(() => expect((screen.getByRole("button", { name: "Ajouter" }) as HTMLButtonElement).disabled).toBe(true));
+    expect((screen.getByRole("button", { name: "Retirer github.com" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(input(), { target: { value: "x.fr" } });
+    fireEvent.keyDown(input(), { key: "Enter" });
+    expect(api.setIgnoredSites).toHaveBeenCalledTimes(1);
+    await act(async () => release([]));
+    await waitFor(() => expect((screen.getByRole("button", { name: "Ajouter" }) as HTMLButtonElement).disabled).toBe(false));
+  });
   it("l'événement ignored-sites-changed met la liste à jour", async () => {
     render(<ExtensionSection status={st()} />);
     await screen.findByText("github.com");
     act(() => sitesCb(["drive.google.com"]));
     expect(await screen.findByText("drive.google.com")).toBeTruthy();
     expect(screen.queryByText("github.com")).toBeNull();
+  });
+});
+
+describe("useBridgePolling", () => {
+  function Harness({ initial, open }: { initial: BridgeStatus; open: boolean }) {
+    const [status, setStatus] = useState<BridgeStatus>(initial);
+    useBridgePolling(status.state, open, setStatus);
+    return <ExtensionSection status={status} />;
+  }
+  it("relit l'état toutes les 30 s dans les Paramètres : « active à l'instant »", async () => {
+    vi.mocked(api.getBridgeStatus).mockResolvedValue(st({ last_seen: NOW - 300 }));
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      render(<Harness initial={st({ last_seen: NOW - 300 })} open />);
+      expect(screen.getByText(/il y a 5 min/)).toBeTruthy();
+      vi.mocked(api.getBridgeStatus).mockResolvedValue(st({ last_seen: NOW }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(30_000); });
+      expect(screen.getByText(/active à l'instant/)).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("ne relit pas hors Paramètres tant que connectée", async () => {
+    vi.mocked(api.getBridgeStatus).mockResolvedValue(st());
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      render(<Harness initial={st()} open={false} />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(90_000); });
+      expect(api.getBridgeStatus).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

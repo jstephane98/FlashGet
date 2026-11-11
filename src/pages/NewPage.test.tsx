@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, cleanup, act } from "@testing-library/react";
 import type { LinkProbe, MediaFormat } from "../api";
 
 vi.mock("../api");
@@ -182,6 +182,23 @@ describe("NewPage : échec d'une capture de l'extension", () => {
     show(err());
     fireEvent.click(await screen.findByRole("button", { name: "Réessayer" }));
     await screen.findByText("Capture expirée");
+  });
+
+  it("un échec tardif d'un ancien essai n'écrase pas le nouvel essai", async () => {
+    let rejectFirst: (e: unknown) => void = () => {};
+    vi.mocked(api.retryCapture)
+      .mockImplementationOnce(() => new Promise((_, rej) => { rejectFirst = rej; }))
+      .mockImplementationOnce(() => new Promise(() => {}));
+    const { rerender, onDone } = setup();
+    rerender(<NewPage external={err()} startInBatch={false} onDone={onDone} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Réessayer" }));
+    await screen.findByText("Recherche des formats disponibles…");
+    rerender(<NewPage external={err({ seq: 2, message: "HTTP 500" })} startInBatch={false} onDone={onDone} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Réessayer" }));
+    await screen.findByText("Recherche des formats disponibles…");
+    await act(async () => { rejectFirst("Capture expirée"); });
+    expect(screen.queryByText("Capture expirée")).toBeNull();
+    expect(screen.getByText("Recherche des formats disponibles…")).toBeTruthy();
   });
 
   it("sans captureId : ancien chemin et pas de texte", async () => {

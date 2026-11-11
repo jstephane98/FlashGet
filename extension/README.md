@@ -7,11 +7,11 @@ Envoie les téléchargements du navigateur à l'application FlashGet : capture a
 1. Lancer FlashGet (le serveur local écoute toujours sur `127.0.0.1:15151`, le port n'est pas réglable).
 2. Ouvrir `chrome://extensions` (ou `edge://extensions`, `brave://extensions`).
 3. Activer le **mode développeur**.
-4. Cliquer sur **Charger l'extension non empaquetée** et choisir ce dossier `extension/`. Dans l'application, Réglages → Extension navigateur → **Ouvrir le dossier de l'extension** y mène directement.
+4. Cliquer sur **Charger l'extension non empaquetée** et choisir ce dossier `extension/`. Dans l'application, Paramètres → Extension navigateur → **Ouvrir le dossier** y mène directement.
 
 ## Jeton
 
-1. Dans FlashGet : Réglages → Extension navigateur → **Copier** le jeton de connexion.
+1. Dans FlashGet : Paramètres → Extension navigateur → **Copier** le jeton de connexion.
 2. Dans l'extension : **Options** → coller le jeton → **Enregistrer**.
 3. La page d'options affiche l'état de la connexion, et la fenêtre de l'extension passe à « Connecté ».
 
@@ -25,7 +25,7 @@ Si le jeton est régénéré dans FlashGet, la fenêtre indique « Le jeton ne c
 
 ## Sites ignorés
 
-L'interrupteur « Capture automatique » de la fenêtre ajoute ou retire le site courant de la liste des sites ignorés. Cette liste est la même que dans FlashGet (Réglages → Extension navigateur) et se synchronise dans les deux sens.
+L'interrupteur « Capture automatique » de la fenêtre ajoute ou retire le site courant de la liste des sites ignorés. Cette liste est la même que dans FlashGet (Paramètres → Extension navigateur) et se synchronise dans les deux sens.
 
 - Un site ignoré couvre aussi ses sous-domaines : ignorer `drive.google.com` ignore `docs.drive.google.com`, mais pas `google.com`.
 - Il bloque seulement la capture automatique : le clic droit et les boutons de la fenêtre continuent de fonctionner.

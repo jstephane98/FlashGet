@@ -16,6 +16,7 @@ import { EndOfQueueDialog } from "./components/EndOfQueueDialog";
 import { NewPage, type ExternalEvent } from "./pages/NewPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import type { UpdateFlags } from "./components/settings/UpdatesSection";
+import { useBridgePolling } from "./bridge/useBridgePolling";
 import { applyUpdated } from "./components/settings/ytdlpUpdateStore";
 
 type ExternalPayload =
@@ -47,7 +48,7 @@ export default function App() {
     setDownloads(await api.listDownloads());
   }
 
-  // Données de la barre d'état : limite de vitesse .
+  // Données de la barre d'état : limite de vitesse.
   function refreshStatusInfo() {
     api.getSettings().then((s) => { setMaxSpeedBps(s.max_speed_bps); setMaxConcurrent(s.max_concurrent); }).catch(() => {});
   }
@@ -101,13 +102,7 @@ export default function App() {
     };
   }, []);
 
-  // L'état « jeton refusé » expire de lui-même sans événement : on le relit toutes les 30 s.
-  const rejected = bridgeStatus?.state === "rejected";
-  useEffect(() => {
-    if (!rejected) return;
-    const id = setInterval(() => { api.getBridgeStatus().then(setBridgeStatus).catch(() => {}); }, 30_000);
-    return () => clearInterval(id);
-  }, [rejected]);
+  useBridgePolling(bridgeStatus?.state, page === "settings", setBridgeStatus);
 
   function refreshQueueInfo() {
     api.getQueuePaused().then(setQueuePaused).catch(() => {});
