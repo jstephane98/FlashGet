@@ -5,9 +5,11 @@ interface Props {
   active: PageId;
   counts: Partial<Record<PageId, number>>;
   onNavigate(id: PageId): void;
+  /** Point d'attention sur « Paramètres » (mise à jour disponible). */
+  settingsDot?: boolean;
 }
 
-export function Sidebar({ active, counts, onNavigate }: Props) {
+export function Sidebar({ active, counts, onNavigate, settingsDot = false }: Props) {
   const items = NAV_ITEMS.filter((i) => i.ready);
   const render = (item: NavItem) => {
     const Icon = item.icon;
@@ -40,6 +42,9 @@ export function Sidebar({ active, counts, onNavigate }: Props) {
         <span className="flex-1 text-left">{t(item.labelKey)}</span>
         {count !== undefined && (
           <span className="rounded-full bg-surface px-1.5 font-mono text-[11px] text-ink-soft">{count}</span>
+        )}
+        {item.id === "settings" && settingsDot && (
+          <span role="img" aria-label={t("attn.update")} className="h-[7px] w-[7px] rounded-full bg-accent" />
         )}
       </button>
     );

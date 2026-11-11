@@ -15,7 +15,11 @@ export const SECTIONS: { id: SectionId; icon: LucideIcon }[] = [
   { id: "about", icon: Info },
 ];
 
-export function SettingsNav({ active, onSelect }: { active: SectionId; onSelect(id: SectionId): void }) {
+export function SettingsNav({ active, onSelect, attention = {} }: {
+  active: SectionId;
+  onSelect(id: SectionId): void;
+  attention?: Partial<Record<SectionId, boolean>>;
+}) {
   return (
     <nav aria-label={t("set.title")} className="w-[200px] shrink-0 border-r border-line px-2.5 py-[18px] flex flex-col gap-0.5">
       <h1 className="text-[20px] font-extrabold text-ink mx-2.5 mb-3.5">{t("set.title")}</h1>
@@ -24,6 +28,7 @@ export function SettingsNav({ active, onSelect }: { active: SectionId; onSelect(
           className={`flex items-center gap-[9px] px-2.5 py-[7px] rounded-[7px] text-[13px] font-medium text-left outline-none focus-visible:ring-1 focus-visible:ring-accent/50 ${active === id ? "bg-surface text-ink" : "text-ink-soft hover:bg-surface/60"}`}>
           <Icon size={16} aria-hidden />
           {t(`set.nav.${id}` as MsgKey)}
+          {attention[id] ? <span role="img" aria-label={t("attn.update")} className="ml-auto h-[7px] w-[7px] rounded-full bg-accent" /> : null}
         </button>
       ))}
     </nav>

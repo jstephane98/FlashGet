@@ -267,3 +267,64 @@ export function getYtdlpVersion(): Promise<string | null> {
 export function appVersion(): Promise<string> {
   return getVersion();
 }
+
+export interface AppUpdateInfo {
+  version: string;
+  date: string | null;
+  notes: string | null;
+}
+
+export interface UpdateProgress {
+  downloaded: number;
+  total: number | null;
+}
+
+export interface YtdlpCheck {
+  current: string | null;
+  latest: string;
+  available: boolean;
+  last_check: number | null;
+}
+
+export interface YtdlpUpdated {
+  version: string;
+  pending: boolean;
+}
+
+export function checkAppUpdate(): Promise<AppUpdateInfo | null> {
+  return invoke<AppUpdateInfo | null>("check_app_update");
+}
+export function downloadAppUpdate(): Promise<void> {
+  return invoke("download_app_update");
+}
+export function installAppUpdate(): Promise<void> {
+  return invoke("install_app_update");
+}
+export function getAppLastCheck(): Promise<number | null> {
+  return invoke<number | null>("get_app_last_check");
+}
+export function onAppUpdateAvailable(cb: (info: AppUpdateInfo) => void): Promise<UnlistenFn> {
+  return listen<AppUpdateInfo>("app-update-available", (e) => cb(e.payload));
+}
+export function onAppUpdateProgress(cb: (p: UpdateProgress) => void): Promise<UnlistenFn> {
+  return listen<UpdateProgress>("app-update-progress", (e) => cb(e.payload));
+}
+
+export function checkYtdlpUpdate(): Promise<YtdlpCheck> {
+  return invoke<YtdlpCheck>("check_ytdlp_update");
+}
+export function updateYtdlp(): Promise<YtdlpUpdated> {
+  return invoke<YtdlpUpdated>("update_ytdlp");
+}
+export function getYtdlpLastCheck(): Promise<number | null> {
+  return invoke<number | null>("get_ytdlp_last_check");
+}
+export function onYtdlpUpdateAvailable(cb: (p: { current: string | null; latest: string }) => void): Promise<UnlistenFn> {
+  return listen<{ current: string | null; latest: string }>("ytdlp-update-available", (e) => cb(e.payload));
+}
+export function onYtdlpUpdated(cb: (p: YtdlpUpdated) => void): Promise<UnlistenFn> {
+  return listen<YtdlpUpdated>("ytdlp-updated", (e) => cb(e.payload));
+}
+export function onYtdlpUpdateProgress(cb: (p: UpdateProgress) => void): Promise<UnlistenFn> {
+  return listen<UpdateProgress>("ytdlp-update-progress", (e) => cb(e.payload));
+}

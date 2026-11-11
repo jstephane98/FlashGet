@@ -9,11 +9,19 @@ import { FoldersSection } from "../components/settings/FoldersSection";
 import { VideoSection } from "../components/settings/VideoSection";
 import { ExtensionSection } from "../components/settings/ExtensionSection";
 import { NotificationsSection } from "../components/settings/NotificationsSection";
-import { UpdatesSection } from "../components/settings/UpdatesSection";
+import { UpdatesSection, type UpdateFlags } from "../components/settings/UpdatesSection";
 import { AboutSection } from "../components/settings/AboutSection";
 import { ghostBtn } from "../components/settings/controls";
 
-export function SettingsPage({ onSaved }: { onSaved(s: Settings): void }) {
+interface SettingsPageProps {
+  onSaved(s: Settings): void;
+  updates: UpdateFlags;
+  onUpdatesChanged(f: UpdateFlags): void;
+  /** Vrai si un enregistrement en direct est en cours (avertissement avant l'installation). */
+  recording: boolean;
+}
+
+export function SettingsPage({ onSaved, updates, onUpdatesChanged, recording }: SettingsPageProps) {
   const [section, setSection] = useState<SectionId>("general");
   const [settings, setSettings] = useState<Settings | null>(null);
   const [loadFailed, setLoadFailed] = useState(false);
@@ -81,7 +89,11 @@ export function SettingsPage({ onSaved }: { onSaved(s: Settings): void }) {
   const props = { settings, save, error };
   return (
     <div className="flex h-full min-h-0">
-      <SettingsNav active={section} onSelect={(id) => { setSection(id); setError(undefined); }} />
+      <SettingsNav
+        active={section}
+        onSelect={(id) => { setSection(id); setError(undefined); }}
+        attention={{ updates: !!updates.app, video: !!updates.ytdlp }}
+      />
       <div className="flex-1 min-w-0 overflow-y-auto px-7 py-[22px]">
         {section === "general" ? <GeneralSection {...props} />
           : section === "downloads" ? <DownloadsSection {...props} rev={rev} />
@@ -89,7 +101,7 @@ export function SettingsPage({ onSaved }: { onSaved(s: Settings): void }) {
           : section === "video" ? <VideoSection {...props} />
           : section === "extension" ? <ExtensionSection />
           : section === "notifications" ? <NotificationsSection {...props} />
-          : section === "updates" ? <UpdatesSection />
+          : section === "updates" ? <UpdatesSection {...props} updates={updates} onUpdatesChanged={onUpdatesChanged} recording={recording} />
           : <AboutSection />}
       </div>
     </div>

@@ -7,7 +7,6 @@ import * as api from "../../api";
 import { VideoSection } from "./VideoSection";
 import { ExtensionSection } from "./ExtensionSection";
 import { NotificationsSection } from "./NotificationsSection";
-import { UpdatesSection } from "./UpdatesSection";
 import { AboutSection } from "./AboutSection";
 
 const S: Settings = {
@@ -150,13 +149,7 @@ describe("NotificationsSection", () => {
   });
 });
 
-describe("Versions", () => {
-  it("Mises à jour", async () => {
-    render(<UpdatesSection />);
-    expect(await screen.findByText("0.1.0")).toBeTruthy();
-    expect(await screen.findByText("2026.10.30")).toBeTruthy();
-  });
-
+describe("À propos", () => {
   it("À propos", async () => {
     render(<AboutSection />);
     expect(await screen.findByText("Version 0.1.0")).toBeTruthy();

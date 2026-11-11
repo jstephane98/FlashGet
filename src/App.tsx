@@ -15,6 +15,7 @@ import { SchedulerPage } from "./pages/SchedulerPage";
 import { EndOfQueueDialog } from "./components/EndOfQueueDialog";
 import { NewPage, type ExternalEvent } from "./pages/NewPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import type { UpdateFlags } from "./components/settings/UpdatesSection";
 
 type ExternalPayload =
   | { kind: "probing"; url: string }
@@ -39,6 +40,7 @@ export default function App() {
   const [schedule, setSchedule] = useState<api.Schedule | null>(null);
   const [queuePaused, setQueuePaused] = useState(false);
   const [endAction, setEndAction] = useState<api.EndAction | null>(null);
+  const [updates, setUpdates] = useState<UpdateFlags>({ app: null, ytdlp: null });
 
   async function refresh() {
     setDownloads(await api.listDownloads());
@@ -82,7 +84,11 @@ export default function App() {
     const unProbed = api.onLinkProbed((probe) => showExternal({ kind: "probed", probe }));
     const unFinished = api.onQueueFinished(({ action }) => setEndAction(action));
     const unLinkErr = api.onLinkError(({ url, message }) => showExternal({ kind: "error", url, message }));
+    const unApp = api.onAppUpdateAvailable((app) => setUpdates((u) => ({ ...u, app })));
+    const unYtAvail = api.onYtdlpUpdateAvailable(({ latest }) => setUpdates((u) => ({ ...u, ytdlp: latest })));
+    const unYtDone = api.onYtdlpUpdated(() => setUpdates((u) => ({ ...u, ytdlp: null })));
     return () => {
+      unApp.then((f) => f()); unYtAvail.then((f) => f()); unYtDone.then((f) => f());
       un.then((f) => f());
       unProbing.then((f) => f()); unProbed.then((f) => f()); unLinkErr.then((f) => f()); unFinished.then((f) => f());
     };
@@ -173,6 +179,7 @@ export default function App() {
           active={page}
           counts={{ downloads: stats.pending, completed: stats.completed, queue: stats.queued }}
           onNavigate={go}
+          settingsDot={!!updates.app || !!updates.ytdlp}
         />
         <main className="flex-1 flex flex-col min-w-0">
           {error && (
@@ -204,7 +211,12 @@ export default function App() {
                 pendingCount={downloads.filter((d) => ["queued", "held", "downloading", "recording"].includes(d.status)).length}
               />
             ) : page === "settings" ? (
-              <SettingsPage onSaved={(s) => { setMaxSpeedBps(s.max_speed_bps); setMaxConcurrent(s.max_concurrent); }} />
+              <SettingsPage
+                onSaved={(s) => { setMaxSpeedBps(s.max_speed_bps); setMaxConcurrent(s.max_concurrent); }}
+                updates={updates}
+                onUpdatesChanged={setUpdates}
+                recording={downloads.some((d) => d.status === "recording")}
+              />
             ) : page === "completed" ? (
               <CompletedPage
                 downloads={downloads}
