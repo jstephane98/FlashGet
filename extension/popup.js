@@ -1,4 +1,4 @@
-import { hostOf, isIgnored } from "./site-rules.js";
+import { hostOf, matchingSite } from "./site-rules.js";
 
 const dot = document.getElementById("dot");
 const statusText = document.getElementById("statusText");
@@ -11,6 +11,7 @@ const siteRow = document.getElementById("siteRow");
 const siteBan = document.getElementById("siteBan");
 const siteText = document.getElementById("siteText");
 const siteSwitch = document.getElementById("siteSwitch");
+let matched = null; // entrée de la liste qui ignore l'onglet actif (peut être un site parent)
 let activeHost = null; // hôte de l'onglet actif (null si l'onglet n'est pas en http/https)
 
 const TEXT_OFFLINE = "FlashGet n'est pas lancé. Ouvrez l'application, puis réessayez.";
@@ -18,7 +19,7 @@ const TEXT_REJECTED = "Le jeton ne correspond plus : collez le jeton actuel dans
 
 function render(connected, state) {
   const rejected = !connected && state === "rejected";
-  dot.className = "dot " + (connected ? "on" : rejected ? "err" : "off");
+  dot.className = "dot " + (connected ? "on" : "err");
   statusText.textContent = connected ? "Connecté" : "Non connecté";
   disconnectedText.textContent = rejected ? TEXT_REJECTED : TEXT_OFFLINE;
   connectedView.classList.toggle("hidden", !connected);
@@ -28,17 +29,18 @@ function render(connected, state) {
 function renderSite(sites) {
   siteRow.classList.toggle("hidden", !activeHost);
   if (!activeHost) return;
-  const ignored = isIgnored("https://" + activeHost + "/", sites);
+  matched = matchingSite("https://" + activeHost + "/", sites);
+  const ignored = matched !== null;
   siteSwitch.setAttribute("aria-checked", String(!ignored));
   siteBan.classList.toggle("hidden", !ignored);
   siteText.textContent = "";
   const host = document.createElement("span");
   host.className = "mono";
-  host.textContent = activeHost;
+  host.textContent = ignored ? matched : activeHost;
   siteText.append(ignored ? "" : "sur ", host, ignored ? " est ignoré" : "");
 }
 
-async function refresh() {
+async function refresh(retry = true) {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     activeHost = tab && tab.url ? hostOf(tab.url) : null;
@@ -46,17 +48,22 @@ async function refresh() {
     activeHost = null;
   }
   chrome.runtime.sendMessage({ cmd: "status" }, (res) => {
-    render(Boolean(res && res.connected), res && res.state);
+    const ok = Boolean(res && res.connected);
+    render(ok, res && res.state);
     renderSite((res && res.ignoredSites) || []);
+    // Réveil à froid du service worker : la connexion n'est pas encore établie.
+    if (!ok && retry) setTimeout(() => refresh(false), 800);
   });
 }
 
 siteSwitch.addEventListener("click", () => {
   if (!activeHost) return;
-  const ignored = siteSwitch.getAttribute("aria-checked") === "true"; // on -> off = ignorer
-  chrome.runtime.sendMessage({ cmd: "setSiteIgnored", host: activeHost, ignored }, (res) => {
+  // Interrupteur actif -> le couper ignore l'hôte ; sinon le rallumer retire l'entrée qui ignore.
+  const ignore = matched === null;
+  const host = ignore ? activeHost : matched;
+  chrome.runtime.sendMessage({ cmd: "setSiteIgnored", host, ignored: ignore }, (res) => {
     if (!(res && res.ok)) flash("Échec — non connecté");
-    refresh();
+    refresh(false);
   });
 });
 

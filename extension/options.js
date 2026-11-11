@@ -33,7 +33,7 @@ document.getElementById("save").addEventListener("click", async () => {
 function refreshStatus() {
   chrome.runtime.sendMessage({ cmd: "status" }, (res) => {
     const state = res && res.connected ? "connected" : (res && res.state) || "offline";
-    connDot.className = "dot " + (state === "connected" ? "on" : state === "rejected" ? "err" : "off");
+    connDot.className = "dot " + (state === "connected" ? "on" : "err");
     connText.textContent =
       state === "connected"
         ? "Connectée à FlashGet"

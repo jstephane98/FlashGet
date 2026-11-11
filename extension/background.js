@@ -104,9 +104,9 @@ async function getConfig() {
 }
 
 // Enregistre la liste des sites ignorés reçue de FlashGet (cache pour la capture hors connexion).
-function applyIgnoredSites(list) {
+function applyIgnoredSites(list, persist = true) {
   ignoredSites = Array.isArray(list) ? list.filter((x) => typeof x === "string") : [];
-  chrome.storage.local.set({ ignoredSites }).catch(() => {});
+  if (persist) chrome.storage.local.set({ ignoredSites }).catch(() => {});
 }
 
 function setConnected(value, state) {
@@ -151,16 +151,18 @@ async function connect() {
   let opened = false;
   socket.onopen = () => {
     opened = true;
+    connectionState = "offline"; // jusqu'à `authed` ou `error` : pas d'ancien « rejected »
     socket.send(
       JSON.stringify({
         type: "auth",
         token,
-        browser: browserName(navigator.userAgentData, navigator.userAgent),
+        browser: browserName(navigator.userAgentData, navigator.userAgent, Boolean(navigator.brave)),
         version: chrome.runtime.getManifest().version,
       }),
     );
   };
   socket.onmessage = (event) => {
+    if (sock !== socket) return;
     let msg;
     try {
       msg = JSON.parse(event.data);
@@ -286,8 +288,7 @@ chrome.downloads.onDeterminingFilename.addListener((item) => {
     if (!connected) return; // app injoignable : ne pas intercepter
     const cfg = await getConfig();
     const url = item.finalUrl || item.url;
-    const sites = connected ? ignoredSites : cfg.ignoredSites;
-    if (!shouldCapture({ url, filename: item.filename, referrer: item.referrer }, { autoCapture: cfg.autoCapture, types: cfg.types }, sites)) {
+    if (!shouldCapture({ url, requestUrl: item.url, filename: item.filename, referrer: item.referrer }, { autoCapture: cfg.autoCapture, types: cfg.types }, ignoredSites)) {
       return; // type non listé / site ignoré / schéma non récupérable : laisser le navigateur
     }
     try {
@@ -348,7 +349,7 @@ chrome.runtime.onMessage.addListener((req, _sender, sendResponse) => {
       // Mise à jour optimiste ; FlashGet renvoie ensuite la liste de référence (`config`).
       const host = req.host;
       const rest = ignoredSites.filter((h) => h !== host);
-      applyIgnoredSites(req.ignored ? [...rest, host] : rest);
+      applyIgnoredSites(req.ignored ? [...rest, host] : rest, false); // mémoire seulement
       sendResponse({ ok: true });
     } else {
       sendResponse({ ok: false });

@@ -22,4 +22,8 @@ describe("browserName", () => {
     expect(browserName(undefined, "Mozilla/5.0 Chromium/120.0")).toBe("Chromium");
     expect(browserName(undefined, "")).toBe("Chromium");
   });
+  it("detects Brave through the isBrave flag", () => {
+    expect(browserName(brands("Chromium", "Google Chrome"), "", true)).toBe("Brave");
+    expect(browserName(undefined, "Mozilla/5.0 Chrome/120.0", true)).toBe("Brave");
+  });
 });
