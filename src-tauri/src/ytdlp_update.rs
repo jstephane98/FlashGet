@@ -3,7 +3,7 @@
 
 use crate::state::AppState;
 use crate::ytdlp::parse_version;
-use crate::ytdlp_bin::{data_bin_dir, resolve_override};
+use crate::ytdlp_bin::{apply_pending_swap, data_bin_dir, resolve_override};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use std::cmp::Ordering;
@@ -187,28 +187,42 @@ async fn fetch_latest(client: &reqwest::Client) -> Result<String, String> {
     latest_tag(&body).ok_or_else(|| NET.to_string())
 }
 
-#[tauri::command]
-pub async fn check_ytdlp_update(app: AppHandle) -> Result<YtdlpUpdateInfo, String> {
-    let data_path = data_bin_dir(&app).and_then(|d| resolve_override(&d));
+/// Version de yt-dlp réellement utilisée ; supprime une copie périmée du dossier de données.
+async fn current_version(app: &AppHandle) -> Option<String> {
+    let data_path = data_bin_dir(app).and_then(|d| resolve_override(&d));
     let current;
     if let Some(path) = data_path {
-        let data_v = exe_version(&app, &path).await;
-        let bundled_v = sidecar_version(&app).await;
+        let data_v = exe_version(app, &path).await;
+        let bundled_v = sidecar_version(app).await;
         if should_drop_data_copy(bundled_v.as_deref(), data_v.as_deref()) && std::fs::remove_file(&path).is_ok() {
-            if let Some(dir) = path.parent() {
-                let _ = std::fs::remove_file(dir.join(NEXT_FILE));
-            }
             if let Ok(mut g) = app.state::<AppState>().ytdlp_version.lock() {
                 *g = None;
             }
-            current = bundled_v;
+            // Une version vérifiée peut attendre en `.next` : elle prend la place de la copie.
+            let swapped = path.parent().is_some_and(|d| apply_pending_swap(d).unwrap_or(false));
+            if swapped {
+                let new_v = exe_version(app, &path).await;
+                if should_drop_data_copy(bundled_v.as_deref(), new_v.as_deref()) && std::fs::remove_file(&path).is_ok() {
+                    current = bundled_v;
+                } else {
+                    current = new_v;
+                }
+            } else {
+                current = bundled_v;
+            }
         } else {
             // Copie illisible : version inconnue, pour qu'une mise à jour puisse la réparer.
             current = data_v;
         }
     } else {
-        current = sidecar_version(&app).await;
+        current = sidecar_version(app).await;
     }
+    current
+}
+
+#[tauri::command]
+pub async fn check_ytdlp_update(app: AppHandle) -> Result<YtdlpUpdateInfo, String> {
+    let current = current_version(&app).await;
     let latest = fetch_latest(&http_client()?).await?;
     record_last_check(&app);
     let available = current.as_deref().map_or(true, |c| compare_versions(c, &latest) == Ordering::Less);
@@ -239,7 +253,7 @@ async fn download_exe(app: &AppHandle, client: &reqwest::Client, tag: &str) -> R
         return Err(INVALID.into());
     }
     let mut bytes: Vec<u8> = Vec::with_capacity(total.unwrap_or(0).min(MAX_BYTES) as usize);
-    let mut last_emit = Instant::now().checked_sub(Duration::from_secs(1)).unwrap_or_else(|| Instant::now());
+    let mut last_emit = Instant::now().checked_sub(Duration::from_secs(1)).unwrap_or_else(Instant::now);
     while let Some(chunk) = resp.chunk().await.map_err(|_| NET.to_string())? {
         bytes.extend_from_slice(&chunk);
         if bytes.len() as u64 > MAX_BYTES {
@@ -258,14 +272,8 @@ async fn download_exe(app: &AppHandle, client: &reqwest::Client, tag: &str) -> R
     Ok(bytes)
 }
 
-#[tauri::command]
-pub async fn update_ytdlp(app: AppHandle) -> Result<YtdlpUpdateResult, String> {
-    let state = app.state::<AppState>();
-    if state.ytdlp_updating.swap(true, AtomicOrdering::SeqCst) {
-        return Err("Mise à jour déjà en cours".into());
-    }
-    let _guard = UpdatingGuard(&state.ytdlp_updating);
-
+/// Télécharge, vérifie et installe la dernière version.
+async fn fetch_and_install(app: &AppHandle) -> Result<InstallOutcome, String> {
     let client = http_client()?;
     let tag = fetch_latest(&client).await?;
     let sums = client.get(format!("{DOWNLOAD_BASE}/{tag}/SHA2-256SUMS")).timeout(Duration::from_secs(30)).send().await.map_err(|_| NET.to_string())?;
@@ -275,23 +283,34 @@ pub async fn update_ytdlp(app: AppHandle) -> Result<YtdlpUpdateResult, String> {
     let sums = sums.text().await.map_err(|_| NET.to_string())?;
     let expected = parse_sha256sums(&sums, "yt-dlp.exe").ok_or_else(|| INVALID.to_string())?;
 
-    let bytes = download_exe(&app, &client, &tag).await?;
+    let bytes = download_exe(app, &client, &tag).await?;
 
-    let dir = data_bin_dir(&app).ok_or_else(|| {
+    let dir = data_bin_dir(app).ok_or_else(|| {
         eprintln!("mise à jour de yt-dlp : dossier de données introuvable");
         INVALID.to_string()
     })?;
     // `install_from_bytes` est synchrone ; la vérification `--version` passe par le plugin shell
     // (asynchrone), pilotée depuis un thread bloquant avec `block_on`.
     let app2 = app.clone();
-    let outcome = tauri::async_runtime::spawn_blocking(move || {
+    tauri::async_runtime::spawn_blocking(move || {
         install_from_bytes(&dir, &bytes, &expected, |p| tauri::async_runtime::block_on(exe_version(&app2, p)))
     })
     .await
     .map_err(|e| {
         eprintln!("mise à jour de yt-dlp : {e}");
         INVALID.to_string()
-    })??;
+    })?
+}
+
+#[tauri::command]
+pub async fn update_ytdlp(app: AppHandle) -> Result<YtdlpUpdateResult, String> {
+    let state = app.state::<AppState>();
+    if state.ytdlp_updating.swap(true, AtomicOrdering::SeqCst) {
+        return Err("Mise à jour déjà en cours".into());
+    }
+    let _guard = UpdatingGuard(&state.ytdlp_updating);
+
+    let outcome = fetch_and_install(&app).await?;
 
     let (version, pending) = match outcome {
         InstallOutcome::Replaced(v) => (v, false),
@@ -322,11 +341,13 @@ pub fn start_ytdlp_auto_check(app: AppHandle) {
         if auto {
             match update_ytdlp(app.clone()).await {
                 Ok(r) => {
-                    let _ = app.emit("ytdlp-updated", serde_json::json!({ "version": r.version }));
+                    let _ = app.emit("ytdlp-updated", serde_json::json!({ "version": r.version, "pending": r.pending }));
                 }
                 Err(e) => {
                     eprintln!("mise à jour de yt-dlp : {e}");
-                    let _ = app.emit("ytdlp-update-available", serde_json::json!({ "current": info.current, "latest": info.latest }));
+                    if e != "Mise à jour déjà en cours" {
+                        let _ = app.emit("ytdlp-update-available", serde_json::json!({ "current": info.current, "latest": info.latest }));
+                    }
                 }
             }
         } else {
