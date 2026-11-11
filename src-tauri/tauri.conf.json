@@ -30,7 +30,7 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "REMPLACER_PAR_LA_CLE_PUBLIQUE",
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IENDM0VGMUQ1RDBGNjFGNjgKUldSb0gvYlExZkUrekpxUzZEQUZ0VVdmVHZ5ekU0Q1RPVHg4N3pYSzVBOVlsdnQxclVKWnRPUFQK",
       "endpoints": ["https://github.com/jstephane98/FlashGet/releases/latest/download/latest.json"],
       "windows": { "installMode": "passive" }
     }
