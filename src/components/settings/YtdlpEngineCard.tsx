@@ -1,6 +1,5 @@
 import { useEffect, type ReactNode } from "react";
 import { RefreshCw } from "lucide-react";
-import * as api from "../../api";
 import type { UpdateProgress } from "../../api";
 import type { Settings } from "../../types";
 import { t, type MsgKey } from "../../i18n";
@@ -8,7 +7,7 @@ import { Card, SettingRow, Switch, ghostBtn } from "./controls";
 import { formatBytes, percent } from "../../format";
 import { formatLastCheck } from "./updateFormat";
 import {
-  useYtdlpUpdate, checkYtdlpNow, updateYtdlpNow, applyUpdated, refreshVersion, refreshLastCheck,
+  useYtdlpUpdate, checkYtdlpNow, updateYtdlpNow, refreshVersion, refreshLastCheck,
 } from "./ytdlpUpdateStore";
 
 const primaryBtn =
@@ -55,13 +54,6 @@ export function YtdlpEngineCard({ settings, save, latest, onUpdated }: Props) {
   useEffect(() => {
     void refreshVersion();
     void refreshLastCheck();
-    let alive = true;
-    let un: (() => void) | undefined;
-    // Mise à jour automatique au démarrage : relire la version et l'éventuelle attente.
-    Promise.resolve(api.onYtdlpUpdated((p) => { void applyUpdated(p, onUpdated); }))
-      .then((f) => { if (alive) un = f; else f?.(); })
-      .catch(() => {});
-    return () => { alive = false; un?.(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -98,7 +90,7 @@ export function YtdlpEngineCard({ settings, save, latest, onUpdated }: Props) {
   } else if (state.k === "failed") {
     const retry = state.step === "update" && latest ? update : check;
     row = (
-      <Row title={title} hint={<>{state.msg}{state.step === "update" ? ` ${t("set.yt.keeps")}` : ""}</>}>
+      <Row title={title} hint={state.step === "update" ? `${t("set.yt.failed", { msg: state.msg })} ${t("set.yt.keeps")}` : state.msg}>
         <Pill tone="err">{t("set.yt.pillFail")}</Pill>
         <button type="button" className={ghost} onClick={retry}><RefreshCw size={14} aria-hidden />{t("set.yt.retry")}</button>
       </Row>
@@ -127,8 +119,8 @@ export function YtdlpEngineCard({ settings, save, latest, onUpdated }: Props) {
 
   return (
     <Card title={t("set.engineCard")}>
-      {version === null && state.k === "idle" && !latest ? (
-        <Row title="yt-dlp" hint={t("set.ytdlpUnknown")}>{searchBtn()}</Row>
+      {version === null && state.k === "idle" && !latest && !pending ? (
+        <Row title={t("set.ytdlpUnknown")}>{searchBtn()}</Row>
       ) : row}
       <SettingRow label={t("set.yt.auto")} hint={t("set.yt.autoHint")}>
         <Switch checked={settings.ytdlp_auto_update} label={t("set.yt.auto")} onChange={(v) => save({ ytdlp_auto_update: v })} />

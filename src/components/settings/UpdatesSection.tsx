@@ -40,9 +40,10 @@ interface Props {
   updates: UpdateFlags;
   onUpdatesChanged(patch: Partial<UpdateFlags>): void;
   recording: boolean;
+  error?: string;
 }
 
-export function UpdatesSection({ settings, save, updates, onUpdatesChanged, recording }: Props) {
+export function UpdatesSection({ settings, save, updates, onUpdatesChanged, recording, error }: Props) {
   const { app } = useVersions();
   const { state: phase, lastCheck } = useAppUpdate();
   useEffect(() => { void refreshLastCheck(); }, []);
@@ -126,7 +127,7 @@ export function UpdatesSection({ settings, save, updates, onUpdatesChanged, reco
   }
 
   return (
-    <SectionShell title={t("set.nav.updates")} desc={t("set.updates.desc")}>
+    <SectionShell title={t("set.nav.updates")} desc={t("set.updates.desc")} error={error}>
       <Card title={t("set.upd.card")}>
         <Row
           title={t("set.upd.installed")}

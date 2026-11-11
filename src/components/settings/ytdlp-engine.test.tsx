@@ -4,9 +4,9 @@ import type { Settings } from "../../types";
 
 vi.mock("../../api");
 import * as api from "../../api";
-import type { UpdateProgress, YtdlpUpdated } from "../../api";
+import type { UpdateProgress } from "../../api";
 import { YtdlpEngineCard } from "./YtdlpEngineCard";
-import { resetYtdlpUpdateStore } from "./ytdlpUpdateStore";
+import { resetYtdlpUpdateStore, applyUpdated } from "./ytdlpUpdateStore";
 
 const S: Settings = {
   max_concurrent: 3, max_speed_bps: 0, connections: 8, retries: 5, auto_resume: true,
@@ -18,7 +18,6 @@ const save = vi.fn();
 const onUpdated = vi.fn();
 const unlisten = vi.fn();
 let progressCb: (p: UpdateProgress) => void = () => {};
-let updatedCb: (p: YtdlpUpdated) => void = () => {};
 
 function mount(latest: string | null = null, settings: Settings = S) {
   return render(<YtdlpEngineCard settings={settings} save={save} latest={latest} onUpdated={onUpdated} />);
@@ -31,7 +30,6 @@ beforeEach(() => {
   vi.mocked(api.checkYtdlpUpdate).mockResolvedValue({ current: "2026.10.30", latest: "2026.10.30", available: false, last_check: null });
   vi.mocked(api.updateYtdlp).mockResolvedValue({ version: "2026.11.08", pending: false });
   vi.mocked(api.onYtdlpUpdateProgress).mockImplementation(async (cb) => { progressCb = cb; return unlisten; });
-  vi.mocked(api.onYtdlpUpdated).mockImplementation(async (cb) => { updatedCb = cb; return () => {}; });
 });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
@@ -102,7 +100,7 @@ describe("YtdlpEngineCard", () => {
     mount("2026.11.08");
     fireEvent.click(await screen.findByRole("button", { name: "Mettre à jour" }));
     expect(await screen.findByText(/fichier téléchargé invalide/)).toBeTruthy();
-    expect(screen.getByText(/La version actuelle reste utilisée/)).toBeTruthy();
+    expect(screen.getByText(/La mise à jour a échoué : fichier téléchargé invalide\. La version actuelle reste utilisée\./)).toBeTruthy();
     expect(screen.getByText("Échec")).toBeTruthy();
     expect(screen.getByText("2026.10.30")).toBeTruthy();
     vi.mocked(api.updateYtdlp).mockResolvedValue({ version: "2026.11.08", pending: false });
@@ -122,8 +120,26 @@ describe("YtdlpEngineCard", () => {
     mount();
     expect(await screen.findByText("2026.10.30")).toBeTruthy();
     vi.mocked(api.getYtdlpVersion).mockResolvedValue("2026.11.08");
-    await act(async () => { updatedCb({ version: "2026.11.08", pending: false }); });
+    // L'écoute est faite par App ; elle appelle le store.
+    await act(async () => { await applyUpdated({ version: "2026.11.08", pending: false }, onUpdated); });
     expect(await screen.findByText("2026.11.08")).toBeTruthy();
+  });
+
+  it("mise à jour automatique en attente avant l'ouverture de la carte : message conservé", async () => {
+    await applyUpdated({ version: "2026.11.08", pending: true }, () => {});
+    mount();
+    expect(await screen.findByText(/sera utilisée au prochain démarrage de FlashGet/)).toBeTruthy();
+  });
+
+  it("recherche dont la dernière version est déjà en attente : null, message conservé", async () => {
+    await applyUpdated({ version: "2026.11.08", pending: true }, () => {});
+    vi.mocked(api.checkYtdlpUpdate).mockResolvedValue({ current: "2026.10.30", latest: "2026.11.08", available: true, last_check: 1 });
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: "Rechercher" }));
+    await waitFor(() => expect(onUpdated).toHaveBeenCalledWith(null));
+    expect(onUpdated).not.toHaveBeenCalledWith("2026.11.08");
+    expect(screen.getByText(/sera utilisée au prochain démarrage de FlashGet/)).toBeTruthy();
+    expect(screen.queryByText(/Nouvelle version disponible/)).toBeNull();
   });
 
   it("démonter puis remonter pendant la mise à jour garde la progression, un seul appel", async () => {

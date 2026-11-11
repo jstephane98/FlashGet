@@ -16,6 +16,7 @@ import { EndOfQueueDialog } from "./components/EndOfQueueDialog";
 import { NewPage, type ExternalEvent } from "./pages/NewPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import type { UpdateFlags } from "./components/settings/UpdatesSection";
+import { applyUpdated } from "./components/settings/ytdlpUpdateStore";
 
 type ExternalPayload =
   | { kind: "probing"; url: string }
@@ -86,7 +87,11 @@ export default function App() {
     const unLinkErr = api.onLinkError(({ url, message }) => showExternal({ kind: "error", url, message }));
     const unApp = api.onAppUpdateAvailable((app) => setUpdates((u) => ({ ...u, app })));
     const unYtAvail = api.onYtdlpUpdateAvailable(({ latest }) => setUpdates((u) => ({ ...u, ytdlp: latest })));
-    const unYtDone = api.onYtdlpUpdated(() => setUpdates((u) => ({ ...u, ytdlp: null })));
+    const unYtDone = api.onYtdlpUpdated((p) => {
+      setUpdates((u) => ({ ...u, ytdlp: null }));
+      // Conservé dans le store : la carte yt-dlp n'est pas forcément montée.
+      void applyUpdated(p, () => {});
+    });
     return () => {
       unApp.then((f) => f()); unYtAvail.then((f) => f()); unYtDone.then((f) => f());
       un.then((f) => f());

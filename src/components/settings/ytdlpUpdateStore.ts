@@ -64,7 +64,9 @@ export async function checkYtdlpNow(report: (latest: string | null) => void) {
   try {
     const r = await api.checkYtdlpUpdate();
     if (r.current !== undefined && r.current !== snap.version) set({ version: r.current });
-    report(r.available ? r.latest : null);
+    // La version trouvée est déjà téléchargée : rien de nouveau à proposer.
+    const fresh = r.available && r.latest !== snap.pending;
+    report(fresh ? r.latest : null);
     set({ state: r.available ? { k: "idle" } : { k: "uptodate" }, lastCheck: r.last_check ?? snap.lastCheck });
     await refreshLastCheck();
   } catch (e) {
