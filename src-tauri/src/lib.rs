@@ -3,6 +3,7 @@ mod commands;
 mod dest;
 mod library;
 mod link;
+mod migrate;
 mod prefs;
 mod queue;
 mod remux;
@@ -31,10 +32,23 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let dir = app.path().app_data_dir().map_err(|e| Box::<dyn std::error::Error>::from(e.to_string()))?;
+            // Reprise des données de l'ancien identifiant avant toute ouverture de la base.
+            match migrate::migrate_legacy_data(&dir, &migrate::legacy_dir(&dir)) {
+                migrate::MigrationOutcome::Failed(e) => eprintln!("migration des données : {e}"),
+                migrate::MigrationOutcome::Migrated { files } => eprintln!("migration des données : {files} fichier(s) repris"),
+                migrate::MigrationOutcome::NotNeeded => {}
+            }
             std::fs::create_dir_all(&dir).ok();
             let storage = Storage::open(&dir.join("downloads.sqlite")).map_err(|e| Box::<dyn std::error::Error>::from(e.to_string()))?;
             let settings = storage.get_settings().map_err(|e| Box::<dyn std::error::Error>::from(e.to_string()))?;
             app.manage(AppState::new(storage, settings.max_speed_bps));
+            // Rafraîchit l'entrée de démarrage Windows (chemin de l'exe peut avoir changé).
+            {
+                use tauri_plugin_autostart::ManagerExt;
+                if app.autolaunch().is_enabled().unwrap_or(false) {
+                    let _ = app.autolaunch().enable();
+                }
+            }
             bridge::start(app.handle().clone());
             commands::recover_interrupted_recordings(app.handle());
             let requeued = commands::recover_interrupted_downloads(app.handle());

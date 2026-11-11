@@ -25,6 +25,20 @@ impl Storage {
         Self::from_conn(conn)
     }
 
+    /// Copie cohérente de la base `src` vers un nouveau fichier `dst` (`VACUUM INTO`).
+    /// Ouverture en lecture seule : `src` n'est jamais modifiée, même si une autre instance
+    /// l'utilise. `dst` ne doit pas exister (SQLite refuse sinon).
+    pub fn snapshot_to(src: &Path, dst: &Path) -> Result<(), CoreError> {
+        let conn = Connection::open_with_flags(
+            src,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .map_err(|e| CoreError::Storage(e.to_string()))?;
+        conn.execute("VACUUM INTO ?1", [dst.to_string_lossy().as_ref()])
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        Ok(())
+    }
+
     pub fn open_in_memory() -> Result<Self, CoreError> {
         let conn = Connection::open_in_memory().map_err(|e| CoreError::Storage(e.to_string()))?;
         Self::from_conn(conn)
@@ -634,6 +648,22 @@ mod tests {
         }
     }
 
+
+    #[test]
+    fn snapshot_to_copies_rows() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("a.sqlite");
+        let dst = dir.path().join("b.sqlite");
+        {
+            let s = Storage::open(&src).unwrap();
+            s.upsert(&sample("a")).unwrap();
+            s.upsert(&sample("b")).unwrap();
+        }
+        Storage::snapshot_to(&src, &dst).unwrap();
+        assert_eq!(Storage::open(&dst).unwrap().list().unwrap().len(), 2);
+        // Destination existante : refus, sans toucher à la source.
+        assert!(Storage::snapshot_to(&src, &dst).is_err());
+    }
 
     #[test]
     fn new_rows_get_increasing_queue_rank() {
