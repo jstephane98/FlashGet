@@ -124,7 +124,7 @@ pub fn validate_settings(s: &Settings) -> Result<(), String> {
         return Err("Débit audio inconnu".into());
     }
     let langs_ok = !s.sub_langs.is_empty()
-        && s.sub_langs.len() <= 6
+        && s.sub_langs.len() <= 8
         && s.sub_langs.iter().all(|c| c.len() == 2 && c.bytes().all(|b| b.is_ascii_lowercase()));
     if !langs_ok {
         return Err("Langues de sous-titres invalides".into());

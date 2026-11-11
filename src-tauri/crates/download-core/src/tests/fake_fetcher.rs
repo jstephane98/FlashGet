@@ -23,6 +23,8 @@ pub struct FakeFetcher {
     /// Serveur qui ignore `Range` : chaque requête reçoit le corps entier (comme un 200),
     /// quelle que soit la plage demandée.
     pub ignore_ranges: bool,
+    /// Code HTTP renvoyé par `probe` (200 par défaut).
+    pub probe_status: u16,
 }
 
 impl FakeFetcher {
@@ -35,6 +37,7 @@ impl FakeFetcher {
             fail_at: None,
             fail_with_io: false,
             ignore_ranges: false,
+            probe_status: 200,
         }
     }
 }
@@ -51,7 +54,7 @@ impl ByteFetcher for FakeFetcher {
             supports_ranges: self.supports_ranges,
             file_name: Some("test.bin".to_string()),
             content_type: None,
-            status: 200,
+            status: self.probe_status,
         })
     }
 

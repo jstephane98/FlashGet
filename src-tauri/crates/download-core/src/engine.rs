@@ -85,6 +85,15 @@ pub async fn download<F: ByteFetcher>(
     use futures_util::StreamExt;
 
     let probe = fetcher.probe(url, headers).await?;
+    // Une réponse d'erreur au sondage (page 503, 403…) ne décrit pas le fichier : on
+    // échoue avant de toucher au fichier ou au sidecar d'une tentative précédente.
+    if probe.status >= 400 {
+        return Err(if probe.status == 404 || probe.status == 410 {
+            CoreError::NotFound(format!("HTTP {} pour {url}", probe.status))
+        } else {
+            CoreError::Http { status: probe.status, message: format!("HTTP {} pour {url}", probe.status) }
+        });
+    }
     let probe_total = probe.total_bytes.unwrap_or(0);
 
     // Construire (ou recharger) l'état des segments.
@@ -92,7 +101,17 @@ pub async fn download<F: ByteFetcher>(
     // Sans support des Range, une reprise est impossible : le serveur renverrait le corps
     // entier (200) pour `bytes=done-end`, écrit à l'offset `done`. On ignore donc toute
     // progression enregistrée et on repart de 0.
+    // Un sidecar n'est fiable que si le fichier existe avec exactement la taille annoncée ;
+    // sinon (fichier absent, tronqué ou réalloué) on le supprime et on repart de 0.
     let loaded = if probe.supports_ranges { resume::load(dest) } else { None };
+    let loaded = match loaded {
+        Some(s) if std::fs::metadata(dest).map(|m| m.len() == s.total_bytes).unwrap_or(false) => Some(s),
+        Some(_) => {
+            resume::clear(dest);
+            None
+        }
+        None => None,
+    };
     let mut resuming = false;
     let (mut state, total) = match loaded {
         // trust sidecar when it has a real size and the probe either agrees or is unknown(0)
@@ -102,6 +121,11 @@ pub async fn download<F: ByteFetcher>(
             (s, t)
         }
         _ => {
+            // Nouveau départ : un fichier présent va être réalloué ou tronqué, il ne doit
+            // jamais garder un sidecar qui le décrit.
+            if dest.exists() {
+                resume::clear(dest);
+            }
             let total = probe_total;
             let segs = if probe.supports_ranges && total > 0 {
                 compute_segments(total, segments.max(1))
@@ -593,6 +617,112 @@ mod tests {
         let all = run_collect(&fetcher, &dest, DownloadHandle::new()).await;
         assert!(!all.is_empty());
         assert!(all.iter().all(|p| p.parts.is_none()));
+    }
+
+    /// Régression : un sondage sans Range suivi d'un échec ne doit pas laisser un ancien
+    /// sidecar valider un fichier tronqué lors d'une reprise ultérieure.
+    #[tokio::test]
+    async fn stale_sidecar_not_reused_after_error_page_probe() {
+        let data: Vec<u8> = (0..=255u8).cycle().take(800).collect();
+        let dir = tempdir().unwrap();
+        let dest = collect_dest(&dir);
+
+        let mut first = FakeFetcher::new(data.clone(), true);
+        first.fail_at = Some(300);
+        let (tx, _rx) = mpsc::unbounded_channel();
+        download(&first, "c1", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default(), 4)
+            .await
+            .unwrap_err();
+        assert!(resume::load(&dest).is_some());
+
+        // Page d'erreur : sans Range, petite taille, flux en échec.
+        let mut bad = FakeFetcher::new(vec![b'x'; 50], false);
+        bad.fail_at = Some(10);
+        let (tx2, _rx2) = mpsc::unbounded_channel();
+        download(&bad, "c1", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx2, &RequestHeaders::default(), 4)
+            .await
+            .unwrap_err();
+        assert!(resume::load(&dest).is_none(), "le sidecar d'un fichier réalloué doit disparaître");
+
+        let good = FakeFetcher::new(data.clone(), true);
+        let (tx3, _rx3) = mpsc::unbounded_channel();
+        let outcome = download(&good, "c1", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx3, &RequestHeaders::default(), 4)
+            .await
+            .unwrap();
+        assert_eq!(outcome, Outcome::Completed);
+        assert_eq!(std::fs::read(&dest).unwrap(), data);
+    }
+
+    #[tokio::test]
+    async fn probe_503_is_transient_and_leaves_files_untouched() {
+        let data: Vec<u8> = (0..=255u8).cycle().take(800).collect();
+        let dir = tempdir().unwrap();
+        let dest = collect_dest(&dir);
+        let mut first = FakeFetcher::new(data.clone(), true);
+        first.fail_at = Some(300);
+        let (tx, _rx) = mpsc::unbounded_channel();
+        download(&first, "c2", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default(), 4)
+            .await
+            .unwrap_err();
+        let file_before = std::fs::read(&dest).unwrap();
+        let side_before = resume::load(&dest).unwrap();
+
+        let mut down = FakeFetcher::new(vec![b'x'; 20], false);
+        down.probe_status = 503;
+        let (tx2, _rx2) = mpsc::unbounded_channel();
+        let err = download(&down, "c2", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx2, &RequestHeaders::default(), 4)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, CoreError::Http { status: 503, .. }), "obtenu {err:?}");
+        assert!(err.is_transient());
+        assert_eq!(std::fs::read(&dest).unwrap(), file_before);
+        assert_eq!(resume::load(&dest).unwrap(), side_before);
+    }
+
+    #[tokio::test]
+    async fn probe_404_is_not_found() {
+        let dir = tempdir().unwrap();
+        let dest = collect_dest(&dir);
+        let mut f = FakeFetcher::new(vec![1u8; 20], false);
+        f.probe_status = 404;
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let err = download(&f, "c3", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default(), 4)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, CoreError::NotFound(_)), "obtenu {err:?}");
+        assert!(!dest.exists());
+    }
+
+    #[tokio::test]
+    async fn sidecar_with_mismatched_file_length_is_discarded() {
+        let data: Vec<u8> = (0..=255u8).cycle().take(800).collect();
+        let dir = tempdir().unwrap();
+        let dest = collect_dest(&dir);
+        resume::save(&dest, &ResumeState { url: "http://x/f".into(), total_bytes: 800, segments: vec![(0, 799, 500)] }).unwrap();
+        std::fs::write(&dest, vec![0u8; 100]).unwrap();
+
+        let f = FakeFetcher::new(data.clone(), true);
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        download(&f, "c4", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default(), 4)
+            .await
+            .unwrap();
+        assert_eq!(std::fs::read(&dest).unwrap(), data);
+        let first = std::iter::from_fn(|| rx.try_recv().ok()).next().unwrap();
+        assert!(first.downloaded_bytes <= 200, "repart de 0, pas des 500 octets du sidecar périmé");
+    }
+
+    #[tokio::test]
+    async fn orphan_sidecar_without_file_is_discarded() {
+        let data: Vec<u8> = vec![9u8; 400];
+        let dir = tempdir().unwrap();
+        let dest = collect_dest(&dir);
+        resume::save(&dest, &ResumeState { url: "http://x/f".into(), total_bytes: 400, segments: vec![(0, 399, 400)] }).unwrap();
+        let f = FakeFetcher::new(data.clone(), true);
+        let (tx, _rx) = mpsc::unbounded_channel();
+        download(&f, "c5", "http://x/f", &dest, DownloadHandle::new(), unlimited(), tx, &RequestHeaders::default(), 4)
+            .await
+            .unwrap();
+        assert_eq!(std::fs::read(&dest).unwrap(), data);
     }
 
     #[tokio::test]

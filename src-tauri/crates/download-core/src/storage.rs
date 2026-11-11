@@ -886,7 +886,10 @@ mod tests {
         bad(&|s| s.video_max_height = 999, "Qualité vidéo inconnue");
         bad(&|s| s.audio_kbps = 100, "Débit audio inconnu");
         bad(&|s| s.sub_langs = vec![], "Langues de sous-titres invalides");
-        bad(&|s| s.sub_langs = vec!["fr".into(); 7], "Langues de sous-titres invalides");
+        bad(&|s| s.sub_langs = vec!["fr".into(); 9], "Langues de sous-titres invalides");
+        let mut eight = Settings::default();
+        eight.sub_langs = ["fr", "en", "es", "de", "it", "pt", "ar", "ja"].iter().map(|c| c.to_string()).collect();
+        assert!(validate_settings(&eight).is_ok(), "8 langues acceptées (comme l'interface)");
         bad(&|s| s.sub_langs = vec!["FR".into()], "Langues de sous-titres invalides");
         bad(&|s| s.sub_langs = vec!["fra".into()], "Langues de sous-titres invalides");
         let mut ok = Settings::default();
