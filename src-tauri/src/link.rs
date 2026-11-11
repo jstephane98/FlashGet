@@ -9,11 +9,11 @@ use download_core::dash::mpd::Mpd;
 use download_core::hls::playlist::MasterPlaylist;
 use download_core::http::ByteFetcher;
 use download_core::hls::select::pick_audio;
-use download_core::model::{Category, Download, DownloadKind, DownloadStatus, Priority, ProbeResult, RequestHeaders};
+use download_core::model::{Category, Download, DownloadKind, DownloadStatus, Priority, ProbeResult, RequestHeaders, Settings};
 use download_core::naming::{ensure_extension, sanitize_file_name, sanitize_title};
 use download_core::ytdlp::{
-    build_media_formats, parse_clock, pick_sub_langs, time_range, FormatKind, JobMode, MediaFormat, MediaInfo, YtdlpFormat,
-    YtdlpJob, PREFERRED_SUB_LANGS,
+    audio_format_ext, build_media_formats, parse_clock, pick_sub_langs, time_range, FormatKind, JobMode, MediaFormat, MediaInfo,
+    MediaPrefs, YtdlpFormat, YtdlpJob, CONVERT_FORMAT_ID,
 };
 use serde::{Deserialize, Serialize};
 use std::time::{Duration, Instant};
@@ -73,6 +73,10 @@ pub struct PendingLink {
     pub hls: Option<MasterPlaylist>,
     pub dash: Option<Mpd>,
     pub created: Instant,
+    /// Préférences avec lesquelles les formats ont été construits (ligne de conversion
+    /// affichée) : la confirmation les reprend telles quelles, même si les réglages ont
+    /// changé entre-temps. Valeurs par défaut hors yt-dlp.
+    pub media_prefs: MediaPrefs,
 }
 
 /// Indice sur la nature du lien (le `kind` d'une capture de l'extension).
@@ -138,12 +142,17 @@ pub fn media_or_error(info: MediaInfo, formats: Vec<MediaFormat>) -> Result<(Med
     Ok((info, formats))
 }
 
-/// Formats yt-dlp proposés. `build_media_formats` ajoute toujours l'entrée « MP3
-/// (conversion) » : s'il n'y a aucun autre format (aucun flux audio/vidéo réel, ex.
+/// Préférences de formats tirées des réglages.
+pub fn media_prefs(s: &Settings) -> MediaPrefs {
+    MediaPrefs { max_height: s.video_max_height, audio_format: s.audio_format, audio_kbps: s.audio_kbps }
+}
+
+/// Formats yt-dlp proposés. `build_media_formats` ajoute toujours l'entrée « conversion
+/// audio » : s'il n'y a aucun autre format (aucun flux audio/vidéo réel, ex.
 /// storyboards seulement), il n'y a rien à télécharger → liste vide.
-pub fn ytdlp_formats(raw: &[YtdlpFormat]) -> Vec<MediaFormat> {
-    let formats = build_media_formats(raw);
-    if !formats.iter().any(|f| f.format_id != "mp3") {
+pub fn ytdlp_formats(raw: &[YtdlpFormat], prefs: &MediaPrefs) -> Vec<MediaFormat> {
+    let formats = build_media_formats(raw, prefs);
+    if !formats.iter().any(|f| f.format_id != CONVERT_FORMAT_ID) {
         return Vec::new();
     }
     formats
@@ -349,6 +358,11 @@ async fn resolve(
     }
 }
 
+/// Réglages courants (valeurs par défaut si la lecture échoue).
+fn settings_of(app: &AppHandle) -> Settings {
+    app.state::<AppState>().storage.get_settings().unwrap_or_default()
+}
+
 fn dir_of(app: &AppHandle, category: Category) -> Result<String, String> {
     Ok(crate::dest::dest_dir_for(app, None, category)?.to_string_lossy().to_string())
 }
@@ -377,6 +391,7 @@ fn file_link(
         hls: None,
         dash: None,
         created: Instant::now(),
+        media_prefs: MediaPrefs::default(),
     })
 }
 
@@ -415,6 +430,7 @@ async fn media_hls(app: &AppHandle, url: &str, headers: RequestHeaders, suggeste
         hls: Some(master),
         dash: None,
         created: Instant::now(),
+        media_prefs: MediaPrefs::default(),
     })
 }
 
@@ -428,6 +444,7 @@ async fn media_dash(app: &AppHandle, url: &str, headers: RequestHeaders, suggest
         hls: None,
         dash: Some(mpd),
         created: Instant::now(),
+        media_prefs: MediaPrefs::default(),
     })
 }
 
@@ -438,7 +455,8 @@ async fn media_ytdlp(app: &AppHandle, url: &str, headers: RequestHeaders) -> Res
     })
     .await
     .map_err(|e| ytdlp_error(&e))?;
-    let (info, formats) = media_or_error(info, ytdlp_formats(&raw))?;
+    let prefs = media_prefs(&settings_of(app));
+    let (info, formats) = media_or_error(info, ytdlp_formats(&raw, &prefs))?;
     let file_name = download_core::naming::sanitize_title(Some(&info.title));
     Ok(PendingLink {
         probe: media_probe(app, url, MediaSource::Ytdlp, info, formats, file_name)?,
@@ -446,6 +464,7 @@ async fn media_ytdlp(app: &AppHandle, url: &str, headers: RequestHeaders) -> Res
         hls: None,
         dash: None,
         created: Instant::now(),
+        media_prefs: prefs,
     })
 }
 
@@ -507,11 +526,11 @@ fn cut_range(cut: &TimeCut, duration_s: Option<u64>) -> Result<String, String> {
     Ok(time_range(start, end))
 }
 
-/// Extension imposée par le format : `.mp3` (conversion), extension native pour un audio
-/// natif (`m4a` à défaut de conteneur connu), `.mp4` sinon.
-fn format_extension(f: &MediaFormat) -> String {
+/// Extension imposée par le format : celle du format de conversion de l'analyse (`prefs`),
+/// extension native pour un audio natif (`m4a` à défaut de conteneur connu), `.mp4` sinon.
+fn format_extension(f: &MediaFormat, prefs: &MediaPrefs) -> String {
     match f.kind {
-        FormatKind::Audio if f.format_id == "mp3" => "mp3".into(),
+        FormatKind::Audio if f.format_id == CONVERT_FORMAT_ID => audio_format_ext(prefs.audio_format).into(),
         FormatKind::Audio => f
             .container
             .as_deref()
@@ -523,8 +542,10 @@ fn format_extension(f: &MediaFormat) -> String {
 }
 
 /// Transforme une sonde et les choix de l'utilisateur en `Download` (fonction pure :
-/// ni disque, ni état). `dest_path` reste vide.
-pub fn plan_download(pending: &PendingLink, req: &ConfirmLink, now_id: String) -> Result<PlannedDownload, String> {
+/// ni disque, ni état). `dest_path` reste vide. La conversion audio suit
+/// `pending.media_prefs` (ce que l'utilisateur a vu) ; `settings` ne sert qu'aux langues de
+/// sous-titres.
+pub fn plan_download(pending: &PendingLink, req: &ConfirmLink, now_id: String, settings: &Settings) -> Result<PlannedDownload, String> {
     let headers = &pending.headers;
     let status = if req.start_now { DownloadStatus::Queued } else { DownloadStatus::Held };
     let base = |url: &str, file_name: String, category: Category, kind: DownloadKind| Download {
@@ -550,6 +571,7 @@ pub fn plan_download(pending: &PendingLink, req: &ConfirmLink, now_id: String) -
         created_at: None,
         started_at: None,
         completed_at: None,
+        queue_rank: None,
     };
 
     match &pending.probe {
@@ -569,13 +591,13 @@ pub fn plan_download(pending: &PendingLink, req: &ConfirmLink, now_id: String) -
                 .ok_or_else(|| NO_FORMAT.to_string())?;
             let audio = fmt.kind == FormatKind::Audio;
             let category = if audio { Category::Music } else { Category::Video };
-            let file_name = ensure_extension(&sanitize_title(Some(&req.file_name)), &format_extension(fmt));
+            let file_name = ensure_extension(&sanitize_title(Some(&req.file_name)), &format_extension(fmt, &pending.media_prefs));
             let mut d = base(url, file_name, category, DownloadKind::Ytdlp);
             d.thumbnail_url = info.thumbnail.clone();
             d.duration_s = info.duration_s;
             match source {
                 MediaSource::Ytdlp => {
-                    let mp3 = audio && fmt.format_id == "mp3";
+                    let convert = audio && fmt.format_id == CONVERT_FORMAT_ID;
                     let mode = match fmt.kind {
                         FormatKind::Av => JobMode::Av,
                         FormatKind::Video => JobMode::Video,
@@ -583,17 +605,19 @@ pub fn plan_download(pending: &PendingLink, req: &ConfirmLink, now_id: String) -
                     };
                     // Sous-titres : incrustés dans une vidéo seulement (jamais pour l'audio).
                     let subs = if req.subtitles && !audio {
-                        Some(pick_sub_langs(&info.subtitle_langs, PREFERRED_SUB_LANGS)).filter(|l| !l.is_empty())
+                        Some(pick_sub_langs(&info.subtitle_langs, &settings.sub_langs)).filter(|l| !l.is_empty())
                     } else {
                         None
                     };
                     let time_range = req.cut.as_ref().map(|c| cut_range(c, info.duration_s)).transpose()?;
                     let job = YtdlpJob {
-                        format_id: if mp3 { "bestaudio".into() } else { fmt.format_id.clone() },
+                        format_id: if convert { "bestaudio".into() } else { fmt.format_id.clone() },
                         mode,
                         time_range,
                         subs,
-                        convert_mp3: mp3,
+                        convert_mp3: convert,
+                        audio_format: convert.then(|| audio_format_ext(pending.media_prefs.audio_format).to_string()),
+                        audio_kbps: convert.then_some(pending.media_prefs.audio_kbps),
                     };
                     d.media_selection = Some(serde_json::to_string(&job).map_err(|e| e.to_string())?);
                 }
@@ -637,6 +661,7 @@ pub fn plan_download(pending: &PendingLink, req: &ConfirmLink, now_id: String) -
 /// la sonde, puis relance la file si `start_now`.
 #[tauri::command]
 pub async fn confirm_link(app: AppHandle, req: ConfirmLink) -> Result<Download, String> {
+    let settings = settings_of(&app);
     let PlannedDownload { mut download, category_for_dir } = {
         let state = app.state::<AppState>();
         let map = state.pending_links.lock().unwrap();
@@ -644,10 +669,15 @@ pub async fn confirm_link(app: AppHandle, req: ConfirmLink) -> Result<Download, 
             .get(&req.probe_id)
             .filter(|p| p.created.elapsed() < PENDING_TTL)
             .ok_or_else(|| EXPIRED.to_string())?;
-        plan_download(pending, &req, uuid::Uuid::new_v4().to_string())?
+        plan_download(pending, &req, uuid::Uuid::new_v4().to_string(), &settings)?
     };
     let dir = crate::dest::dest_dir_for(&app, req.dest_dir.as_deref(), category_for_dir)?;
-    download.file_name = crate::dest::unique_file_name(&dir, &download.file_name, &crate::dest::taken_paths(&app));
+    // Nom invalide refusé avant tout passage à la Corbeille.
+    if dir.join(&download.file_name).parent() != Some(dir.as_path()) {
+        return Err("nom de fichier invalide".into());
+    }
+    // Conflit : renommer, ou (réglage « remplacer ») ancien fichier à la Corbeille.
+    download.file_name = crate::dest::place_file(&app, &dir, &download.file_name).file_name;
     let dest_path = dir.join(&download.file_name);
     if dest_path.parent() != Some(dir.as_path()) {
         return Err("nom de fichier invalide".into());
@@ -660,6 +690,9 @@ pub async fn confirm_link(app: AppHandle, req: ConfirmLink) -> Result<Download, 
     }
     if req.start_now {
         commands::reevaluate(&app);
+    } else {
+        // Dans une plage active, le planificateur lâche tout de suite les `held` ajoutés.
+        crate::queue::planner_tick(&app);
     }
     Ok(download)
 }
@@ -667,6 +700,7 @@ pub async fn confirm_link(app: AppHandle, req: ConfirmLink) -> Result<Download, 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use download_core::model::AudioFormat;
 
     fn yf(id: &str, h: Option<u32>, vcodec: &str, acodec: &str) -> YtdlpFormat {
         YtdlpFormat {
@@ -765,11 +799,11 @@ mod tests {
     }
 
     #[test]
-    fn ytdlp_formats_empty_when_only_synthetic_mp3() {
-        assert!(ytdlp_formats(&[]).is_empty());
+    fn ytdlp_formats_empty_when_only_synthetic_convert() {
+        assert!(ytdlp_formats(&[], &MediaPrefs::default()).is_empty());
         // Storyboards seulement (ni vidéo ni audio) → rien de téléchargeable.
-        assert!(ytdlp_formats(&[yf("sb0", Some(90), "none", "none")]).is_empty());
-        let f = ytdlp_formats(&[yf("18", Some(360), "avc1.42001E", "mp4a.40.2"), yf("140", None, "none", "mp4a.40.2")]);
+        assert!(ytdlp_formats(&[yf("sb0", Some(90), "none", "none")], &MediaPrefs::default()).is_empty());
+        let f = ytdlp_formats(&[yf("18", Some(360), "avc1.42001E", "mp4a.40.2"), yf("140", None, "none", "mp4a.40.2")], &MediaPrefs::default());
         assert!(f.len() > 1);
     }
 
@@ -807,7 +841,7 @@ mod tests {
 
     #[test]
     fn ytdlp_formats_keep_heightless_video() {
-        let f = ytdlp_formats(&[yf("0", None, "avc1", "mp4a")]);
+        let f = ytdlp_formats(&[yf("0", None, "avc1", "mp4a")], &MediaPrefs::default());
         assert_eq!(f[0].format_id, "bestvideo");
         assert!(f[0].recommended);
     }
@@ -870,7 +904,7 @@ mod tests {
     }
 
     fn pending(probe: LinkProbe) -> PendingLink {
-        PendingLink { probe, headers: hdrs(), hls: None, dash: None, created: Instant::now() }
+        PendingLink { probe, headers: hdrs(), hls: None, dash: None, created: Instant::now(), media_prefs: MediaPrefs::default() }
     }
 
     fn file_pending() -> PendingLink {
@@ -905,7 +939,7 @@ mod tests {
             formats: vec![
                 mf(0, FormatKind::Av, "137", Some("MP4")),
                 mf(1, FormatKind::Video, "137", Some("MP4")),
-                mf(2, FormatKind::Audio, "mp3", Some("MP3")),
+                mf(2, FormatKind::Audio, "convert", Some("MP3")),
                 mf(3, FormatKind::Audio, "140", Some("M4A")),
             ],
             file_name: "Clip".into(),
@@ -938,7 +972,7 @@ mod tests {
     fn confirm_file_queued_or_held() {
         let p = file_pending();
         let r = req(None, "a.iso");
-        let planned = plan_download(&p, &r, "id1".into()).unwrap();
+        let planned = plan_download(&p, &r, "id1".into(), &Settings::default()).unwrap();
         let d = &planned.download;
         assert_eq!(d.id, "id1");
         assert_eq!(d.status, DownloadStatus::Queued);
@@ -954,14 +988,14 @@ mod tests {
         assert_eq!(d.user_agent.as_deref(), Some("UA"));
 
         let held = ConfirmLink { start_now: false, ..req(None, "a.iso") };
-        assert_eq!(plan_download(&p, &held, "id2".into()).unwrap().download.status, DownloadStatus::Held);
+        assert_eq!(plan_download(&p, &held, "id2".into(), &Settings::default()).unwrap().download.status, DownloadStatus::Held);
     }
 
     #[test]
     fn confirm_file_long_name_keeps_extension() {
         let long = format!("{}.iso", "n".repeat(196));
         assert_eq!(long.chars().count(), 200);
-        let d = plan_download(&file_pending(), &req(None, &long), "id".into()).unwrap().download;
+        let d = plan_download(&file_pending(), &req(None, &long), "id".into(), &Settings::default()).unwrap().download;
         assert!(d.file_name.ends_with(".iso"), "{}", d.file_name);
         assert!(d.file_name.chars().count() <= 120);
     }
@@ -970,15 +1004,15 @@ mod tests {
     fn confirm_media_replaces_other_media_extension() {
         // Nom saisi « x.mp4 » puis format MP3 : « x.mp3 », jamais « x.mp4.mp3 ».
         let p = media_pending(MediaSource::Ytdlp);
-        assert_eq!(plan_download(&p, &req(Some(2), "x.mp4"), "id".into()).unwrap().download.file_name, "x.mp3");
-        assert_eq!(plan_download(&p, &req(Some(3), "x.mp4"), "id".into()).unwrap().download.file_name, "x.m4a");
+        assert_eq!(plan_download(&p, &req(Some(2), "x.mp4"), "id".into(), &Settings::default()).unwrap().download.file_name, "x.mp3");
+        assert_eq!(plan_download(&p, &req(Some(3), "x.mp4"), "id".into(), &Settings::default()).unwrap().download.file_name, "x.m4a");
     }
 
     #[test]
     fn confirm_av_builds_job() {
         let p = media_pending(MediaSource::Ytdlp);
         let r = ConfirmLink { subtitles: true, ..req(Some(0), "Mon clip") };
-        let planned = plan_download(&p, &r, "id".into()).unwrap();
+        let planned = plan_download(&p, &r, "id".into(), &Settings::default()).unwrap();
         let job = job_of(&planned);
         assert_eq!(job.format_id, "137");
         assert_eq!(job.mode, JobMode::Av);
@@ -992,7 +1026,7 @@ mod tests {
         assert_eq!(planned.download.file_name, "Mon clip.mp4");
 
         // Vidéo seule : mode Video, toujours .mp4.
-        let v = plan_download(&p, &req(Some(1), "Mon clip.mp4"), "id".into()).unwrap();
+        let v = plan_download(&p, &req(Some(1), "Mon clip.mp4"), "id".into(), &Settings::default()).unwrap();
         assert_eq!(job_of(&v).mode, JobMode::Video);
         assert_eq!(job_of(&v).subs, None);
         assert_eq!(v.download.file_name, "Mon clip.mp4");
@@ -1001,7 +1035,7 @@ mod tests {
     #[test]
     fn confirm_audio_mp3_is_music() {
         let p = media_pending(MediaSource::Ytdlp);
-        let planned = plan_download(&p, &req(Some(2), "Chanson"), "id".into()).unwrap();
+        let planned = plan_download(&p, &req(Some(2), "Chanson"), "id".into(), &Settings::default()).unwrap();
         let job = job_of(&planned);
         assert_eq!(job.format_id, "bestaudio");
         assert_eq!(job.mode, JobMode::Audio);
@@ -1014,7 +1048,7 @@ mod tests {
     #[test]
     fn confirm_native_audio_keeps_ext() {
         let p = media_pending(MediaSource::Ytdlp);
-        let planned = plan_download(&p, &req(Some(3), "Chanson"), "id".into()).unwrap();
+        let planned = plan_download(&p, &req(Some(3), "Chanson"), "id".into(), &Settings::default()).unwrap();
         let job = job_of(&planned);
         assert_eq!(job.format_id, "140");
         assert_eq!(job.mode, JobMode::Audio);
@@ -1028,7 +1062,7 @@ mod tests {
         let p = media_pending(MediaSource::Ytdlp);
         for idx in [2, 3] {
             let r = ConfirmLink { subtitles: true, ..req(Some(idx), "Chanson") };
-            assert_eq!(job_of(&plan_download(&p, &r, "id".into()).unwrap()).subs, None);
+            assert_eq!(job_of(&plan_download(&p, &r, "id".into(), &Settings::default()).unwrap()).subs, None);
         }
     }
 
@@ -1036,16 +1070,16 @@ mod tests {
     fn confirm_cut_valid_and_invalid() {
         let p = media_pending(MediaSource::Ytdlp);
         let ok = ConfirmLink { cut: cut("1:30", Some("2:45")), ..req(Some(0), "c") };
-        assert_eq!(job_of(&plan_download(&p, &ok, "id".into()).unwrap()).time_range.as_deref(), Some("*90-165"));
+        assert_eq!(job_of(&plan_download(&p, &ok, "id".into(), &Settings::default()).unwrap()).time_range.as_deref(), Some("*90-165"));
         // Sans fin (ou fin vide) : jusqu'au bout.
         let open = ConfirmLink { cut: cut("1:30", None), ..req(Some(0), "c") };
-        assert_eq!(job_of(&plan_download(&p, &open, "id".into()).unwrap()).time_range.as_deref(), Some("*90-inf"));
+        assert_eq!(job_of(&plan_download(&p, &open, "id".into(), &Settings::default()).unwrap()).time_range.as_deref(), Some("*90-inf"));
         let blank = ConfirmLink { cut: cut("1:30", Some("  ")), ..req(Some(0), "c") };
-        assert_eq!(job_of(&plan_download(&p, &blank, "id".into()).unwrap()).time_range.as_deref(), Some("*90-inf"));
+        assert_eq!(job_of(&plan_download(&p, &blank, "id".into(), &Settings::default()).unwrap()).time_range.as_deref(), Some("*90-inf"));
 
         for c in [cut("1:30", Some("0:10")), cut("1:30", Some("1:30")), cut("1:30", Some("20:00")), cut("abc", None), cut("0:10", Some("x"))] {
             let r = ConfirmLink { cut: c, ..req(Some(0), "c") };
-            assert_eq!(plan_download(&p, &r, "id".into()).unwrap_err(), "Découpe invalide");
+            assert_eq!(plan_download(&p, &r, "id".into(), &Settings::default()).unwrap_err(), "Découpe invalide");
         }
 
         let mut hls = media_pending(MediaSource::Hls);
@@ -1054,22 +1088,22 @@ mod tests {
             audio: vec![],
         });
         let r = ConfirmLink { cut: cut("1:30", Some("2:45")), ..req(Some(0), "c") };
-        assert_eq!(plan_download(&hls, &r, "id".into()).unwrap_err(), "Découpe non disponible pour ce flux");
+        assert_eq!(plan_download(&hls, &r, "id".into(), &Settings::default()).unwrap_err(), "Découpe non disponible pour ce flux");
         let r = ConfirmLink { cut: cut("1:30", Some("2:45")), ..req(Some(0), "c") };
-        assert_eq!(plan_download(&media_pending(MediaSource::Dash), &r, "id".into()).unwrap_err(), "Découpe non disponible pour ce flux");
+        assert_eq!(plan_download(&media_pending(MediaSource::Dash), &r, "id".into(), &Settings::default()).unwrap_err(), "Découpe non disponible pour ce flux");
     }
 
     #[test]
     fn confirm_media_requires_format() {
         let p = media_pending(MediaSource::Ytdlp);
-        assert_eq!(plan_download(&p, &req(None, "c"), "id".into()).unwrap_err(), "Format introuvable");
-        assert_eq!(plan_download(&p, &req(Some(99), "c"), "id".into()).unwrap_err(), "Format introuvable");
+        assert_eq!(plan_download(&p, &req(None, "c"), "id".into(), &Settings::default()).unwrap_err(), "Format introuvable");
+        assert_eq!(plan_download(&p, &req(Some(99), "c"), "id".into(), &Settings::default()).unwrap_err(), "Format introuvable");
     }
 
     #[test]
     fn confirm_copies_thumbnail_and_duration() {
         let p = media_pending(MediaSource::Ytdlp);
-        let d = plan_download(&p, &req(Some(0), "c"), "id".into()).unwrap().download;
+        let d = plan_download(&p, &req(Some(0), "c"), "id".into(), &Settings::default()).unwrap().download;
         assert_eq!(d.thumbnail_url.as_deref(), Some("https://i/t.jpg"));
         assert_eq!(d.duration_s, Some(768));
         assert_eq!(d.referrer.as_deref(), Some("https://ref/"));
@@ -1090,7 +1124,7 @@ mod tests {
             audio: vec![AudioRendition { group_id: "aud".into(), name: "fr".into(), uri: Some("https://x/a.m3u8".into()), default: true, autoselect: true }],
         });
         let r = ConfirmLink { subtitles: true, ..req(Some(1), "Flux") };
-        let planned = plan_download(&p, &r, "id".into()).unwrap();
+        let planned = plan_download(&p, &r, "id".into(), &Settings::default()).unwrap();
         let d = planned.download;
         assert_eq!(d.kind, DownloadKind::Hls);
         assert_eq!(d.url, "https://x/v1.m3u8");
@@ -1107,11 +1141,51 @@ mod tests {
             *formats = vec![mf(0, FormatKind::Av, "4", Some("MP4"))];
             *url = "https://x/manifest.mpd".into();
         }
-        let d = plan_download(&p, &req(Some(0), "Flux"), "id".into()).unwrap().download;
+        let d = plan_download(&p, &req(Some(0), "Flux"), "id".into(), &Settings::default()).unwrap().download;
         assert_eq!(d.kind, DownloadKind::Dash);
         assert_eq!(d.url, "https://x/manifest.mpd");
         let sel: serde_json::Value = serde_json::from_str(d.media_selection.as_deref().unwrap()).unwrap();
         assert_eq!(sel, serde_json::json!({ "video": 4, "audio": null }));
+    }
+
+    #[test]
+    fn plan_convert_uses_settings() {
+        // Préférences de l'analyse (ce que l'utilisateur a vu) : Opus 192.
+        let mut p = media_pending(MediaSource::Ytdlp);
+        p.media_prefs = MediaPrefs { audio_format: AudioFormat::Opus, audio_kbps: 192, ..MediaPrefs::default() };
+        // Réglages changés entre l'analyse et la confirmation : sans effet sur la conversion.
+        let s = Settings { audio_format: AudioFormat::M4a, audio_kbps: 320, ..Settings::default() };
+        let planned = plan_download(&p, &req(Some(2), "Chanson.mp4"), "id".into(), &s).unwrap();
+        let job = job_of(&planned);
+        assert_eq!(planned.download.file_name, "Chanson.opus");
+        assert_eq!(planned.download.category, Category::Music);
+        assert_eq!(planned.category_for_dir, Category::Music);
+        assert_eq!((job.format_id.as_str(), job.mode, job.convert_mp3), ("bestaudio", JobMode::Audio, true));
+        assert_eq!((job.audio_format.as_deref(), job.audio_kbps), (Some("opus"), Some(192)));
+        // Audio natif : pas de conversion.
+        let native = job_of(&plan_download(&p, &req(Some(3), "Chanson"), "id".into(), &s).unwrap());
+        assert_eq!((native.audio_format, native.audio_kbps), (None, None));
+    }
+
+    #[test]
+    fn subs_from_settings() {
+        let mut p = media_pending(MediaSource::Ytdlp);
+        if let LinkProbe::Media { info, .. } = &mut p.probe {
+            info.subtitle_langs = vec!["en".into(), "de".into()];
+        }
+        let s = Settings { sub_langs: vec!["de".into()], ..Settings::default() };
+        let r = ConfirmLink { subtitles: true, ..req(Some(0), "Clip") };
+        assert_eq!(job_of(&plan_download(&p, &r, "id".into(), &s).unwrap()).subs, Some(vec!["de".to_string()]));
+    }
+
+    #[test]
+    fn ytdlp_formats_follow_media_prefs() {
+        let raw = [yf("a", Some(2160), "avc1", "none"), yf("b", Some(720), "avc1", "none"), yf("140", None, "none", "mp4a.40.2")];
+        let p = MediaPrefs { max_height: 720, audio_format: AudioFormat::M4a, audio_kbps: 128 };
+        let f = ytdlp_formats(&raw, &p);
+        assert!(f.iter().any(|m| m.kind == FormatKind::Av && m.recommended && m.label == "720p"));
+        assert!(f.iter().any(|m| m.format_id == "convert" && m.label == "M4A · 128 kb/s"));
+        assert_eq!(media_prefs(&Settings { video_max_height: 480, ..Settings::default() }).max_height, 480);
     }
 
     #[test]

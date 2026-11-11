@@ -41,4 +41,10 @@ describe("tabs", () => {
   it("positions de file", () => {
     expect(queuePositions([q("a", "low"), q("b", "high"), q("c", "normal")])).toEqual({ b: 1, c: 2, a: 3 });
   });
+  it("positions de file : suivent queue_rank comme la page File d'attente, held exclus", () => {
+    const r = (id: string, rank: number, status: Download["status"] = "queued") => ({ ...q(id, "normal"), status, queue_rank: rank });
+    // Réordonné : « c » remonté en tête ; un held entre deux ne prend pas de numéro.
+    const items = [r("a", 2), r("b", 3), r("c", 1), r("h", 0, "held"), { ...q("x", "high"), queue_rank: 9 }];
+    expect(queuePositions(items)).toEqual({ x: 1, c: 2, a: 3, b: 4 });
+  });
 });

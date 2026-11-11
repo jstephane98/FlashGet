@@ -34,18 +34,21 @@ pub struct BatchSummary {
     pub skipped_invalid: usize,
     pub skipped_duplicate: usize,
     pub failed: usize,
+    /// Réglage « remplacer » : fichiers renommés faute de pouvoir mettre l'ancien à la Corbeille.
+    pub not_replaced: usize,
 }
 
 /// Crée un `Download` (`Queued`, ou `Held` si `hold`) SANS sonder l'URL (le moteur sondera
 /// au démarrage). Le nom vient de l'URL ; taille/segments inconnus. Ne ré-évalue PAS la file
-/// (l'appelant le fait une seule fois après le lot).
+/// (l'appelant le fait une seule fois après le lot). Le booléen : « remplacer » demandé
+/// mais impossible (Corbeille en échec, fichier renommé).
 pub(crate) async fn add_url_no_probe(
     app: &AppHandle,
     url: &str,
     dest_dir: &str,
     headers: RequestHeaders,
     hold: bool,
-) -> Result<Download, String> {
+) -> Result<(Download, bool), String> {
     let file_name = download_core::naming::choose_file_name(
         None,
         download_core::http::file_name_from_url(url).as_deref(),
@@ -54,11 +57,13 @@ pub(crate) async fn add_url_no_probe(
 
     // Dossier : argument explicite > dossier configuré pour la catégorie > dossier Téléchargements.
     let dest_dir = crate::dest::dest_dir_for(app, Some(dest_dir), category)?;
-    let file_name = crate::dest::unique_file_name(&dest_dir, &file_name, &crate::dest::taken_paths(app));
-    let dest_path = dest_dir.join(&file_name);
-    if dest_path.parent() != Some(dest_dir.as_path()) {
+    // Nom invalide refusé avant tout passage à la Corbeille.
+    if dest_dir.join(&file_name).parent() != Some(dest_dir.as_path()) {
         return Err("invalid file name derived from URL".to_string());
     }
+    let placed = crate::dest::place_file(app, &dest_dir, &file_name);
+    let file_name = placed.file_name;
+    let dest_path = dest_dir.join(&file_name);
 
     let download = Download {
         id: uuid::Uuid::new_v4().to_string(),
@@ -83,32 +88,36 @@ pub(crate) async fn add_url_no_probe(
         created_at: None,
         started_at: None,
         completed_at: None,
+        queue_rank: None,
     };
 
     {
         let state = app.state::<AppState>();
         state.storage.upsert(&download).map_err(|e| e.to_string())?;
     }
-    Ok(download)
+    Ok((download, placed.replace_failed))
 }
 
 /// Crée un téléchargement yt-dlp (vidéo meilleure qualité ou audio MP3), `Queued` ou `Held` si `hold`.
-async fn add_ytdlp_queued(app: &AppHandle, url: &str, title: &str, audio: bool, dest_dir: Option<&str>, hold: bool) -> Result<Download, String> {
+/// Le booléen : comme pour `add_url_no_probe`.
+async fn add_ytdlp_queued(app: &AppHandle, url: &str, title: &str, audio: bool, dest_dir: Option<&str>, hold: bool) -> Result<(Download, bool), String> {
     let stem = download_core::naming::sanitize_title(Some(title));
     let stem = if stem.trim().is_empty() { "video".to_string() } else { stem };
     let ext = if audio { "mp3" } else { "mp4" };
     let file_name = download_core::naming::ensure_extension(&stem, ext);
     let category = if audio { Category::Music } else { Category::Video };
     let dest_dir = crate::dest::dest_dir_for(app, dest_dir, category)?;
-    let file_name = crate::dest::unique_file_name(&dest_dir, &file_name, &crate::dest::taken_paths(app));
-    let dest_path = dest_dir.join(&file_name);
-    if dest_path.parent() != Some(dest_dir.as_path()) {
+    // Nom invalide refusé avant tout passage à la Corbeille.
+    if dest_dir.join(&file_name).parent() != Some(dest_dir.as_path()) {
         return Err("nom de fichier invalide".into());
     }
+    let placed = crate::dest::place_file(app, &dest_dir, &file_name);
+    let file_name = placed.file_name;
+    let dest_path = dest_dir.join(&file_name);
     let job = if audio {
-        download_core::ytdlp::YtdlpJob { format_id: "bestaudio".into(), mode: download_core::ytdlp::JobMode::Audio, time_range: None, subs: None, convert_mp3: true }
+        download_core::ytdlp::YtdlpJob { format_id: "bestaudio".into(), mode: download_core::ytdlp::JobMode::Audio, convert_mp3: true, ..Default::default() }
     } else {
-        download_core::ytdlp::YtdlpJob { format_id: "bestvideo".into(), mode: download_core::ytdlp::JobMode::Av, time_range: None, subs: None, convert_mp3: false }
+        download_core::ytdlp::YtdlpJob { format_id: "bestvideo".into(), mode: download_core::ytdlp::JobMode::Av, ..Default::default() }
     };
     let sel = serde_json::to_string(&job).map_err(|e| e.to_string())?;
     let download = Download {
@@ -134,9 +143,10 @@ async fn add_ytdlp_queued(app: &AppHandle, url: &str, title: &str, audio: bool, 
         created_at: None,
         started_at: None,
         completed_at: None,
+        queue_rank: None,
     };
     app.state::<AppState>().storage.upsert(&download).map_err(|e| e.to_string())?;
-    Ok(download)
+    Ok((download, placed.replace_failed))
 }
 
 /// Ajoute en lot : parse le texte (une URL par ligne), crée chaque téléchargement
@@ -150,6 +160,7 @@ pub async fn add_batch_downloads(app: AppHandle, args: AddBatchArgs) -> Result<B
     let parsed = download_core::batch::parse_batch(&args.text);
     let mut added = 0usize;
     let mut failed = 0usize;
+    let mut not_replaced = 0usize;
     let mode = args.mode.as_deref().unwrap_or("direct");
     for url in &parsed.urls {
         if mode == "video" || mode == "audio" {
@@ -157,7 +168,10 @@ pub async fn add_batch_downloads(app: AppHandle, args: AddBatchArgs) -> Result<B
                 Ok(entries) => {
                     for (u, t) in entries {
                         match add_ytdlp_queued(&app, &u, &t, mode == "audio", Some(&args.dest_dir), args.hold).await {
-                            Ok(_) => added += 1,
+                            Ok((_, replace_failed)) => {
+                                added += 1;
+                                not_replaced += replace_failed as usize;
+                            }
                             Err(e) => {
                                 eprintln!("batch: échec ajout {u}: {e}");
                                 failed += 1;
@@ -173,7 +187,10 @@ pub async fn add_batch_downloads(app: AppHandle, args: AddBatchArgs) -> Result<B
             continue;
         }
         match add_url_no_probe(&app, url, &args.dest_dir, RequestHeaders::default(), args.hold).await {
-            Ok(_) => added += 1,
+            Ok((_, replace_failed)) => {
+                added += 1;
+                not_replaced += replace_failed as usize;
+            }
             Err(e) => {
                 eprintln!("batch: échec ajout {url}: {e}");
                 failed += 1;
@@ -182,12 +199,16 @@ pub async fn add_batch_downloads(app: AppHandle, args: AddBatchArgs) -> Result<B
     }
     if !args.hold {
         reevaluate(&app);
+    } else {
+        // Dans une plage active, le planificateur lâche tout de suite les `held` ajoutés.
+        crate::queue::planner_tick(&app);
     }
     Ok(BatchSummary {
         added,
         skipped_invalid: parsed.skipped_invalid,
         skipped_duplicate: parsed.skipped_duplicate,
         failed,
+        not_replaced,
     })
 }
 
@@ -307,8 +328,10 @@ pub fn start_download(app: AppHandle, id: String) -> Result<(), String> {
         }
         state.storage.update_state(&id, d.downloaded_bytes, DownloadStatus::Queued)
             .map_err(|e| e.to_string())?;
+        // Repris à la main : une pause individuelle ultérieure ne sera plus levée par la file.
+        crate::queue::forget_suspend_paused(&state, std::slice::from_ref(&id));
     }
-    reevaluate(&app);
+    reevaluate_with(&app, Some(&id));
     Ok(())
 }
 
@@ -353,6 +376,7 @@ pub fn cancel_download(app: AppHandle, id: String) -> Result<(), String> {
         }
     }
     state.storage.delete(&id).map_err(|e| e.to_string())?;
+    crate::queue::reset_run_if_idle(&state);
     reevaluate(&app);
     Ok(())
 }
@@ -373,23 +397,22 @@ pub fn get_settings(state: State<AppState>) -> Result<Settings, String> {
 }
 
 #[tauri::command]
-pub fn update_settings(app: AppHandle, max_concurrent: u32, max_speed_bps: u64) -> Result<(), String> {
-    {
+pub fn save_settings(app: AppHandle, s: Settings) -> Result<Settings, String> {
+    download_core::model::validate_settings(&s)?;
+    let saved = {
         let state = app.state::<AppState>();
-        let s = Settings { max_concurrent: max_concurrent.max(1), max_speed_bps };
         state.storage.set_settings(&s).map_err(|e| e.to_string())?;
-        state.limiter.set_rate(s.max_speed_bps);
-    }
+        // Pendant une plage avec limite, la limite de la plage reste appliquée.
+        crate::queue::apply_effective_rate(&state);
+        state.storage.get_settings().map_err(|e| e.to_string())?
+    };
     reevaluate(&app);
-    Ok(())
+    Ok(saved)
 }
 
 #[tauri::command]
 pub fn pause_all(state: State<AppState>) -> Result<(), String> {
-    let handles = state.handles.lock().unwrap();
-    for h in handles.values() {
-        h.pause();
-    }
+    crate::queue::pause_active(&state);
     Ok(())
 }
 
@@ -397,14 +420,23 @@ pub fn pause_all(state: State<AppState>) -> Result<(), String> {
 pub fn resume_all(app: AppHandle) -> Result<(), String> {
     {
         let state = app.state::<AppState>();
-        let downloads = state.storage.list().map_err(|e| e.to_string())?;
-        for d in downloads.iter().filter(|d| d.status == DownloadStatus::Paused) {
-            state.storage.update_state(&d.id, d.downloaded_bytes, DownloadStatus::Queued)
-                .map_err(|e| e.to_string())?;
-        }
+        let ids = requeue_all_paused(&state.storage)?;
+        crate::queue::forget_suspend_paused(&state, &ids);
     }
     reevaluate(&app);
     Ok(())
+}
+
+/// Repasse tous les `paused` en `queued` ; renvoie leurs ids.
+pub(crate) fn requeue_all_paused(storage: &download_core::storage::Storage) -> Result<Vec<String>, String> {
+    let downloads = storage.list().map_err(|e| e.to_string())?;
+    let mut ids = Vec::new();
+    for d in downloads.iter().filter(|d| d.status == DownloadStatus::Paused) {
+        storage.update_state(&d.id, d.downloaded_bytes, DownloadStatus::Queued)
+            .map_err(|e| e.to_string())?;
+        ids.push(d.id.clone());
+    }
+    Ok(ids)
 }
 
 #[tauri::command]
@@ -425,7 +457,9 @@ pub fn remove_from_list(state: State<AppState>, id: String) -> Result<(), String
     if state.handles.lock().unwrap().contains_key(&id) {
         return Err("arrêtez le téléchargement avant de le retirer".to_string());
     }
-    state.storage.delete(&id).map_err(|e| e.to_string())
+    state.storage.delete(&id).map_err(|e| e.to_string())?;
+    crate::queue::reset_run_if_idle(&state);
+    Ok(())
 }
 
 #[tauri::command]
@@ -487,6 +521,32 @@ mod batch_hold_tests {
 }
 
 #[cfg(test)]
+mod startup_and_notify_tests {
+    use super::*;
+
+    #[test]
+    fn startup_recovery() {
+        assert_eq!(startup_status(true), DownloadStatus::Queued);
+        assert_eq!(startup_status(false), DownloadStatus::Paused);
+    }
+
+    #[test]
+    fn notifications_follow_their_own_setting() {
+        let mut s = Settings::default();
+        assert!(notify_enabled(DownloadStatus::Completed, &s));
+        assert!(notify_enabled(DownloadStatus::Error, &s));
+        s.notify_complete = false;
+        assert!(!notify_enabled(DownloadStatus::Completed, &s));
+        assert!(notify_enabled(DownloadStatus::Error, &s));
+        s.notify_complete = true;
+        s.notify_error = false;
+        assert!(notify_enabled(DownloadStatus::Completed, &s));
+        assert!(!notify_enabled(DownloadStatus::Error, &s));
+        assert!(!notify_enabled(DownloadStatus::Paused, &Settings::default()));
+    }
+}
+
+#[cfg(test)]
 mod folder_target_tests {
     use super::*;
 
@@ -513,7 +573,15 @@ mod folder_target_tests {
 /// Ré-évalue la file : démarre les `Queued` élus selon la limite + priorités.
 /// Atomique vis-à-vis de la map `handles` (verrou tenu pendant pick + launch).
 pub(crate) fn reevaluate(app: &AppHandle) {
+    reevaluate_with(app, None);
+}
+
+/// Comme `reevaluate`, mais `forced` (démarrage manuel) passe devant la file.
+pub(crate) fn reevaluate_with(app: &AppHandle, forced: Option<&str>) {
     let state = app.state::<AppState>();
+    if crate::app_update::launches_blocked(&state) {
+        return;
+    }
     let settings = match state.storage.get_settings() {
         Ok(s) => s,
         Err(e) => { eprintln!("reevaluate: get_settings failed: {e}"); return; }
@@ -522,12 +590,17 @@ pub(crate) fn reevaluate(app: &AppHandle) {
         Ok(d) => d,
         Err(e) => { eprintln!("reevaluate: list failed: {e}"); return; }
     };
-    let to_start = pick_to_start(&downloads, settings.max_concurrent);
+    // La suspension de file n'est pas un filtre : `pause_queue` a remis les `queued` en `held`.
+    let to_start = pick_to_start(&downloads, settings.max_concurrent, forced);
     if to_start.is_empty() {
         return;
     }
     // Verrou tenu pour rendre pick+launch atomique (évite un double-démarrage concurrent).
     let mut handles = state.handles.lock().unwrap();
+    // Re-vérifié sous le verrou : l'installation prend `handles` après avoir levé le drapeau.
+    if crate::app_update::launches_blocked(&state) {
+        return;
+    }
     let mut free = settings.max_concurrent.saturating_sub(handles.len() as u32);
     for id in to_start {
         if free == 0 {
@@ -540,10 +613,16 @@ pub(crate) fn reevaluate(app: &AppHandle) {
             Some(d) => d.clone(),
             None => continue,
         };
+        // Marquer Downloading conditionnellement — ne jamais écraser un statut terminal ni
+        // un `held` posé entre la lecture de la liste et ce verrou (sortie de plage) : dans
+        // ce cas on ne lance pas. Une erreur de stockage garde l'ancien comportement (lancer).
+        if let Ok(false) = state.storage.mark_active(&id, download.downloaded_bytes) {
+            continue;
+        }
         let handle = DownloadHandle::new();
         handles.insert(id.clone(), handle.clone());
-        // Marquer Downloading conditionnellement — ne jamais écraser un statut terminal.
-        let _ = state.storage.mark_active(&id, download.downloaded_bytes);
+        // Début (ou poursuite) d'une exécution de la file. Ordre des verrous : handles → planner.
+        crate::queue::on_started(app);
         launch(app, download, handle);
         free -= 1;
     }
@@ -632,6 +711,54 @@ pub fn recover_interrupted_recordings(app: &AppHandle) {
     }
 }
 
+/// Statut au démarrage d'un téléchargement resté « en cours » (arrêt brutal) :
+/// remis en file si la reprise automatique est activée, sinon en pause.
+fn startup_status(auto_resume: bool) -> DownloadStatus {
+    if auto_resume {
+        DownloadStatus::Queued
+    } else {
+        DownloadStatus::Paused
+    }
+}
+
+/// Au démarrage : chaque ligne `downloading` sans tâche moteur (arrêt brutal) passe en
+/// `queued` (reprise automatique) ou en `paused`. File suspendue : `held` au lieu de
+/// `queued`, comme le fait la suspension. Renvoie le nombre de lignes remises en file
+/// (l'appelant relance alors la file une fois le planificateur prêt).
+pub fn recover_interrupted_downloads(app: &AppHandle) -> usize {
+    let state = app.state::<AppState>();
+    let settings = state.storage.get_settings().unwrap_or_default();
+    let queue_paused = state.storage.queue_paused().unwrap_or(false);
+    let downloads = match state.storage.list() {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("recovery: list failed: {e}");
+            return 0;
+        }
+    };
+    let mut requeued = 0;
+    // `handles` tenu pendant la lecture + l'écriture (ordre des verrous : handles → stockage).
+    let handles = state.handles.lock().unwrap();
+    for d in downloads
+        .iter()
+        .filter(|d| d.status == DownloadStatus::Downloading && !handles.contains_key(&d.id))
+    {
+        let mut status = startup_status(settings.auto_resume);
+        if status == DownloadStatus::Queued && queue_paused {
+            status = DownloadStatus::Held;
+        }
+        match state.storage.update_state(&d.id, d.downloaded_bytes, status) {
+            Ok(()) => {
+                if status == DownloadStatus::Queued {
+                    requeued += 1;
+                }
+            }
+            Err(e) => eprintln!("recovery: {} non rétabli: {e}", d.id),
+        }
+    }
+    requeued
+}
+
 /// Ramène la fenêtre principale au premier plan (montre + désiconifie + focus).
 pub(crate) fn focus_main_window(app: &AppHandle) {
     if let Some(w) = app.get_webview_window("main") {
@@ -641,11 +768,23 @@ pub(crate) fn focus_main_window(app: &AppHandle) {
     }
 }
 
+/// Notification voulue pour cette fin : `notify_complete` pour un succès, `notify_error`
+/// pour un échec ; aucune pour les autres statuts.
+fn notify_enabled(status: DownloadStatus, settings: &Settings) -> bool {
+    match status {
+        DownloadStatus::Completed => settings.notify_complete,
+        DownloadStatus::Error => settings.notify_error,
+        _ => false,
+    }
+}
+
 /// Émet une notif système de fin de téléchargement (Completed/Error) si le réglage
-/// `notify_on_complete` est activé. Le corps de la notif = nom du fichier (repli : id).
+/// correspondant est activé (lecture en échec : réglages par défaut, donc notifier).
+/// Le corps de la notif = nom du fichier (repli : id).
 fn notify_terminal(app: &AppHandle, status: DownloadStatus, id: &str) {
     let st = app.state::<AppState>();
-    if !st.storage.get_notify_on_complete().unwrap_or(true) {
+    let settings = st.storage.get_settings().unwrap_or_default();
+    if !notify_enabled(status, &settings) {
         return;
     }
     let file_name = st
@@ -692,20 +831,63 @@ fn notify_terminal(app: &AppHandle, status: DownloadStatus, id: &str) {
     }
 }
 
+/// Pause ou annulation survenue pendant un échec ou l'attente d'une nouvelle tentative :
+/// même fin qu'un arrêt du moteur. Pause → évènement `Paused` (le relais le persiste, ou
+/// `Held` pour une sortie de plage) ; annulation → fichiers partiels supprimés (la ligne a
+/// déjà été retirée par `cancel_download`).
+fn finish_stopped(
+    handle: &DownloadHandle,
+    kind: DownloadKind,
+    dest: &std::path::Path,
+    id: &str,
+    total_bytes: Option<u64>,
+    tx: &mpsc::UnboundedSender<Progress>,
+) -> engine::Outcome {
+    if handle.is_cancelled() {
+        match kind {
+            DownloadKind::Ytdlp => crate::ytdlp::cleanup_partials(dest),
+            _ => {
+                let _ = std::fs::remove_file(dest);
+                download_core::resume::clear(dest);
+                let _ = std::fs::remove_dir_all(download_core::media_io::work_dir(dest));
+            }
+        }
+        return engine::Outcome::Cancelled;
+    }
+    let _ = tx.send(Progress {
+        id: id.to_string(),
+        downloaded_bytes: handle.downloaded(),
+        total_bytes,
+        speed_bps: 0,
+        status: DownloadStatus::Paused,
+        segments_done: None,
+        segments_total: None,
+        parts: None,
+    });
+    engine::Outcome::Paused
+}
+
 /// Lance les deux tâches (relais de progression + moteur) pour un téléchargement.
 fn launch(app: &AppHandle, download: Download, handle: DownloadHandle) {
     let id = download.id.clone();
     let (tx, mut rx) = mpsc::unbounded_channel::<Progress>();
+    // Posé par le relais au premier évènement `Recording` : un enregistrement live n'est
+    // jamais retenté (une reprise relancerait une capture dans le même dossier de travail).
+    let saw_recording = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
 
     // Relais de progression : vitesse + emit + persistance des états terminaux.
     let app_for_rx = app.clone();
     let id_for_rx = id.clone();
+    let saw_recording_rx = saw_recording.clone();
     tauri::async_runtime::spawn(async move {
         let mut last_t = Instant::now();
         let mut last_bytes = 0u64;
         let mut current_speed: u64 = 0;
         let mut last_persisted: Option<DownloadStatus> = None;
         while let Some(mut p) = rx.recv().await {
+            if p.status == DownloadStatus::Recording {
+                saw_recording_rx.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
             let now = Instant::now();
             let dt = now.duration_since(last_t).as_secs_f64();
             if dt >= 0.5 {
@@ -718,6 +900,14 @@ fn launch(app: &AppHandle, download: Download, handle: DownloadHandle) {
             let persist = matches!(p.status, DownloadStatus::Completed | DownloadStatus::Paused | DownloadStatus::Error)
                 || (p.status == DownloadStatus::Recording && last_persisted != Some(DownloadStatus::Recording));
             if persist {
+                // Pause demandée par la sortie de plage du planificateur : l'élément retourne
+                // en attente (`Held`) au lieu de `Paused`. Nettoyé aussi sur Completed/Error.
+                if p.status != DownloadStatus::Recording
+                    && crate::queue::take_hold_on_pause(&app_for_rx, &id_for_rx)
+                    && p.status == DownloadStatus::Paused
+                {
+                    p.status = DownloadStatus::Held;
+                }
                 let st = app_for_rx.state::<AppState>();
                 if let Err(e) = st.storage.update_state(&id_for_rx, p.downloaded_bytes, p.status) {
                     eprintln!("failed to persist download {id_for_rx}: {e}");
@@ -731,7 +921,10 @@ fn launch(app: &AppHandle, download: Download, handle: DownloadHandle) {
                 {
                     notify_terminal(&app_for_rx, p.status, &id_for_rx);
                 }
+                let first = last_persisted != Some(p.status);
                 last_persisted = Some(p.status);
+                // Suivi de fin de file, APRÈS la persistance (le comptage lit le statut à jour).
+                crate::queue::on_terminal_persisted(&app_for_rx, p.status, first);
             }
             // Émission APRÈS la persistance des états terminaux : un refresh() côté UI
             // déclenché par l'évènement lit ainsi le statut et completed_at à jour.
@@ -745,8 +938,8 @@ fn launch(app: &AppHandle, download: Download, handle: DownloadHandle) {
     let url = download.url.clone();
     let headers = download.request_headers();
     let id_for_dl = id.clone();
-    let handle_for_err = handle.clone();
     let kind = download.kind;
+    let total_bytes = download.total_bytes;
     let audio_url = download.audio_url.clone();
     let media_selection = download.media_selection.clone();
     let (fetcher, limiter) = {
@@ -754,50 +947,100 @@ fn launch(app: &AppHandle, download: Download, handle: DownloadHandle) {
         (st.fetcher.clone(), st.limiter.clone())
     };
     tauri::async_runtime::spawn(async move {
-        let result = match kind {
-            download_core::model::DownloadKind::Regular => {
-                engine::download(&fetcher, &id_for_dl, &url, &dest, handle, limiter, tx, &headers).await
+        // Réglages lus au démarrage du téléchargement (connexions par fichier, tentatives).
+        let settings = app_for_dl.state::<AppState>().storage.get_settings().unwrap_or_default();
+        // Boucle de tentatives : un échec passager relance le moteur (qui reprend grâce au
+        // fichier de reprise, ou `--continue` pour yt-dlp) après `retry_delay`. Pendant
+        // l'attente le statut reste « en cours » ; aucun évènement ni notification d'erreur
+        // n'est émis avant l'échec final.
+        let mut attempt: u32 = 0;
+        let result: Result<engine::Outcome, (download_core::CoreError, u32)> = loop {
+            let run = match kind {
+                DownloadKind::Regular => {
+                    engine::download(&fetcher, &id_for_dl, &url, &dest, handle.clone(), limiter.clone(), tx.clone(), &headers, settings.connections).await
+                }
+                DownloadKind::Hls => {
+                    let remux = crate::remux::SidecarRemuxer::new(app_for_dl.clone());
+                    download_core::hls::engine::download_hls(
+                        &fetcher,
+                        &remux,
+                        &id_for_dl,
+                        &url,
+                        audio_url.as_deref(),
+                        &dest,
+                        handle.clone(),
+                        limiter.clone(),
+                        tx.clone(),
+                        &headers,
+                    )
+                    .await
+                }
+                DownloadKind::Dash => {
+                    let remux = crate::remux::SidecarRemuxer::new(app_for_dl.clone());
+                    let selection = match media_selection.as_deref().and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok()) {
+                        Some(v) => download_core::dash::engine::DashSelection {
+                            video_index: v.get("video").and_then(|x| x.as_u64()).unwrap_or(0) as u32,
+                            audio_lang: v.get("audio").and_then(|x| x.as_str()).map(String::from),
+                        },
+                        None => download_core::dash::engine::DashSelection { video_index: 0, audio_lang: None },
+                    };
+                    download_core::dash::engine::download_dash(&fetcher, &remux, &id_for_dl, &url, &selection, &dest, handle.clone(), limiter.clone(), tx.clone(), &headers).await
+                }
+                DownloadKind::Ytdlp => {
+                    let job = download_core::ytdlp::job_from_selection(media_selection.as_deref());
+                    crate::ytdlp::run_download(app_for_dl.clone(), &id_for_dl, &url, &job, &dest, handle.clone(), &headers, tx.clone()).await
+                        .map(|()| engine::Outcome::Completed)
+                }
+            };
+            let err = match run {
+                Ok(outcome) => break Ok(outcome),
+                Err(e) => e,
+            };
+            // Pause / annulation demandée pendant l'échec : fin normale, pas une erreur.
+            if handle.is_paused() || handle.is_cancelled() {
+                break Ok(finish_stopped(&handle, kind, &dest, &id_for_dl, total_bytes, &tx));
             }
-            download_core::model::DownloadKind::Hls => {
-                let remux = crate::remux::SidecarRemuxer::new(app_for_dl.clone());
-                download_core::hls::engine::download_hls(
-                    &fetcher,
-                    &remux,
-                    &id_for_dl,
-                    &url,
-                    audio_url.as_deref(),
-                    &dest,
-                    handle,
-                    limiter,
-                    tx,
-                    &headers,
-                )
-                .await
-            }
-            download_core::model::DownloadKind::Dash => {
-                let remux = crate::remux::SidecarRemuxer::new(app_for_dl.clone());
-                let selection = match media_selection.as_deref().and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok()) {
-                    Some(v) => download_core::dash::engine::DashSelection {
-                        video_index: v.get("video").and_then(|x| x.as_u64()).unwrap_or(0) as u32,
-                        audio_lang: v.get("audio").and_then(|x| x.as_str()).map(String::from),
-                    },
-                    None => download_core::dash::engine::DashSelection { video_index: 0, audio_lang: None },
+            let recording = || saw_recording.load(std::sync::atomic::Ordering::SeqCst);
+            let retry = !recording()
+                && match kind {
+                    DownloadKind::Ytdlp => crate::retry::should_retry_ytdlp(false, false, attempt, settings.retries),
+                    _ => crate::retry::should_retry(&err, attempt, settings.retries),
                 };
-                download_core::dash::engine::download_dash(&fetcher, &remux, &id_for_dl, &url, &selection, &dest, handle, limiter, tx, &headers).await
+            if !retry {
+                break Err((err, attempt));
             }
-            download_core::model::DownloadKind::Ytdlp => {
-                let job = download_core::ytdlp::job_from_selection(media_selection.as_deref());
-                crate::ytdlp::run_download(app_for_dl.clone(), &id_for_dl, &url, &job, &dest, handle, &headers, tx).await
-                    .map(|()| download_core::engine::Outcome::Completed)
+            let delay = crate::retry::retry_delay(attempt);
+            eprintln!(
+                "download {id_for_dl}: tentative {} échouée ({err}), nouvel essai dans {} s",
+                attempt + 1,
+                delay.as_secs()
+            );
+            match crate::retry::wait_before_retry(&handle, delay).await {
+                crate::retry::RetryWait::Elapsed => {}
+                crate::retry::RetryWait::Paused | crate::retry::RetryWait::Cancelled => {
+                    break Ok(finish_stopped(&handle, kind, &dest, &id_for_dl, total_bytes, &tx));
+                }
             }
+            // Le relais a forcément vu un éventuel `Recording` pendant l'attente.
+            if recording() {
+                break Err((err, attempt));
+            }
+            if kind == DownloadKind::Ytdlp {
+                // yt-dlp rapporte un cumul par exécution : on repart de zéro.
+                handle.set_downloaded(0);
+            }
+            attempt += 1;
         };
+        // Plus d'émetteur côté moteur : le relais se termine une fois la file vidée.
+        drop(tx);
         match result {
             Ok(_) => {}
-            Err(e) => {
-                eprintln!("download {id_for_dl} failed: {e}");
-                let bytes = handle_for_err.downloaded();
+            Err((e, attempt)) => {
+                let message = crate::retry::final_error_message(&e.to_string(), attempt);
+                eprintln!("download {id_for_dl} failed: {message}");
+                let bytes = handle.downloaded();
                 let st = app_for_dl.state::<AppState>();
-                if let Err(se) = st.storage.mark_error(&id_for_dl, bytes, &e.to_string()) {
+                if let Err(se) = st.storage.mark_error(&id_for_dl, bytes, &message) {
                     eprintln!("failed to persist error for {id_for_dl}: {se}");
                 }
                 let _ = app_for_dl.emit("download://progress", &Progress {
@@ -810,6 +1053,8 @@ fn launch(app: &AppHandle, download: Download, handle: DownloadHandle) {
                     segments_total: None, parts: None,
                 });
                 notify_terminal(&app_for_dl, DownloadStatus::Error, &id_for_dl);
+                crate::queue::take_hold_on_pause(&app_for_dl, &id_for_dl);
+                crate::queue::on_terminal_persisted(&app_for_dl, DownloadStatus::Error, true);
             }
         }
         // Libérer le slot et relancer la file.

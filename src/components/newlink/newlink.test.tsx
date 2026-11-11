@@ -16,7 +16,7 @@ const mf = (o: Partial<MediaFormat>): MediaFormat => ({
 const FORMATS: MediaFormat[] = [
   mf({ index: 0, label: "1080p", height: 1080, recommended: true, est_size: 1.4 * 1024 ** 3, fps: 29.97 }),
   mf({ index: 1, label: "720p", height: 720 }),
-  mf({ index: 2, kind: "audio", format_id: "mp3", label: "MP3", container: "mp3" }),
+  mf({ index: 2, kind: "audio", format_id: "convert", label: "MP3", container: "MP3" }),
   mf({ index: 3, kind: "audio", format_id: "m4a", label: "M4A", container: "m4a", recommended: true }),
 ];
 const media = (o: Partial<Extract<LinkProbe, { type: "media" }>> = {}, info: Record<string, unknown> = {}): Extract<LinkProbe, { type: "media" }> => ({

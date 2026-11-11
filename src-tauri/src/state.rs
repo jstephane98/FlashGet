@@ -18,6 +18,20 @@ pub struct AppState {
     pub bridge_listening: Arc<AtomicBool>,
     /// Liens analysés (page Nouveau / captures) en attente de confirmation (probe_id → PendingLink).
     pub pending_links: Mutex<HashMap<String, crate::link::PendingLink>>,
+    /// Planificateur et suivi de fin de file. Verrou feuille (voir `queue.rs`).
+    pub planner: Mutex<crate::queue::PlannerState>,
+    /// Version de yt-dlp, mise en cache pour la session (succès seulement).
+    pub ytdlp_version: Mutex<Option<String>>,
+    /// `true` pendant une mise à jour de yt-dlp (refuse un second appel concurrent).
+    pub ytdlp_updating: AtomicBool,
+    /// `Update` trouvée par la dernière vérification de FlashGet.
+    pub checked_update: Mutex<Option<tauri_plugin_updater::Update>>,
+    /// `true` de la mise en pause avant installation jusqu'à son échec : plus aucun lancement.
+    pub app_installing: AtomicBool,
+    /// `true` pendant un téléchargement ou une installation de FlashGet.
+    pub app_update_busy: AtomicBool,
+    /// Mise à jour de FlashGet téléchargée (et signée), prête à installer sur clic.
+    pub pending_update: Mutex<Option<(tauri_plugin_updater::Update, Vec<u8>)>>,
 }
 
 impl AppState {
@@ -29,6 +43,13 @@ impl AppState {
             limiter: Arc::new(RateLimiter::new(max_speed_bps)),
             bridge_listening: Arc::new(AtomicBool::new(false)),
             pending_links: Mutex::new(HashMap::new()),
+            planner: Mutex::new(crate::queue::PlannerState::default()),
+            ytdlp_version: Mutex::new(None),
+            ytdlp_updating: AtomicBool::new(false),
+            checked_update: Mutex::new(None),
+            pending_update: Mutex::new(None),
+            app_installing: AtomicBool::new(false),
+            app_update_busy: AtomicBool::new(false),
         }
     }
 }

@@ -15,7 +15,7 @@ export const NAV_ITEMS: NavItem[] = [
   { id: "new", labelKey: "nav.new", icon: Plus, ready: true },
   { id: "downloads", labelKey: "nav.downloads", icon: List, ready: true },
   { id: "completed", labelKey: "nav.completed", icon: CircleCheck, ready: true },
-  { id: "queue", labelKey: "nav.queue", icon: Clock, ready: false },
-  { id: "scheduler", labelKey: "nav.scheduler", icon: CalendarDays, ready: false },
+  { id: "queue", labelKey: "nav.queue", icon: Clock, ready: true },
+  { id: "scheduler", labelKey: "nav.scheduler", icon: CalendarDays, ready: true },
   { id: "settings", labelKey: "nav.settings", icon: Settings, ready: true, bottom: true },
 ];

@@ -5,7 +5,7 @@
 //! actual TCP/HTTP networking through reqwest, proving multi-segment download,
 //! range handling, and correct offset reassembly on disk.
 
-use download_core::engine::{download, DownloadHandle, Outcome};
+use download_core::engine::{download, DownloadHandle, Outcome, DEFAULT_SEGMENTS};
 use download_core::http::ReqwestFetcher;
 use download_core::model::{Progress, RequestHeaders};
 use download_core::rate_limiter::RateLimiter;
@@ -90,7 +90,7 @@ async fn real_http_multisegment_download_matches_payload() {
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel::<Progress>();
 
     let url = format!("http://127.0.0.1:{port}/file");
-    let outcome = download(&fetcher, "it1", &url, &dest, DownloadHandle::new(), Arc::new(RateLimiter::unlimited()), tx, &RequestHeaders::default())
+    let outcome = download(&fetcher, "it1", &url, &dest, DownloadHandle::new(), Arc::new(RateLimiter::unlimited()), tx, &RequestHeaders::default(), DEFAULT_SEGMENTS)
         .await
         .expect("download should succeed");
 
@@ -122,6 +122,48 @@ async fn fetch_range_404_maps_to_not_found() {
     assert!(matches!(err, CoreError::NotFound(_)), "attendu NotFound, obtenu {err:?}");
 }
 
+/// Statut HTTP d'échec : 5xx → erreur `Http` passagère, 4xx → erreur `Http` définitive.
+#[tokio::test(flavor = "multi_thread")]
+async fn fetch_range_http_status_maps_to_http_error() {
+    use download_core::http::ByteFetcher;
+    use download_core::CoreError;
+    for (code, transient) in [(503u16, true), (500, true), (403, false)] {
+        let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+        let port = server.server_addr().to_ip().unwrap().port();
+        std::thread::spawn(move || {
+            for request in server.incoming_requests() {
+                let _ = request.respond(Response::from_data(Vec::new()).with_status_code(code));
+            }
+        });
+        let fetcher = ReqwestFetcher::new();
+        let url = format!("http://127.0.0.1:{port}/f.bin");
+        let err = fetcher.fetch_range(&url, None, &RequestHeaders::default()).await.map(|_| ()).unwrap_err();
+        assert!(matches!(err, CoreError::Http { status, .. } if status == code), "HTTP {code} : obtenu {err:?}");
+        assert_eq!(err.is_transient(), transient, "HTTP {code}");
+    }
+}
+
+/// Serveur qui ignore `Range` (toujours 200 + corps entier) : une plage en milieu de
+/// fichier est refusée (le corps ne doit pas être écrit à l'offset) ; une plage depuis 0 passe.
+#[tokio::test(flavor = "multi_thread")]
+async fn fetch_range_rejects_full_body_for_mid_file_range() {
+    use download_core::http::ByteFetcher;
+    use download_core::CoreError;
+    let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+    let port = server.server_addr().to_ip().unwrap().port();
+    std::thread::spawn(move || {
+        for request in server.incoming_requests() {
+            let _ = request.respond(Response::from_data(vec![1u8; 100]).with_status_code(200));
+        }
+    });
+    let fetcher = ReqwestFetcher::new();
+    let url = format!("http://127.0.0.1:{port}/f.bin");
+    let err = fetcher.fetch_range(&url, Some((10, 99)), &RequestHeaders::default()).await.map(|_| ()).unwrap_err();
+    assert!(matches!(err, CoreError::Unsupported), "obtenu {err:?}");
+    assert!(!err.is_transient());
+    assert!(fetcher.fetch_range(&url, Some((0, 99)), &RequestHeaders::default()).await.is_ok());
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn real_http_progress_reports_full_size() {
     let port = start_server();
@@ -131,7 +173,7 @@ async fn real_http_progress_reports_full_size() {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Progress>();
 
     let url = format!("http://127.0.0.1:{port}/file");
-    let outcome = download(&fetcher, "it2", &url, &dest, DownloadHandle::new(), Arc::new(RateLimiter::unlimited()), tx, &RequestHeaders::default())
+    let outcome = download(&fetcher, "it2", &url, &dest, DownloadHandle::new(), Arc::new(RateLimiter::unlimited()), tx, &RequestHeaders::default(), DEFAULT_SEGMENTS)
         .await
         .expect("download should succeed");
     assert_eq!(outcome, Outcome::Completed);

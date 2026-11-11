@@ -40,3 +40,6 @@ Thumbs.db
 
 # Réglages locaux du harness Claude Code
 .claude/settings.local.json
+
+# Sorties de publication locale
+release/

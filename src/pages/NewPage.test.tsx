@@ -118,18 +118,18 @@ describe("NewPage", () => {
   });
 
   it("Plusieurs liens : addBatchDownloads(text, '', 'audio', true) puis onDone(résumé)", async () => {
-    vi.mocked(api.addBatchDownloads).mockResolvedValue({ added: 2, skipped_invalid: 1, skipped_duplicate: 1, failed: 0 });
+    vi.mocked(api.addBatchDownloads).mockResolvedValue({ added: 2, skipped_invalid: 1, skipped_duplicate: 1, failed: 0, not_replaced: 1 });
     const { onDone } = setup();
     fireEvent.click(screen.getByRole("button", { name: "Plusieurs liens" }));
     fireEvent.change(screen.getByPlaceholderText("Un lien par ligne…"), { target: { value: "https://a.com/1\nhttps://a.com/2" } });
     fireEvent.change(screen.getByLabelText("Type"), { target: { value: "audio" } });
     fireEvent.click(screen.getByRole("button", { name: "Ajouter à la file" }));
-    await waitFor(() => expect(onDone).toHaveBeenCalledWith("2 ajouté(s) · 1 doublon(s) · 1 ignoré(s)"));
+    await waitFor(() => expect(onDone).toHaveBeenCalledWith("2 ajouté(s) · 1 doublon(s) · 1 ignoré(s) · 1 renommé(s), Corbeille indisponible"));
     expect(api.addBatchDownloads).toHaveBeenCalledWith("https://a.com/1\nhttps://a.com/2", "", "audio", true);
   });
 
   it("Ctrl+Entrée dans le lot télécharge (hold=false)", async () => {
-    vi.mocked(api.addBatchDownloads).mockResolvedValue({ added: 1, skipped_invalid: 0, skipped_duplicate: 0, failed: 0 });
+    vi.mocked(api.addBatchDownloads).mockResolvedValue({ added: 1, skipped_invalid: 0, skipped_duplicate: 0, failed: 0, not_replaced: 0 });
     setup({ startInBatch: true });
     const ta = screen.getByPlaceholderText("Un lien par ligne…");
     fireEvent.change(ta, { target: { value: "https://a.com/1" } });

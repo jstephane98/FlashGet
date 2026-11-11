@@ -9,7 +9,9 @@ const f = (o: Partial<MediaFormat>): MediaFormat => ({
 const a720 = f({ label: "720p", height: 720 });
 const a1080rec = f({ label: "1080p", height: 1080, recommended: true });
 const au = f({ kind: "audio", container: "M4A", label: "Audio" });
-const mp3 = f({ kind: "audio", format_id: "mp3", container: "MP3" });
+const mp3 = f({ kind: "audio", format_id: "convert", container: "MP3" });
+const convM4a = f({ kind: "audio", format_id: "convert", label: "M4A · 256 kb/s", container: "M4A" });
+const convOpus = f({ kind: "audio", format_id: "convert", label: "Opus", container: "OPUS" });
 const m4a = f({ kind: "audio", container: "M4A" });
 const v1080 = f({ kind: "video", height: 1080 });
 
@@ -27,6 +29,10 @@ describe("selection", () => {
   });
   it("extensions de sortie", () => {
     expect(outputExtension(mp3)).toBe(".mp3");
+    expect(outputExtension(convM4a)).toBe(".m4a");
+    expect(outputExtension(convOpus)).toBe(".opus");
+    // Une ligne vidéo dont l'identifiant natif est « mp3 » n'est pas une conversion.
+    expect(outputExtension(f({ format_id: "mp3" }))).toBe(".mp4");
     expect(outputExtension(m4a)).toBe(".m4a");
     expect(outputExtension(v1080)).toBe(".mp4");
     expect(outputExtension(a720)).toBe(".mp4");

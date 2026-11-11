@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { Download, Progress, Priority, Settings, Category, CategoryDirs, BridgeInfo } from "./types";
 
@@ -85,6 +86,8 @@ export interface BatchSummary {
   skipped_invalid: number;
   skipped_duplicate: number;
   failed: number;
+  /** Réglage « remplacer » : renommés faute de pouvoir mettre l'ancien fichier à la Corbeille. */
+  not_replaced: number;
 }
 
 export function addBatchDownloads(text: string, destDir: string, mode: string = "direct", hold = false): Promise<BatchSummary> {
@@ -123,8 +126,8 @@ export function getSettings(): Promise<Settings> {
   return invoke<Settings>("get_settings");
 }
 
-export function updateSettings(maxConcurrent: number, maxSpeedBps: number): Promise<void> {
-  return invoke("update_settings", { maxConcurrent, maxSpeedBps });
+export function saveSettings(s: Settings): Promise<Settings> {
+  return invoke<Settings>("save_settings", { s });
 }
 
 export function pauseAll(): Promise<void> {
@@ -190,12 +193,6 @@ export function getCookiesFromBrowser(): Promise<string | null> {
 export function setCookiesFromBrowser(value: string | null): Promise<void> {
   return invoke("set_cookies_from_browser", { value });
 }
-export function getNotifyOnComplete(): Promise<boolean> {
-  return invoke<boolean>("get_notify_on_complete");
-}
-export function setNotifyOnComplete(value: boolean): Promise<void> {
-  return invoke("set_notify_on_complete", { value });
-}
 export function onYoutubeStatus(cb: () => void): Promise<UnlistenFn> {
   return listen("youtube://status", () => cb());
 }
@@ -220,4 +217,114 @@ export function allowPlayback(id: string): Promise<string> {
 }
 export function deleteDownload(id: string, deleteFile: boolean): Promise<void> {
   return invoke("delete_download", { id, deleteFile });
+}
+
+export type AtEnd = "pause" | "continue";
+export type EndAction = "none" | "quit" | "sleep" | "hibernate" | "shutdown";
+export interface Schedule {
+  enabled: boolean;
+  start: string;
+  end: string;
+  /** Index 0 = lundi. */
+  days: boolean[];
+  limit_bps: number | null;
+  at_end: AtEnd;
+}
+
+export function reorderQueue(ids: string[]): Promise<void> {
+  return invoke("reorder_queue", { ids });
+}
+export function startQueue(): Promise<void> {
+  return invoke("start_queue");
+}
+export function pauseQueue(): Promise<void> {
+  return invoke("pause_queue");
+}
+export function getQueuePaused(): Promise<boolean> {
+  return invoke<boolean>("get_queue_paused");
+}
+export function getSchedule(): Promise<Schedule> {
+  return invoke<Schedule>("get_schedule");
+}
+export function setSchedule(s: Schedule): Promise<void> {
+  return invoke("set_schedule", { s });
+}
+export function getEndAction(): Promise<EndAction> {
+  return invoke<EndAction>("get_end_action");
+}
+export function setEndAction(a: EndAction): Promise<void> {
+  return invoke("set_end_action", { a });
+}
+export function runEndAction(): Promise<void> {
+  return invoke("run_end_action");
+}
+export function onQueueFinished(cb: (e: { action: EndAction }) => void): Promise<UnlistenFn> {
+  return listen<{ action: EndAction }>("queue://finished", (e) => cb(e.payload));
+}
+export function getYtdlpVersion(): Promise<string | null> {
+  return invoke<string | null>("get_ytdlp_version");
+}
+export function appVersion(): Promise<string> {
+  return getVersion();
+}
+
+export interface AppUpdateInfo {
+  version: string;
+  date: string | null;
+  notes: string | null;
+}
+
+export interface UpdateProgress {
+  downloaded: number;
+  total: number | null;
+}
+
+export interface YtdlpCheck {
+  current: string | null;
+  latest: string;
+  available: boolean;
+  last_check: number | null;
+}
+
+export interface YtdlpUpdated {
+  version: string;
+  pending: boolean;
+}
+
+export function checkAppUpdate(): Promise<AppUpdateInfo | null> {
+  return invoke<AppUpdateInfo | null>("check_app_update");
+}
+export function downloadAppUpdate(): Promise<void> {
+  return invoke("download_app_update");
+}
+export function installAppUpdate(): Promise<void> {
+  return invoke("install_app_update");
+}
+export function getAppLastCheck(): Promise<number | null> {
+  return invoke<number | null>("get_app_last_check");
+}
+export function onAppUpdateAvailable(cb: (info: AppUpdateInfo) => void): Promise<UnlistenFn> {
+  return listen<AppUpdateInfo>("app-update-available", (e) => cb(e.payload));
+}
+export function onAppUpdateProgress(cb: (p: UpdateProgress) => void): Promise<UnlistenFn> {
+  return listen<UpdateProgress>("app-update-progress", (e) => cb(e.payload));
+}
+
+export function checkYtdlpUpdate(): Promise<YtdlpCheck> {
+  return invoke<YtdlpCheck>("check_ytdlp_update");
+}
+export function updateYtdlp(): Promise<YtdlpUpdated> {
+  return invoke<YtdlpUpdated>("update_ytdlp");
+}
+export function getYtdlpLastCheck(): Promise<number | null> {
+  return invoke<number | null>("get_ytdlp_last_check");
+}
+export function onYtdlpUpdateAvailable(cb: (p: { current: string | null; latest: string }) => void): Promise<UnlistenFn> {
+  return listen<{ current: string | null; latest: string }>("ytdlp-update-available", (e) => cb(e.payload));
+}
+export function onYtdlpUpdated(cb: (p: YtdlpUpdated) => void): Promise<UnlistenFn> {
+  return listen<YtdlpUpdated>("ytdlp-updated", (e) => cb(e.payload));
+}
+export function onYtdlpUpdateProgress(cb: (p: UpdateProgress) => void): Promise<UnlistenFn> {
+  return listen<UpdateProgress>("ytdlp-update-progress", (e) => cb(e.payload));
 }

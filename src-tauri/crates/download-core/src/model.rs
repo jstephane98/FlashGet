@@ -44,18 +44,98 @@ pub enum DownloadKind {
     Ytdlp,
 }
 
+/// Conduite quand le fichier de destination existe déjà.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ConflictPolicy {
+    #[default]
+    Rename,
+    Overwrite,
+}
+
+/// Format de la conversion audio.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AudioFormat {
+    #[default]
+    Mp3,
+    M4a,
+    Opus,
+}
+
 /// Réglages persistants de l'application.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, rename_all = "snake_case")]
 pub struct Settings {
     pub max_concurrent: u32,
     /// Vitesse de téléchargement max en octets/seconde (0 = illimité).
     pub max_speed_bps: u64,
+    /// Connexions (segments) par fichier, 1 à 32.
+    pub connections: u32,
+    /// Nouvelles tentatives automatiques, 0 à 10.
+    pub retries: u32,
+    pub auto_resume: bool,
+    pub conflict: ConflictPolicy,
+    pub close_to_tray: bool,
+    pub notify_complete: bool,
+    pub notify_error: bool,
+    pub video_max_height: u32,
+    pub audio_format: AudioFormat,
+    /// 0 = qualité maximale.
+    pub audio_kbps: u32,
+    pub sub_langs: Vec<String>,
+    /// Met yt-dlp à jour automatiquement.
+    pub ytdlp_auto_update: bool,
+    /// Vérifie la disponibilité d'une nouvelle version de l'application.
+    pub app_update_check: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { max_concurrent: 3, max_speed_bps: 0 }
+        Self {
+            max_concurrent: 3,
+            max_speed_bps: 0,
+            connections: 8,
+            retries: 3,
+            auto_resume: true,
+            conflict: ConflictPolicy::Rename,
+            close_to_tray: true,
+            notify_complete: true,
+            notify_error: true,
+            video_max_height: 1080,
+            audio_format: AudioFormat::Mp3,
+            audio_kbps: 0,
+            sub_langs: vec!["fr".to_string(), "en".to_string()],
+            ytdlp_auto_update: true,
+            app_update_check: true,
+        }
     }
+}
+
+/// Valide les réglages ; le message d'erreur est destiné à l'utilisateur.
+pub fn validate_settings(s: &Settings) -> Result<(), String> {
+    if !(1..=10).contains(&s.max_concurrent) {
+        return Err("Téléchargements simultanés : entre 1 et 10".into());
+    }
+    if !(1..=32).contains(&s.connections) {
+        return Err("Connexions par fichier : entre 1 et 32".into());
+    }
+    if s.retries > 10 {
+        return Err("Nouvelles tentatives : entre 0 et 10".into());
+    }
+    if ![2160, 1440, 1080, 720, 480, 360].contains(&s.video_max_height) {
+        return Err("Qualité vidéo inconnue".into());
+    }
+    if ![0, 128, 192, 256, 320].contains(&s.audio_kbps) {
+        return Err("Débit audio inconnu".into());
+    }
+    let langs_ok = !s.sub_langs.is_empty()
+        && s.sub_langs.len() <= 8
+        && s.sub_langs.iter().all(|c| c.len() == 2 && c.bytes().all(|b| b.is_ascii_lowercase()));
+    if !langs_ok {
+        return Err("Langues de sous-titres invalides".into());
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -95,6 +175,9 @@ pub struct Download {
     pub started_at: Option<i64>,
     #[serde(default)]
     pub completed_at: Option<i64>,
+    /// Rang dans la file (départage à priorité égale). None = pas encore classé.
+    #[serde(default)]
+    pub queue_rank: Option<i64>,
 }
 
 /// En-têtes HTTP optionnels transmis par le navigateur pour un téléchargement capturé.

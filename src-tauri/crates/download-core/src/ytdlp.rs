@@ -2,6 +2,7 @@
 //! Parse la sortie `yt-dlp -J`, construit les formats proposés et les arguments
 //! de téléchargement, et parse les lignes de progression. Aucune dépendance Tauri/process.
 
+use crate::model::AudioFormat;
 use crate::CoreError;
 use serde::{Deserialize, Serialize};
 
@@ -195,8 +196,45 @@ fn abr_of(f: &YtdlpFormat) -> f64 {
     f.abr.or(f.tbr).unwrap_or(0.0)
 }
 
-/// Liste ordonnée des formats proposés : Av, puis Video, puis Audio (MP3 d'abord).
-pub fn build_media_formats(formats: &[YtdlpFormat]) -> Vec<MediaFormat> {
+/// Identifiant de la ligne synthétique « conversion audio » (format des réglages).
+pub const CONVERT_FORMAT_ID: &str = "convert";
+
+/// Préférences des réglages qui orientent les formats proposés.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MediaPrefs {
+    /// Hauteur vidéo recommandée maximale (ex. 1080).
+    pub max_height: u32,
+    pub audio_format: AudioFormat,
+    /// Débit de la conversion en kb/s (0 = meilleure qualité).
+    pub audio_kbps: u32,
+}
+
+impl Default for MediaPrefs {
+    fn default() -> Self {
+        MediaPrefs { max_height: 1080, audio_format: AudioFormat::Mp3, audio_kbps: 0 }
+    }
+}
+
+/// Extension (et `--audio-format` yt-dlp) d'un format de conversion.
+pub fn audio_format_ext(f: AudioFormat) -> &'static str {
+    match f {
+        AudioFormat::Mp3 => "mp3",
+        AudioFormat::M4a => "m4a",
+        AudioFormat::Opus => "opus",
+    }
+}
+
+fn audio_format_label(f: AudioFormat) -> &'static str {
+    match f {
+        AudioFormat::Mp3 => "MP3",
+        AudioFormat::M4a => "M4A",
+        AudioFormat::Opus => "Opus",
+    }
+}
+
+/// Liste ordonnée des formats proposés : Av, puis Video, puis Audio (conversion d'abord).
+/// Recommandé : la plus grande hauteur <= `prefs.max_height`, à défaut la plus petite.
+pub fn build_media_formats(formats: &[YtdlpFormat], prefs: &MediaPrefs) -> Vec<MediaFormat> {
     // Audio seul, meilleur abr en premier.
     let audio_only: Vec<&YtdlpFormat> = formats
         .iter()
@@ -229,7 +267,11 @@ pub fn build_media_formats(formats: &[YtdlpFormat]) -> Vec<MediaFormat> {
         }
     }
     best_by_height.sort_by(|a, b| b.0.cmp(&a.0));
-    let rec_height = best_by_height.iter().map(|(h, _)| *h).find(|h| *h <= 1080);
+    let rec_height = best_by_height
+        .iter()
+        .map(|(h, _)| *h)
+        .find(|h| *h <= prefs.max_height)
+        .or_else(|| best_by_height.last().map(|(h, _)| *h));
 
     let mut out: Vec<MediaFormat> = Vec::new();
     let mut push = |out: &mut Vec<MediaFormat>, mut m: MediaFormat| {
@@ -291,14 +333,15 @@ pub fn build_media_formats(formats: &[YtdlpFormat]) -> Vec<MediaFormat> {
         });
     }
 
+    let conv = audio_format_label(prefs.audio_format);
     push(&mut out, MediaFormat {
         index: 0,
         kind: FormatKind::Audio,
-        format_id: "mp3".into(),
+        format_id: CONVERT_FORMAT_ID.into(),
         height: None,
-        label: "MP3".into(),
-        container: Some("MP3".into()),
-        codecs: Some("MP3 (conversion)".into()),
+        label: if prefs.audio_kbps > 0 { format!("{conv} · {} kb/s", prefs.audio_kbps) } else { conv.into() },
+        container: Some(audio_format_ext(prefs.audio_format).to_uppercase()),
+        codecs: Some(format!("{conv} (conversion)")),
         fps: None,
         est_size: None,
         recommended: true,
@@ -359,7 +402,7 @@ pub enum JobMode {
 }
 
 /// Tâche yt-dlp paramétrée, sérialisée dans `Download.media_selection`.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 pub struct YtdlpJob {
     pub format_id: String,
     #[serde(default)]
@@ -368,8 +411,15 @@ pub struct YtdlpJob {
     pub time_range: Option<String>,
     #[serde(default)]
     pub subs: Option<Vec<String>>,
+    /// Conversion audio (`-x`) ; le nom date de l'époque où seul le MP3 existait.
     #[serde(default)]
     pub convert_mp3: bool,
+    /// Format de conversion (`mp3`, `m4a`, `opus`) ; absent (anciennes tâches) = `mp3`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio_format: Option<String>,
+    /// Débit de conversion en kb/s ; absent ou 0 = meilleure qualité.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio_kbps: Option<u32>,
 }
 
 /// Langues de sous-titres préférées par défaut.
@@ -379,7 +429,7 @@ pub const PREFERRED_SUB_LANGS: &[&str] = &["fr", "en"];
 /// les très anciennes qui ne stockaient que l'identifiant de format : `137`, `bestaudio`
 /// ou `"137"`).
 pub fn job_from_selection(json: Option<&str>) -> YtdlpJob {
-    let default = || YtdlpJob { format_id: "bestvideo".into(), mode: JobMode::Av, time_range: None, subs: None, convert_mp3: false };
+    let default = || YtdlpJob { format_id: "bestvideo".into(), mode: JobMode::Av, ..Default::default() };
     let Some(raw) = json.map(str::trim).filter(|r| !r.is_empty()) else { return default() };
     let v = serde_json::from_str::<serde_json::Value>(raw).unwrap_or_else(|_| serde_json::Value::String(raw.to_string()));
     let bare = |id: String| YtdlpJob { format_id: id, ..default() };
@@ -415,7 +465,18 @@ pub fn job_args(job: &YtdlpJob) -> Vec<String> {
         }
         JobMode::Video => push(&["-f", id, "--remux-video", "mp4"]),
         // `/best` : certains sites n'offrent que des formats combinés (pas d'audio seul).
-        JobMode::Audio if job.convert_mp3 => push(&["-f", "bestaudio/best", "-x", "--audio-format", "mp3", "--audio-quality", "0"]),
+        JobMode::Audio if job.convert_mp3 => {
+            // Liste blanche : une valeur inconnue (ligne modifiée à la main) retombe sur mp3.
+            let fmt = match job.audio_format.as_deref() {
+                Some(f @ ("mp3" | "m4a" | "opus")) => f,
+                _ => "mp3",
+            };
+            let quality = match job.audio_kbps {
+                Some(k) if k > 0 => format!("{k}K"),
+                _ => "0".into(),
+            };
+            push(&["-f", "bestaudio/best", "-x", "--audio-format", fmt, "--audio-quality", &quality]);
+        }
         JobMode::Audio => push(&["-f", id]),
     }
     if let Some(subs) = job.subs.as_ref().filter(|s| !s.is_empty()) {
@@ -428,10 +489,11 @@ pub fn job_args(job: &YtdlpJob) -> Vec<String> {
 }
 
 /// Langues préférées présentes (dans l'ordre des préférées) ; à défaut la première disponible.
-pub fn pick_sub_langs(available: &[String], preferred: &[&str]) -> Vec<String> {
+pub fn pick_sub_langs<S: AsRef<str>>(available: &[String], preferred: &[S]) -> Vec<String> {
     let picked: Vec<String> = preferred
         .iter()
-        .filter(|p| available.iter().any(|a| a == *p))
+        .map(|p| p.as_ref())
+        .filter(|p| available.iter().any(|a| a == p))
         .map(|p| p.to_string())
         .collect();
     if !picked.is_empty() {
@@ -554,7 +616,7 @@ mod tests {
     #[test]
     fn av_formats_one_per_height_prefer_h264() {
         let (_, f) = parse_info(INFO_SAMPLE).unwrap();
-        let av: Vec<_> = build_media_formats(&f).into_iter().filter(|m| m.kind == FormatKind::Av).collect();
+        let av: Vec<_> = build_media_formats(&f, &MediaPrefs::default()).into_iter().filter(|m| m.kind == FormatKind::Av).collect();
         assert_eq!(av.iter().map(|m| m.label.as_str()).collect::<Vec<_>>(), ["2160p", "1080p", "720p"]);
         let p1080 = &av[1];
         assert_eq!(p1080.format_id, "137");
@@ -567,7 +629,7 @@ mod tests {
     #[test]
     fn video_formats_follow_av_with_same_heights() {
         let (_, f) = parse_info(INFO_SAMPLE).unwrap();
-        let v: Vec<_> = build_media_formats(&f).into_iter().filter(|m| m.kind == FormatKind::Video).collect();
+        let v: Vec<_> = build_media_formats(&f, &MediaPrefs::default()).into_iter().filter(|m| m.kind == FormatKind::Video).collect();
         assert_eq!(v.iter().map(|m| m.label.as_str()).collect::<Vec<_>>(), ["2160p", "1080p", "720p"]);
         assert_eq!(v[1].codecs.as_deref(), Some("H.264"));
         assert_eq!(v[1].est_size, Some(1_000_000));
@@ -575,10 +637,10 @@ mod tests {
     }
 
     #[test]
-    fn audio_formats_mp3_first_then_native_by_ext() {
+    fn audio_formats_convert_first_then_native_by_ext() {
         let (_, f) = parse_info(INFO_SAMPLE).unwrap();
-        let au: Vec<_> = build_media_formats(&f).into_iter().filter(|m| m.kind == FormatKind::Audio).collect();
-        assert_eq!(au[0].format_id, "mp3");
+        let au: Vec<_> = build_media_formats(&f, &MediaPrefs::default()).into_iter().filter(|m| m.kind == FormatKind::Audio).collect();
+        assert_eq!(au[0].format_id, "convert");
         assert!(au[0].recommended);
         assert_eq!(au.iter().skip(1).map(|m| m.label.as_str()).collect::<Vec<_>>(), ["M4A · 129 kb/s", "WEBM · 160 kb/s"]);
     }
@@ -596,7 +658,7 @@ mod tests {
         let f = build_media_formats(&[
             heightless("0", Some("avc1"), Some("mp4a"), "mp4"),
             heightless("1", Some("avc1"), Some("none"), "mp4"),
-        ]);
+        ], &MediaPrefs::default());
         let av: Vec<_> = f.iter().filter(|m| m.kind == FormatKind::Av).collect();
         assert_eq!(av.len(), 1);
         let row = av[0];
@@ -607,12 +669,12 @@ mod tests {
         assert_eq!(row.index, 0);
         assert!(!f.iter().any(|m| m.kind == FormatKind::Video));
         // Les lignes audio suivent, indexes = positions.
-        assert_eq!(f[1].format_id, "mp3");
+        assert_eq!(f[1].format_id, "convert");
         for (i, m) in f.iter().enumerate() {
             assert_eq!(m.index as usize, i);
         }
         // vcodec absent (extracteur générique) = vidéo aussi.
-        let g = build_media_formats(&[heightless("direct", None, None, "mp4")]);
+        let g = build_media_formats(&[heightless("direct", None, None, "mp4")], &MediaPrefs::default());
         assert_eq!(g[0].format_id, "bestvideo");
     }
 
@@ -621,20 +683,20 @@ mod tests {
         let f = build_media_formats(&[
             heightless("sb0", Some("none"), Some("none"), "mhtml"),
             heightless("sb1", Some("none"), Some("none"), "mhtml"),
-        ]);
+        ], &MediaPrefs::default());
         assert!(!f.iter().any(|m| matches!(m.kind, FormatKind::Av | FormatKind::Video)));
-        assert!(!f.iter().any(|m| m.format_id != "mp3"));
+        assert!(!f.iter().any(|m| m.format_id != CONVERT_FORMAT_ID));
         // Rien du tout → pas de ligne vidéo non plus.
-        assert!(!build_media_formats(&[]).iter().any(|m| m.kind == FormatKind::Av));
+        assert!(!build_media_formats(&[], &MediaPrefs::default()).iter().any(|m| m.kind == FormatKind::Av));
         // Des hauteurs connues → pas de ligne « Meilleure qualité ».
         let (_, info) = parse_info(INFO_SAMPLE).unwrap();
-        assert!(!build_media_formats(&info).iter().any(|m| m.format_id == "bestvideo"));
+        assert!(!build_media_formats(&info, &MediaPrefs::default()).iter().any(|m| m.format_id == "bestvideo"));
     }
 
     #[test]
     fn indexes_are_positions() {
         let (_, f) = parse_info(INFO_SAMPLE).unwrap();
-        for (i, m) in build_media_formats(&f).iter().enumerate() {
+        for (i, m) in build_media_formats(&f, &MediaPrefs::default()).iter().enumerate() {
             assert_eq!(m.index as usize, i);
         }
     }
@@ -698,15 +760,15 @@ mod tests {
         assert_eq!(job_args(&j), ["-f","bestvideo+bestaudio/best","--merge-output-format","mp4"]);
     }
     #[test] fn args_av_with_subs_and_cut() {
-        let j = YtdlpJob { format_id: "137".into(), mode: JobMode::Av, time_range: Some("*90-165".into()), subs: Some(vec!["fr".into(), "en".into()]), convert_mp3: false };
+        let j = YtdlpJob { format_id: "137".into(), mode: JobMode::Av, time_range: Some("*90-165".into()), subs: Some(vec!["fr".into(), "en".into()]), convert_mp3: false, ..Default::default() };
         assert_eq!(job_args(&j), ["-f","137+bestaudio/137/best","--merge-output-format","mp4","--write-subs","--sub-langs","fr,en","--embed-subs","--download-sections","*90-165"]);
     }
     #[test] fn args_video_only() {
-        let j = YtdlpJob { format_id: "137".into(), mode: JobMode::Video, time_range: None, subs: None, convert_mp3: false };
+        let j = YtdlpJob { format_id: "137".into(), mode: JobMode::Video, time_range: None, subs: None, convert_mp3: false, ..Default::default() };
         assert_eq!(job_args(&j), ["-f","137","--remux-video","mp4"]);
     }
     #[test] fn args_mp3() {
-        let j = YtdlpJob { format_id: "bestaudio".into(), mode: JobMode::Audio, time_range: None, subs: Some(vec![]), convert_mp3: true };
+        let j = YtdlpJob { format_id: "bestaudio".into(), mode: JobMode::Audio, time_range: None, subs: Some(vec![]), convert_mp3: true, ..Default::default() };
         assert_eq!(job_args(&j), ["-f","bestaudio/best","-x","--audio-format","mp3","--audio-quality","0"]);
     }
     #[test] fn legacy_bare_format_id_selection() {
@@ -725,7 +787,7 @@ mod tests {
         assert_eq!(job_from_selection(Some("  ")).format_id, "bestvideo");
     }
     #[test] fn args_native_audio() {
-        let j = YtdlpJob { format_id: "140".into(), mode: JobMode::Audio, time_range: None, subs: None, convert_mp3: false };
+        let j = YtdlpJob { format_id: "140".into(), mode: JobMode::Audio, time_range: None, subs: None, convert_mp3: false, ..Default::default() };
         assert_eq!(job_args(&j), ["-f","140"]);
     }
     #[test] fn sub_langs() {
@@ -736,6 +798,73 @@ mod tests {
     }
     #[test] fn clock() { assert_eq!(parse_clock("90"), Some(90)); assert_eq!(parse_clock("1:30"), Some(90)); assert_eq!(parse_clock("01:02:03"), Some(3723)); assert_eq!(parse_clock("1:75"), None); assert_eq!(parse_clock(""), None); assert_eq!(parse_clock("abc"), None); }
     #[test] fn range() { assert_eq!(time_range(90, Some(165)), "*90-165"); assert_eq!(time_range(0, None), "*0-inf"); }
+    fn tall(id: &str, h: u32) -> YtdlpFormat {
+        YtdlpFormat { height: Some(h), ..heightless(id, Some("avc1"), Some("none"), "mp4") }
+    }
+    fn prefs(max_height: u32) -> MediaPrefs {
+        MediaPrefs { max_height, ..MediaPrefs::default() }
+    }
+    fn recommended_av(f: &[YtdlpFormat], p: &MediaPrefs) -> Vec<String> {
+        build_media_formats(f, p).into_iter().filter(|m| m.kind == FormatKind::Av && m.recommended).map(|m| m.label).collect()
+    }
+
+    #[test]
+    fn recommended_respects_max_height() {
+        let (_, f) = parse_info(INFO_SAMPLE).unwrap();
+        assert_eq!(recommended_av(&f, &prefs(720)), ["720p"]);
+        assert_eq!(recommended_av(&f, &prefs(2160)), ["2160p"]);
+        assert_eq!(recommended_av(&f, &prefs(1080)), ["1080p"]);
+        // Entre deux hauteurs : la plus grande en dessous.
+        assert_eq!(recommended_av(&f, &prefs(1440)), ["1080p"]);
+        // Toutes au-dessus du plafond : la plus petite disponible.
+        let big = [tall("a", 2160), tall("b", 1440)];
+        assert_eq!(recommended_av(&big, &prefs(1080)), ["1440p"]);
+        let v: Vec<_> = build_media_formats(&big, &prefs(1080)).into_iter().filter(|m| m.kind == FormatKind::Video && m.recommended).map(|m| m.label).collect();
+        assert_eq!(v, ["1440p"]);
+    }
+
+    #[test]
+    fn convert_row_follows_audio_prefs() {
+        let (_, f) = parse_info(INFO_SAMPLE).unwrap();
+        let first_audio = |p: &MediaPrefs| build_media_formats(&f, p).into_iter().find(|m| m.kind == FormatKind::Audio).unwrap();
+        let m4a = first_audio(&MediaPrefs { audio_format: AudioFormat::M4a, audio_kbps: 256, ..MediaPrefs::default() });
+        assert_eq!(m4a.format_id, CONVERT_FORMAT_ID);
+        assert_eq!(m4a.format_id, "convert");
+        assert_eq!(m4a.label, "M4A · 256 kb/s");
+        assert_eq!(m4a.container.as_deref(), Some("M4A"));
+        assert!(m4a.recommended);
+        let opus = first_audio(&MediaPrefs { audio_format: AudioFormat::Opus, audio_kbps: 0, ..MediaPrefs::default() });
+        assert_eq!((opus.label.as_str(), opus.container.as_deref()), ("Opus", Some("OPUS")));
+        let mp3 = first_audio(&MediaPrefs::default());
+        assert_eq!((mp3.label.as_str(), mp3.container.as_deref(), mp3.codecs.as_deref()), ("MP3", Some("MP3"), Some("MP3 (conversion)")));
+    }
+
+    #[test]
+    fn job_args_audio_formats() {
+        let conv = |fmt: Option<&str>, kbps: Option<u32>| YtdlpJob {
+            format_id: "bestaudio".into(), mode: JobMode::Audio, time_range: None, subs: None, convert_mp3: true,
+            audio_format: fmt.map(String::from), audio_kbps: kbps,
+        };
+        assert_eq!(job_args(&conv(Some("opus"), Some(0))), ["-f","bestaudio/best","-x","--audio-format","opus","--audio-quality","0"]);
+        assert_eq!(job_args(&conv(Some("m4a"), Some(256))), ["-f","bestaudio/best","-x","--audio-format","m4a","--audio-quality","256K"]);
+        // Valeur inconnue : mp3.
+        assert_eq!(job_args(&conv(Some("wav; rm"), None))[4], "mp3");
+        // Ancienne tâche : `convert_mp3` sans format ni débit → mp3, qualité 0.
+        let old = job_from_selection(Some(r#"{"format_id":"bestaudio","mode":"audio","time_range":null,"subs":null,"convert_mp3":true}"#));
+        assert_eq!((old.audio_format.as_deref(), old.audio_kbps), (None, None));
+        assert_eq!(job_args(&old), ["-f","bestaudio/best","-x","--audio-format","mp3","--audio-quality","0"]);
+        // Les champs absents ne sont pas sérialisés (lignes compatibles avec l'ancien format).
+        let s = serde_json::to_string(&old).unwrap();
+        assert!(!s.contains("audio_format") && !s.contains("audio_kbps"), "{s}");
+    }
+
+    #[test]
+    fn sub_langs_from_settings() {
+        let a = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        assert_eq!(pick_sub_langs(&a(&["en","de"]), &a(&["de"])), ["de"]);
+        assert_eq!(pick_sub_langs(&a(&["en","de"]), &a(&["it","en","de"])), ["en","de"]);
+    }
+
     #[test] fn parse_info_excludes_live_chat() {
         let j = r#"{"title":"t","subtitles":{"fr":[{"ext":"vtt"}],"live_chat":[{"ext":"json"}]},"formats":[]}"#;
         let (info, _) = parse_info(j).unwrap();

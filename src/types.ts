@@ -45,11 +45,28 @@ export interface Download {
   created_at?: number | null;
   started_at?: number | null;
   completed_at?: number | null;
+  queue_rank?: number | null;
 }
+
+export type ConflictPolicy = "rename" | "overwrite";
+export type AudioFormat = "mp3" | "m4a" | "opus";
 
 export interface Settings {
   max_concurrent: number;
   max_speed_bps: number;
+  connections: number;
+  retries: number;
+  auto_resume: boolean;
+  conflict: ConflictPolicy;
+  close_to_tray: boolean;
+  notify_complete: boolean;
+  notify_error: boolean;
+  video_max_height: number;
+  audio_format: AudioFormat;
+  audio_kbps: number;
+  sub_langs: string[];
+  ytdlp_auto_update: boolean;
+  app_update_check: boolean;
 }
 
 export interface Progress {

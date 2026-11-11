@@ -18,9 +18,22 @@ pub fn sidecar_path(dest: &Path) -> PathBuf {
     PathBuf::from(s)
 }
 
+/// Fichier temporaire de `save` : écrit puis renommé sur le sidecar.
+fn tmp_path(dest: &Path) -> PathBuf {
+    let mut s = sidecar_path(dest).into_os_string();
+    s.push(".tmp");
+    PathBuf::from(s)
+}
+
 pub fn save(dest: &Path, state: &ResumeState) -> Result<(), CoreError> {
     let json = serde_json::to_vec_pretty(state)?;
-    std::fs::write(sidecar_path(dest), json)?;
+    let target = sidecar_path(dest);
+    let tmp = tmp_path(dest);
+    std::fs::write(&tmp, json)?;
+    if let Err(e) = std::fs::rename(&tmp, &target) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e.into());
+    }
     Ok(())
 }
 
@@ -31,6 +44,8 @@ pub fn load(dest: &Path) -> Option<ResumeState> {
 
 pub fn clear(dest: &Path) {
     let _ = std::fs::remove_file(sidecar_path(dest));
+    // Reste éventuel d'un `save` interrompu entre l'écriture et le renommage.
+    let _ = std::fs::remove_file(tmp_path(dest));
 }
 
 #[cfg(test)]
@@ -49,6 +64,18 @@ mod tests {
         };
         save(&dest, &state).unwrap();
         assert_eq!(load(&dest), Some(state));
+    }
+
+    #[test]
+    fn save_leaves_no_tmp_behind() {
+        let dir = tempdir().unwrap();
+        let dest = dir.path().join("file.bin");
+        let state = ResumeState { url: "u".into(), total_bytes: 1, segments: vec![(0, 0, 0)] };
+        save(&dest, &state).unwrap();
+        save(&dest, &state).unwrap();
+        let names: Vec<String> = std::fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        assert!(names.iter().all(|n| !n.ends_with(".tmp")), "{names:?}");
+        assert_eq!(names.len(), 1);
     }
 
     #[test]

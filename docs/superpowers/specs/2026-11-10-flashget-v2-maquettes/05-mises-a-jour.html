@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maquette — Mises à jour</title>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+<style>
+  body { margin: 0; padding: 28px 16px 48px; background: #e5e7eb; color: #111827; font-family: Archivo, system-ui, sans-serif; }
+  h2 { max-width: 1180px; margin: 0 auto 6px; font-size: 22px; }
+  .subtitle { max-width: 1180px; margin: 0 auto 18px; color: #4b5563; font-size: 14px; line-height: 1.5; }
+  .label { max-width: 1180px; margin: 26px auto 8px; font-weight: 700; font-size: 13px; color: #374151; text-transform: uppercase; letter-spacing: .06em; }
+  .note { max-width: 1180px; margin: 6px auto 0; color: #4b5563; font-size: 13px; line-height: 1.5; }
+  .fg { font-family: Archivo, system-ui, sans-serif; border-radius: 12px; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,.25); margin: 0 auto 1.25rem; max-width: 1180px; font-size: 13px; line-height: 1.35; background: #0b1120; color: #e2e8f0; }
+  .fg * { box-sizing: border-box; }
+  .fg .mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
+  .fg svg.i { width: 16px; height: 16px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
+  .fg .title { display: flex; align-items: center; height: 36px; padding-left: 14px; gap: 8px; font-weight: 700; font-size: 12px; background: #060a16; color: #94a3b8; }
+  .fg .logo { width: 18px; height: 18px; border-radius: 5px; background: linear-gradient(160deg,#fbbf24,#f59e0b); display: grid; place-items: center; color: #3b1d00; }
+  .fg .logo svg { width: 12px; height: 12px; stroke-width: 3; }
+  .fg .wc { margin-left: auto; display: flex; } .fg .wc span { width: 44px; height: 36px; display: grid; place-items: center; opacity: .7; }
+  .fg .body { display: flex; height: 600px; }
+  .fg .side { width: 210px; padding: 14px 10px; display: flex; flex-direction: column; gap: 2px; background: #0f172a; border-right: 1px solid #1e293b; }
+  .fg .nav { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; font-weight: 500; color: #94a3b8; }
+  .fg .nav.on { background: rgba(245,158,11,.12); color: #fbbf24; }
+  .fg .nav.cta { background: #f59e0b; color: #3b1d00; font-weight: 700; margin-bottom: 8px; }
+  .fg .sub { width: 200px; padding: 18px 10px; border-right: 1px solid #1e293b; display: flex; flex-direction: column; gap: 2px; }
+  .fg .sub h1 { font-size: 20px; font-weight: 800; margin: 0 10px 14px; }
+  .fg .sub .it { display: flex; align-items: center; gap: 9px; padding: 7px 10px; border-radius: 7px; color: #94a3b8; font-weight: 500; }
+  .fg .sub .it.on { background: #1e293b; color: #e2e8f0; }
+  .fg .dot { margin-left: auto; width: 7px; height: 7px; border-radius: 50%; background: #f59e0b; }
+  .fg .content { flex: 1; padding: 22px 28px; overflow: hidden; min-width: 0; }
+  .fg h2x { display: block; font-size: 17px; font-weight: 800; }
+  .fg .desc { color: #64748b; margin: 4px 0 18px; }
+  .fg .card { border: 1px solid #1e293b; border-radius: 10px; background: #0f172a; margin-bottom: 14px; }
+  .fg .card .hd { padding: 11px 16px; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: .07em; border-bottom: 1px solid #1a2438; }
+  .fg .set { display: flex; align-items: center; gap: 16px; padding: 12px 16px; border-bottom: 1px solid #1a2438; }
+  .fg .set:last-child { border-bottom: 0; }
+  .fg .set .tx { flex: 1; min-width: 0; }
+  .fg .set .tx b { font-weight: 600; display: block; }
+  .fg .set .tx small { color: #64748b; font-size: 12px; }
+  .fg .ctl { display: flex; align-items: center; gap: 8px; }
+  .fg .sw { width: 34px; height: 19px; border-radius: 99px; background: #334155; position: relative; flex-shrink: 0; }
+  .fg .sw::after { content: ""; position: absolute; width: 15px; height: 15px; border-radius: 50%; background: #94a3b8; top: 2px; left: 2px; }
+  .fg .sw.on { background: #f59e0b; } .fg .sw.on::after { left: 17px; background: #3b1d00; }
+  .fg .btn { display: inline-flex; align-items: center; gap: 7px; padding: 7px 12px; border-radius: 7px; font-weight: 700; white-space: nowrap; background: #f59e0b; color: #3b1d00; }
+  .fg .btn.ghost { background: #111b2e; color: #e2e8f0; border: 1px solid #1e293b; }
+  .fg .btn.off { opacity: .45; }
+  .fg .pill { font-size: 11px; padding: 2px 8px; border-radius: 99px; font-weight: 600; white-space: nowrap; }
+  .fg .pill.ok { background: rgba(52,211,153,.12); color: #6ee7b7; }
+  .fg .pill.up { background: rgba(245,158,11,.15); color: #fbbf24; }
+  .fg .pill.err { background: rgba(248,113,113,.12); color: #fca5a5; }
+  .fg .bar { height: 6px; border-radius: 3px; background: #1e293b; overflow: hidden; margin-top: 8px; }
+  .fg .bar b { display: block; height: 100%; background: #f59e0b; }
+  .fg .notes { padding: 4px 16px 14px 16px; color: #94a3b8; font-size: 12.5px; }
+  .fg .notes ul { margin: 6px 0 0; padding-left: 18px; } .fg .notes li { margin: 3px 0; }
+  .fg .strip { padding: 18px 20px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; max-width: 1180px; margin: 0 auto; }
+  .grid .fg { margin: 0; max-width: none; }
+  .tag { font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: .07em; margin: 0 0 8px 2px; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } .fg .sub, .fg .side { display: none; } }
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute">
+  <symbol id="i-dl" viewBox="0 0 24 24"><path d="M12 3v12m0 0-5-5m5 5 5-5M5 21h14"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"/></symbol>
+  <symbol id="i-gauge" viewBox="0 0 24 24"><path d="M12 14 16 9"/><path d="M3.3 19a10 10 0 1 1 17.4 0"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <symbol id="i-film" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 4v16M17 4v16"/></symbol>
+  <symbol id="i-puzzle" viewBox="0 0 24 24"><path d="M19 11h-1V7a2 2 0 0 0-2-2h-4V4a2 2 0 1 0-4 0v1H4v5h1a2 2 0 1 1 0 4H4v5h5v-1a2 2 0 1 1 4 0v1h3a2 2 0 0 0 2-2v-3h1a2 2 0 1 0 0-4z"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10 21a2 2 0 0 0 4 0"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4M12 8h.01"/></symbol>
+  <symbol id="i-rocket" viewBox="0 0 24 24"><path d="M5 15c-1.5 1.5-2 5-2 5s3.5-.5 5-2"/><path d="M9 13a12 12 0 0 1 11-10 12 12 0 0 1-10 11z"/><path d="M9 13 7 11l-3 1 3-4h4M11 15l2 2-1 3 4-3v-4"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-min" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+  <symbol id="i-sq" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="1"/></symbol>
+</svg>
+
+<h2>Mises à jour : FlashGet et yt-dlp</h2>
+<p class="subtitle">Phase 6. La section « Mises à jour » des Paramètres (FlashGet lui-même), puis les états de la ligne yt-dlp de la section « Vidéo &amp; yt-dlp ». Un point ambre sur « Paramètres » et sur la section concernée signale une mise à jour disponible. Dis-moi ce qui manque ou ce qui est en trop.</p>
+
+<!-- =============== Page : mise à jour disponible =============== -->
+<div class="label">Section « Mises à jour » — une nouvelle version est disponible</div>
+<div class="fg">
+  <div class="title"><span class="logo"><svg class="i"><use href="#i-dl"/></svg></span>FlashGet<span class="wc"><span><svg class="i"><use href="#i-min"/></svg></span><span><svg class="i"><use href="#i-sq"/></svg></span><span><svg class="i"><use href="#i-x"/></svg></span></span></div>
+  <div class="body">
+    <div class="side">
+      <div class="nav cta"><svg class="i"><use href="#i-plus"/></svg>Nouveau</div>
+      <div class="nav"><svg class="i"><use href="#i-list"/></svg>Téléchargements</div>
+      <div class="nav"><svg class="i"><use href="#i-check"/></svg>Terminés</div>
+      <div class="nav"><svg class="i"><use href="#i-clock"/></svg>File d'attente</div>
+      <div class="nav"><svg class="i"><use href="#i-cal"/></svg>Planificateur</div>
+      <div style="flex:1"></div>
+      <div class="nav on"><svg class="i"><use href="#i-gear"/></svg>Paramètres<span class="dot"></span></div>
+    </div>
+    <div class="sub">
+      <h1>Paramètres</h1>
+      <div class="it"><svg class="i"><use href="#i-sliders"/></svg>Général</div>
+      <div class="it"><svg class="i"><use href="#i-gauge"/></svg>Téléchargements</div>
+      <div class="it"><svg class="i"><use href="#i-folder"/></svg>Dossiers</div>
+      <div class="it"><svg class="i"><use href="#i-film"/></svg>Vidéo &amp; yt-dlp</div>
+      <div class="it"><svg class="i"><use href="#i-puzzle"/></svg>Extension navigateur</div>
+      <div class="it"><svg class="i"><use href="#i-bell"/></svg>Notifications</div>
+      <div class="it on"><svg class="i"><use href="#i-refresh"/></svg>Mises à jour<span class="dot"></span></div>
+      <div class="it"><svg class="i"><use href="#i-info"/></svg>À propos</div>
+    </div>
+    <div class="content">
+      <h2x>Mises à jour</h2x>
+      <div class="desc">Version de FlashGet, recherche et installation des mises à jour.</div>
+      <div class="card">
+        <div class="hd">FlashGet</div>
+        <div class="set"><div class="tx"><b>Version installée</b><small>Dernière recherche : aujourd'hui à <span class="mono">14:32</span></small></div><div class="ctl"><span class="mono" style="color:#cbd5e1">2.0.0</span></div></div>
+        <div class="set"><div class="tx"><b>Nouvelle version disponible : <span class="mono">2.1.0</span></b><small>Publiée le <span class="mono">12/11/2026</span></small></div><div class="ctl"><span class="pill up">Mise à jour</span><span class="btn"><svg class="i"><use href="#i-dl"/></svg>Télécharger et installer</span></div></div>
+        <div class="notes"><b style="color:#cbd5e1;font-weight:600">Nouveautés</b>
+          <ul><li>Sites ignorés pour l'extension.</li><li>Correctifs de la reprise après coupure réseau.</li></ul>
+        </div>
+      </div>
+      <div class="card">
+        <div class="hd">Options</div>
+        <div class="set"><div class="tx"><b>Rechercher les mises à jour au démarrage</b><small>FlashGet prévient seulement ; rien ne s'installe sans votre accord.</small></div><div class="ctl"><span class="sw on"></span></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+<p class="note">Les nouveautés viennent du texte de la version publiée sur GitHub.</p>
+
+<!-- =============== États de la carte FlashGet =============== -->
+<div class="label">Les autres états de la carte « FlashGet »</div>
+<div class="grid">
+  <div>
+    <div class="tag">À jour</div>
+    <div class="fg"><div class="strip"><div class="card" style="margin:0">
+      <div class="set"><div class="tx"><b>Version installée</b><small>Dernière recherche : aujourd'hui à <span class="mono">14:32</span></small></div><div class="ctl"><span class="mono" style="color:#cbd5e1">2.0.0</span></div></div>
+      <div class="set"><div class="tx"><b>FlashGet est à jour</b></div><div class="ctl"><span class="pill ok">À jour</span><span class="btn ghost"><svg class="i"><use href="#i-refresh"/></svg>Rechercher</span></div></div>
+    </div></div></div>
+  </div>
+  <div>
+    <div class="tag">Recherche en cours</div>
+    <div class="fg"><div class="strip"><div class="card" style="margin:0">
+      <div class="set"><div class="tx"><b>Version installée</b><small>Dernière recherche : hier à <span class="mono">09:10</span></small></div><div class="ctl"><span class="mono" style="color:#cbd5e1">2.0.0</span></div></div>
+      <div class="set"><div class="tx"><b>Recherche d'une nouvelle version…</b></div><div class="ctl"><span class="btn ghost off"><svg class="i"><use href="#i-refresh"/></svg>Rechercher</span></div></div>
+    </div></div></div>
+  </div>
+  <div>
+    <div class="tag">Téléchargement</div>
+    <div class="fg"><div class="strip"><div class="card" style="margin:0">
+      <div class="set"><div class="tx"><b>Téléchargement de la version <span class="mono">2.1.0</span></b>
+        <div class="bar"><b style="width:62%"></b></div>
+        <small><span class="mono">18,4 / 29,6 Mo</span> · <span class="mono">62 %</span></small></div><div class="ctl"><span class="btn ghost off">Télécharger et installer</span></div></div>
+    </div></div></div>
+  </div>
+  <div>
+    <div class="tag">Prête à installer</div>
+    <div class="fg"><div class="strip"><div class="card" style="margin:0">
+      <div class="set"><div class="tx"><b>La version <span class="mono">2.1.0</span> est prête</b><small>FlashGet va se fermer pour l'installer puis se rouvrir. Les téléchargements en cours sont mis en pause et reprendront.</small></div><div class="ctl"><span class="btn"><svg class="i"><use href="#i-rocket"/></svg>Installer et redémarrer</span></div></div>
+    </div></div></div>
+  </div>
+  <div>
+    <div class="tag">Échec</div>
+    <div class="fg"><div class="strip"><div class="card" style="margin:0">
+      <div class="set"><div class="tx"><b>Impossible de rechercher les mises à jour</b><small>Vérifiez la connexion Internet, puis réessayez.</small></div><div class="ctl"><span class="pill err">Échec</span><span class="btn ghost"><svg class="i"><use href="#i-refresh"/></svg>Réessayer</span></div></div>
+    </div></div></div>
+  </div>
+</div>
+
+<!-- =============== Ligne yt-dlp =============== -->
+<div class="label" style="margin-top:2rem">Carte « Moteur » de la section « Vidéo &amp; yt-dlp » — ses états</div>
+<div class="grid">
+  <div>
+    <div class="tag">À jour</div>
+    <div class="fg"><div class="strip"><div class="card" style="margin:0">
+      <div class="hd">Moteur</div>
+      <div class="set"><div class="tx"><b>yt-dlp <span class="mono" style="color:#94a3b8;font-weight:500">2026.11.08</span></b><small>Dernière recherche : aujourd'hui à <span class="mono">14:32</span></small></div><div class="ctl"><span class="pill ok">À jour</span><span class="btn ghost"><svg class="i"><use href="#i-refresh"/></svg>Rechercher</span></div></div>
+      <div class="set"><div class="tx"><b>Mettre à jour yt-dlp automatiquement</b><small>Les sites changent souvent : une version récente évite les échecs.</small></div><div class="ctl"><span class="sw on"></span></div></div>
+    </div></div></div>
+  </div>
+  <div>
+    <div class="tag">Disponible (mise à jour automatique désactivée)</div>
+    <div class="fg"><div class="strip"><div class="card" style="margin:0">
+      <div class="hd">Moteur</div>
+      <div class="set"><div class="tx"><b>yt-dlp <span class="mono" style="color:#94a3b8;font-weight:500">2026.10.30</span></b><small>Nouvelle version disponible : <span class="mono">2026.11.08</span></small></div><div class="ctl"><span class="pill up">Mise à jour</span><span class="btn"><svg class="i"><use href="#i-refresh"/></svg>Mettre à jour</span></div></div>
+      <div class="set"><div class="tx"><b>Mettre à jour yt-dlp automatiquement</b><small>Les sites changent souvent : une version récente évite les échecs.</small></div><div class="ctl"><span class="sw"></span></div></div>
+    </div></div></div>
+  </div>
+  <div>
+    <div class="tag">Mise à jour en cours</div>
+    <div class="fg"><div class="strip"><div class="card" style="margin:0">
+      <div class="hd">Moteur</div>
+      <div class="set"><div class="tx"><b>Mise à jour de yt-dlp vers <span class="mono">2026.11.08</span></b>
+        <div class="bar"><b style="width:40%"></b></div>
+        <small><span class="mono">7,2 / 18,0 Mo</span></small></div><div class="ctl"><span class="btn off"><svg class="i"><use href="#i-refresh"/></svg>Mettre à jour</span></div></div>
+    </div></div></div>
+  </div>
+  <div>
+    <div class="tag">Échec (la version en place reste utilisée)</div>
+    <div class="fg"><div class="strip"><div class="card" style="margin:0">
+      <div class="hd">Moteur</div>
+      <div class="set"><div class="tx"><b>yt-dlp <span class="mono" style="color:#94a3b8;font-weight:500">2026.10.30</span></b><small>La mise à jour a échoué : fichier téléchargé invalide. La version actuelle reste utilisée.</small></div><div class="ctl"><span class="pill err">Échec</span><span class="btn ghost"><svg class="i"><use href="#i-refresh"/></svg>Réessayer</span></div></div>
+    </div></div></div>
+  </div>
+</div>
+<p class="note">Mise à jour automatique de yt-dlp : au démarrage, au plus une fois par jour, sans rien demander. Si un téléchargement utilise yt-dlp à ce moment-là, la nouvelle version prend le relais au prochain démarrage de FlashGet.</p>
+
+</body>
+</html>

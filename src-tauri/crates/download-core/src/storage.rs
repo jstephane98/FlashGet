@@ -1,4 +1,4 @@
-use crate::model::{Download, DownloadKind, DownloadStatus, Priority, Settings, Category, CategoryDirs};
+use crate::model::{AudioFormat, ConflictPolicy, Download, DownloadKind, DownloadStatus, Priority, Settings, Category, CategoryDirs};
 use crate::CoreError;
 use rusqlite::Connection;
 use std::path::Path;
@@ -23,6 +23,20 @@ impl Storage {
     pub fn open(path: &Path) -> Result<Self, CoreError> {
         let conn = Connection::open(path).map_err(|e| CoreError::Storage(e.to_string()))?;
         Self::from_conn(conn)
+    }
+
+    /// Copie cohérente de la base `src` vers un nouveau fichier `dst` (`VACUUM INTO`).
+    /// Ouverture en lecture seule : `src` n'est jamais modifiée, même si une autre instance
+    /// l'utilise. `dst` ne doit pas exister (SQLite refuse sinon).
+    pub fn snapshot_to(src: &Path, dst: &Path) -> Result<(), CoreError> {
+        let conn = Connection::open_with_flags(
+            src,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .map_err(|e| CoreError::Storage(e.to_string()))?;
+        conn.execute("VACUUM INTO ?1", [dst.to_string_lossy().as_ref()])
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        Ok(())
     }
 
     pub fn open_in_memory() -> Result<Self, CoreError> {
@@ -72,6 +86,8 @@ impl Storage {
         let _ = conn.execute("ALTER TABLE downloads ADD COLUMN created_at INTEGER", []);
         let _ = conn.execute("ALTER TABLE downloads ADD COLUMN started_at INTEGER", []);
         let _ = conn.execute("ALTER TABLE downloads ADD COLUMN completed_at INTEGER", []);
+        // Rang dans la file (départage à priorité égale), nullable pour les anciennes lignes.
+        let _ = conn.execute("ALTER TABLE downloads ADD COLUMN queue_rank INTEGER", []);
         conn.execute_batch(
             "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);",
         )
@@ -82,14 +98,15 @@ impl Storage {
     pub fn upsert(&self, d: &Download) -> Result<(), CoreError> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO downloads (id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority, category, referrer, cookie, user_agent, kind, audio_url, media_selection, thumbnail_url, duration_s, created_at, started_at, completed_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, COALESCE(?20, ?23), ?21, ?22)
+            "INSERT INTO downloads (id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority, category, referrer, cookie, user_agent, kind, audio_url, media_selection, thumbnail_url, duration_s, created_at, started_at, completed_at, queue_rank)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, COALESCE(?20, ?23), ?21, ?22, COALESCE(?24, (SELECT COALESCE(MAX(queue_rank), 0) + 1 FROM downloads)))
              ON CONFLICT(id) DO UPDATE SET
                 url=?2, file_name=?3, dest_path=?4, total_bytes=?5,
                 downloaded_bytes=?6, status=?7, supports_ranges=?8, error=?9, priority=?10, category=?11,
                 referrer=?12, cookie=?13, user_agent=?14, kind=?15, audio_url=?16, media_selection=?17, thumbnail_url=?18, duration_s=?19,
                 created_at=COALESCE(created_at, ?20, ?23),
-                started_at=COALESCE(?21, started_at), completed_at=COALESCE(?22, completed_at)",
+                started_at=COALESCE(?21, started_at), completed_at=COALESCE(?22, completed_at),
+                queue_rank=COALESCE(queue_rank, ?24, (SELECT COALESCE(MAX(queue_rank), 0) + 1 FROM downloads))",
             rusqlite::params![
                 d.id, d.url, d.file_name, d.dest_path,
                 d.total_bytes.map(|v| v as i64),
@@ -111,6 +128,7 @@ impl Storage {
                 d.started_at,
                 d.completed_at,
                 now_secs(),
+                d.queue_rank,
             ],
         )
         .map_err(|e| CoreError::Storage(e.to_string()))?;
@@ -120,7 +138,7 @@ impl Storage {
     pub fn list(&self) -> Result<Vec<Download>, CoreError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn
-            .prepare("SELECT id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority, category, referrer, cookie, user_agent, kind, audio_url, media_selection, thumbnail_url, duration_s, created_at, started_at, completed_at FROM downloads ORDER BY rowid")
+            .prepare("SELECT id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority, category, referrer, cookie, user_agent, kind, audio_url, media_selection, thumbnail_url, duration_s, created_at, started_at, completed_at, queue_rank FROM downloads ORDER BY rowid")
             .map_err(|e| CoreError::Storage(e.to_string()))?;
         let rows = stmt
             .query_map([], |row| {
@@ -147,6 +165,7 @@ impl Storage {
                     created_at: row.get(19)?,
                     started_at: row.get(20)?,
                     completed_at: row.get(21)?,
+                    queue_rank: row.get(22)?,
                 })
             })
             .map_err(|e| CoreError::Storage(e.to_string()))?;
@@ -189,14 +208,16 @@ impl Storage {
     }
 
     /// Passe un téléchargement en `downloading` SANS écraser un statut terminal
-    /// (completed/error). No-op si l'id n'existe pas ou est déjà terminé.
-    pub fn mark_active(&self, id: &str, downloaded_bytes: u64) -> Result<(), CoreError> {
+    /// (completed/error) ni `held` (remis en attente, ex. par la sortie de plage du
+    /// planificateur pendant une ré-évaluation concurrente). No-op dans ces cas.
+    /// Renvoie `true` si la ligne est passée en `downloading` (sinon : ne pas lancer).
+    pub fn mark_active(&self, id: &str, downloaded_bytes: u64) -> Result<bool, CoreError> {
         let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "UPDATE downloads SET downloaded_bytes=?1, status='downloading', started_at=COALESCE(started_at, ?3) WHERE id=?2 AND status NOT IN ('completed','error')",
+        let n = conn.execute(
+            "UPDATE downloads SET downloaded_bytes=?1, status='downloading', started_at=COALESCE(started_at, ?3) WHERE id=?2 AND status NOT IN ('completed','error','held')",
             rusqlite::params![downloaded_bytes as i64, id, now_secs()],
         ).map_err(|e| CoreError::Storage(e.to_string()))?;
-        Ok(())
+        Ok(n > 0)
     }
 
     /// Marque un téléchargement en erreur (no-op si l'id n'existe plus).
@@ -212,7 +233,7 @@ impl Storage {
     pub fn get_by_id(&self, id: &str) -> Result<Option<Download>, CoreError> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn
-            .prepare("SELECT id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority, category, referrer, cookie, user_agent, kind, audio_url, media_selection, thumbnail_url, duration_s, created_at, started_at, completed_at FROM downloads WHERE id=?1")
+            .prepare("SELECT id, url, file_name, dest_path, total_bytes, downloaded_bytes, status, supports_ranges, error, priority, category, referrer, cookie, user_agent, kind, audio_url, media_selection, thumbnail_url, duration_s, created_at, started_at, completed_at, queue_rank FROM downloads WHERE id=?1")
             .map_err(|e| CoreError::Storage(e.to_string()))?;
         let mut rows = stmt
             .query_map([id], |row| {
@@ -239,6 +260,7 @@ impl Storage {
                     created_at: row.get(19)?,
                     started_at: row.get(20)?,
                     completed_at: row.get(21)?,
+                    queue_rank: row.get(22)?,
                 })
             })
             .map_err(|e| CoreError::Storage(e.to_string()))?;
@@ -386,19 +408,75 @@ impl Storage {
         Ok(())
     }
 
+    /// Renumérote la file : `queue_rank = 1..=n` dans l'ordre reçu, en une transaction.
+    pub fn set_queue_order(&self, ids: &[String]) -> Result<(), CoreError> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction().map_err(|e| CoreError::Storage(e.to_string()))?;
+        for (i, id) in ids.iter().enumerate() {
+            tx.execute(
+                "UPDATE downloads SET queue_rank=?1 WHERE id=?2",
+                rusqlite::params![(i + 1) as i64, id],
+            )
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        }
+        tx.commit().map_err(|e| CoreError::Storage(e.to_string()))
+    }
+
+    /// File suspendue (clé `queue.paused`) ; absente = faux.
+    pub fn queue_paused(&self) -> Result<bool, CoreError> {
+        Ok(self.get_pref("queue.paused")?.as_deref() == Some("1"))
+    }
+
+    pub fn set_queue_paused(&self, v: bool) -> Result<(), CoreError> {
+        self.set_pref("queue.paused", if v { "1" } else { "0" })
+    }
+
     pub fn get_settings(&self) -> Result<Settings, CoreError> {
         let conn = self.conn.lock().unwrap();
         let read = |key: &str| -> Option<String> {
             conn.query_row("SELECT value FROM settings WHERE key=?1", [key], |r| r.get::<_, String>(0)).ok()
         };
-        let mut s = Settings::default();
-        if let Some(v) = read("max_concurrent") {
-            if let Ok(n) = v.parse::<u32>() { s.max_concurrent = n; }
-        }
-        if let Some(v) = read("max_speed_bps") {
-            if let Ok(n) = v.parse::<u64>() { s.max_speed_bps = n; }
-        }
-        Ok(s)
+        let num = |key: &str| -> Option<u32> { read(key).and_then(|v| v.trim().parse::<u32>().ok()) };
+        let flag = |key: &str| -> Option<bool> {
+            match read(key)?.trim() {
+                "1" | "true" | "on" => Some(true),
+                "0" | "false" | "off" => Some(false),
+                _ => None,
+            }
+        };
+        let d = Settings::default();
+        Ok(Settings {
+            max_concurrent: num("max_concurrent").unwrap_or(d.max_concurrent),
+            max_speed_bps: read("max_speed_bps").and_then(|v| v.trim().parse::<u64>().ok()).unwrap_or(d.max_speed_bps),
+            connections: num("connections").unwrap_or(d.connections),
+            retries: num("retries").unwrap_or(d.retries),
+            auto_resume: flag("auto_resume").unwrap_or(d.auto_resume),
+            conflict: read("conflict")
+                .and_then(|v| match v.as_str() {
+                    "rename" => Some(ConflictPolicy::Rename),
+                    "overwrite" => Some(ConflictPolicy::Overwrite),
+                    _ => None,
+                })
+                .unwrap_or(d.conflict),
+            close_to_tray: flag("close_to_tray").unwrap_or(d.close_to_tray),
+            notify_complete: flag("notify_on_complete").unwrap_or(d.notify_complete),
+            notify_error: flag("notify_error").unwrap_or(d.notify_error),
+            video_max_height: num("video_max_height").unwrap_or(d.video_max_height),
+            audio_format: read("audio_format")
+                .and_then(|v| match v.as_str() {
+                    "mp3" => Some(AudioFormat::Mp3),
+                    "m4a" => Some(AudioFormat::M4a),
+                    "opus" => Some(AudioFormat::Opus),
+                    _ => None,
+                })
+                .unwrap_or(d.audio_format),
+            audio_kbps: num("audio_kbps").unwrap_or(d.audio_kbps),
+            sub_langs: read("sub_langs")
+                .and_then(|v| serde_json::from_str::<Vec<String>>(&v).ok())
+                .unwrap_or(d.sub_langs),
+            ytdlp_auto_update: flag("ytdlp_auto_update").unwrap_or(d.ytdlp_auto_update),
+            app_update_check: flag("app_update_check").unwrap_or(d.app_update_check),
+        })
     }
 
     pub fn set_settings(&self, s: &Settings) -> Result<(), CoreError> {
@@ -411,8 +489,24 @@ impl Storage {
             .map_err(|e| CoreError::Storage(e.to_string()))?;
             Ok(())
         };
+        let b = |v: bool| if v { "1" } else { "0" }.to_string();
+        let conflict = match s.conflict { ConflictPolicy::Rename => "rename", ConflictPolicy::Overwrite => "overwrite" };
+        let fmt = match s.audio_format { AudioFormat::Mp3 => "mp3", AudioFormat::M4a => "m4a", AudioFormat::Opus => "opus" };
         put("max_concurrent", s.max_concurrent.to_string())?;
         put("max_speed_bps", s.max_speed_bps.to_string())?;
+        put("connections", s.connections.to_string())?;
+        put("retries", s.retries.to_string())?;
+        put("auto_resume", b(s.auto_resume))?;
+        put("conflict", conflict.to_string())?;
+        put("close_to_tray", b(s.close_to_tray))?;
+        put("notify_on_complete", b(s.notify_complete))?;
+        put("notify_error", b(s.notify_error))?;
+        put("video_max_height", s.video_max_height.to_string())?;
+        put("audio_format", fmt.to_string())?;
+        put("audio_kbps", s.audio_kbps.to_string())?;
+        put("sub_langs", serde_json::to_string(&s.sub_langs).map_err(|e| CoreError::Storage(e.to_string()))?)?;
+        put("ytdlp_auto_update", b(s.ytdlp_auto_update))?;
+        put("app_update_check", b(s.app_update_check))?;
         Ok(())
     }
 }
@@ -519,6 +613,7 @@ fn upsert_bridge_token(conn: &Connection, token: &str) -> Result<(), CoreError> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::validate_settings;
 
     #[test]
     fn pref_roundtrip_and_absent() {
@@ -553,9 +648,62 @@ mod tests {
             created_at: None,
             started_at: None,
             completed_at: None,
+            queue_rank: None,
         }
     }
 
+
+    #[test]
+    fn snapshot_to_copies_rows() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("a.sqlite");
+        let dst = dir.path().join("b.sqlite");
+        {
+            let s = Storage::open(&src).unwrap();
+            s.upsert(&sample("a")).unwrap();
+            s.upsert(&sample("b")).unwrap();
+        }
+        Storage::snapshot_to(&src, &dst).unwrap();
+        assert_eq!(Storage::open(&dst).unwrap().list().unwrap().len(), 2);
+        // Destination existante : refus, sans toucher à la source.
+        assert!(Storage::snapshot_to(&src, &dst).is_err());
+    }
+
+    #[test]
+    fn new_rows_get_increasing_queue_rank() {
+        let s = Storage::open_in_memory().unwrap();
+        for id in ["a", "b", "c"] {
+            s.upsert(&sample(id)).unwrap();
+        }
+        let rank = |id: &str| s.get_by_id(id).unwrap().unwrap().queue_rank;
+        assert_eq!((rank("a"), rank("b"), rank("c")), (Some(1), Some(2), Some(3)));
+        s.upsert(&sample("b")).unwrap();
+        assert_eq!(rank("b"), Some(2));
+    }
+
+    #[test]
+    fn set_queue_order_renumbers() {
+        let s = Storage::open_in_memory().unwrap();
+        for id in ["a", "b", "c"] {
+            s.upsert(&sample(id)).unwrap();
+        }
+        s.set_queue_order(&["c".to_string(), "a".to_string(), "b".to_string()]).unwrap();
+        let rank = |id: &str| s.get_by_id(id).unwrap().unwrap().queue_rank;
+        assert_eq!((rank("c"), rank("a"), rank("b")), (Some(1), Some(2), Some(3)));
+        // un upsert ultérieur n'écrase pas le rang
+        s.upsert(&sample("a")).unwrap();
+        assert_eq!(rank("a"), Some(2));
+    }
+
+    #[test]
+    fn queue_paused_roundtrip() {
+        let s = Storage::open_in_memory().unwrap();
+        assert!(!s.queue_paused().unwrap());
+        s.set_queue_paused(true).unwrap();
+        assert!(s.queue_paused().unwrap());
+        s.set_queue_paused(false).unwrap();
+        assert!(!s.queue_paused().unwrap());
+    }
 
     #[test]
     fn upsert_sets_created_at_once() {
@@ -705,11 +853,87 @@ mod tests {
     }
 
     #[test]
-    fn settings_default_then_roundtrip() {
+    fn settings_defaults_for_missing_keys() {
         let s = Storage::open_in_memory().unwrap();
-        assert_eq!(s.get_settings().unwrap(), Settings::default());
-        s.set_settings(&Settings { max_concurrent: 5, max_speed_bps: 1024 }).unwrap();
-        assert_eq!(s.get_settings().unwrap(), Settings { max_concurrent: 5, max_speed_bps: 1024 });
+        let g = s.get_settings().unwrap();
+        assert_eq!(g, Settings::default());
+        assert_eq!((g.connections, g.retries, g.video_max_height), (8, 3, 1080));
+        assert_eq!(g.sub_langs, vec!["fr", "en"]);
+        assert!(g.ytdlp_auto_update && g.app_update_check);
+    }
+
+    #[test]
+    fn settings_roundtrip_all_fields() {
+        let s = Storage::open_in_memory().unwrap();
+        let v = Settings {
+            max_concurrent: 5,
+            max_speed_bps: 1024,
+            connections: 16,
+            retries: 7,
+            auto_resume: false,
+            conflict: ConflictPolicy::Overwrite,
+            close_to_tray: false,
+            notify_complete: false,
+            notify_error: false,
+            video_max_height: 720,
+            audio_format: AudioFormat::Opus,
+            audio_kbps: 256,
+            sub_langs: vec!["de".into(), "es".into(), "it".into()],
+            ytdlp_auto_update: false,
+            app_update_check: false,
+        };
+        s.set_settings(&v).unwrap();
+        assert_eq!(s.get_settings().unwrap(), v);
+    }
+
+    #[test]
+    fn legacy_notify_key_is_reused() {
+        let s = Storage::open_in_memory().unwrap();
+        s.set_notify_on_complete(false).unwrap();
+        assert!(!s.get_settings().unwrap().notify_complete);
+        let mut v = s.get_settings().unwrap();
+        v.notify_complete = true;
+        s.set_settings(&v).unwrap();
+        assert!(s.get_notify_on_complete().unwrap());
+    }
+
+    #[test]
+    fn unreadable_keys_fall_back_to_defaults() {
+        let s = Storage::open_in_memory().unwrap();
+        s.set_pref("connections", "abc").unwrap();
+        s.set_pref("conflict", "???").unwrap();
+        s.set_pref("sub_langs", "not json").unwrap();
+        let g = s.get_settings().unwrap();
+        assert_eq!(g, Settings::default());
+    }
+
+    #[test]
+    fn validate_settings_cases() {
+        assert!(validate_settings(&Settings::default()).is_ok());
+        let bad = |f: &dyn Fn(&mut Settings), msg: &str| {
+            let mut s = Settings::default();
+            f(&mut s);
+            assert_eq!(validate_settings(&s), Err(msg.to_string()));
+        };
+        bad(&|s| s.max_concurrent = 0, "Téléchargements simultanés : entre 1 et 10");
+        bad(&|s| s.max_concurrent = 11, "Téléchargements simultanés : entre 1 et 10");
+        bad(&|s| s.connections = 0, "Connexions par fichier : entre 1 et 32");
+        bad(&|s| s.connections = 33, "Connexions par fichier : entre 1 et 32");
+        bad(&|s| s.retries = 11, "Nouvelles tentatives : entre 0 et 10");
+        bad(&|s| s.video_max_height = 999, "Qualité vidéo inconnue");
+        bad(&|s| s.audio_kbps = 100, "Débit audio inconnu");
+        bad(&|s| s.sub_langs = vec![], "Langues de sous-titres invalides");
+        bad(&|s| s.sub_langs = vec!["fr".into(); 9], "Langues de sous-titres invalides");
+        let mut eight = Settings::default();
+        eight.sub_langs = ["fr", "en", "es", "de", "it", "pt", "ar", "ja"].iter().map(|c| c.to_string()).collect();
+        assert!(validate_settings(&eight).is_ok(), "8 langues acceptées (comme l'interface)");
+        bad(&|s| s.sub_langs = vec!["FR".into()], "Langues de sous-titres invalides");
+        bad(&|s| s.sub_langs = vec!["fra".into()], "Langues de sous-titres invalides");
+        let mut ok = Settings::default();
+        ok.retries = 0;
+        ok.audio_kbps = 320;
+        ok.video_max_height = 360;
+        assert!(validate_settings(&ok).is_ok());
     }
 
     #[test]
@@ -725,7 +949,7 @@ mod tests {
     fn mark_active_sets_downloading() {
         let s = Storage::open_in_memory().unwrap();
         s.upsert(&sample("ma1")).unwrap(); // starts as Paused
-        s.mark_active("ma1", 10).unwrap();
+        assert!(s.mark_active("ma1", 10).unwrap());
         let d = s.get_by_id("ma1").unwrap().unwrap();
         assert_eq!(d.status, DownloadStatus::Downloading);
         assert_eq!(d.downloaded_bytes, 10);
@@ -736,11 +960,23 @@ mod tests {
         let s = Storage::open_in_memory().unwrap();
         s.upsert(&sample("ma2")).unwrap();
         s.update_state("ma2", 50, DownloadStatus::Completed).unwrap();
-        s.mark_active("ma2", 99).unwrap();
+        assert!(!s.mark_active("ma2", 99).unwrap());
         let d = s.get_by_id("ma2").unwrap().unwrap();
         // status must remain Completed, not flipped back to Downloading
         assert_eq!(d.status, DownloadStatus::Completed);
         assert_eq!(d.downloaded_bytes, 50);
+    }
+
+    #[test]
+    fn mark_active_noop_when_held() {
+        let s = Storage::open_in_memory().unwrap();
+        s.upsert(&sample("ma3")).unwrap();
+        s.update_state("ma3", 5, DownloadStatus::Held).unwrap();
+        assert!(!s.mark_active("ma3", 99).unwrap());
+        let d = s.get_by_id("ma3").unwrap().unwrap();
+        assert_eq!(d.status, DownloadStatus::Held);
+        assert_eq!(d.downloaded_bytes, 5);
+        assert_eq!(d.started_at, None);
     }
 
     #[test]

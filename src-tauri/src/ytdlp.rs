@@ -10,7 +10,6 @@ use std::path::Path;
 use std::time::Duration;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_shell::process::CommandEvent;
-use tauri_plugin_shell::ShellExt;
 use tokio::sync::mpsc::UnboundedSender;
 
 /// Chemin du binaire ffmpeg sidecar (à côté de l'exécutable), pour `--ffmpeg-location`.
@@ -31,7 +30,7 @@ fn ffmpeg_location() -> Option<String> {
 
 /// Supprime le fichier final, son `.part`, et les fragments intermédiaires de yt-dlp
 /// (formats vidéo/audio séparés avant merge : `<stem>.fNNN.<ext>[.part]`).
-fn cleanup_partials(dest: &std::path::Path) {
+pub(crate) fn cleanup_partials(dest: &std::path::Path) {
     let _ = std::fs::remove_file(dest);
     let _ = std::fs::remove_file(format!("{}.part", dest.to_string_lossy()));
     if let (Some(dir), Some(stem)) = (dest.parent(), dest.file_stem().and_then(|s| s.to_str())) {
@@ -175,12 +174,7 @@ pub async fn list_entries(app: &AppHandle, url: &str) -> Result<Vec<(String, Str
         "node".into(),
         url.to_string(),
     ];
-    let cmd = app
-        .shell()
-        .sidecar("yt-dlp")
-        .map_err(|e| format!("yt-dlp introuvable: {e}"))?
-        .env("PYTHONUTF8", "1")
-        .env("PYTHONIOENCODING", "utf-8");
+    let cmd = crate::ytdlp_bin::ytdlp_command(app).map_err(|e| format!("yt-dlp introuvable: {e}"))?;
     let output = cmd.args(args).output().await.map_err(|e| format!("échec exécution yt-dlp: {e}"))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -224,12 +218,7 @@ async fn probe_once<T>(
     args.extend(extra.iter().cloned());
     args.push(url.to_string());
 
-    let cmd = app
-        .shell()
-        .sidecar("yt-dlp")
-        .map_err(|e| format!("yt-dlp introuvable: {e}"))?
-        .env("PYTHONUTF8", "1")
-        .env("PYTHONIOENCODING", "utf-8");
+    let cmd = crate::ytdlp_bin::ytdlp_command(app).map_err(|e| format!("yt-dlp introuvable: {e}"))?;
     let output = cmd.args(args).output().await.map_err(|e| format!("échec exécution yt-dlp: {e}"))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -297,12 +286,7 @@ async fn run_yt(
     args.extend(extra.iter().cloned());
     args.push(url.to_string());
 
-    let cmd = app
-        .shell()
-        .sidecar("yt-dlp")
-        .map_err(|e| CoreError::Media(format!("yt-dlp introuvable: {e}")))?
-        .env("PYTHONUTF8", "1")
-        .env("PYTHONIOENCODING", "utf-8");
+    let cmd = crate::ytdlp_bin::ytdlp_command(app).map_err(|e| CoreError::Media(format!("yt-dlp introuvable: {e}")))?;
     let (mut rx, child) = cmd.args(args).spawn().map_err(|e| CoreError::Media(format!("échec lancement yt-dlp: {e}")))?;
     let mut child = Some(child);
 
@@ -373,11 +357,57 @@ async fn run_yt(
     }
 }
 
+/// Première ligne non vide de la sortie de `yt-dlp --version`, nettoyée.
+pub fn parse_version(stdout: &str) -> Option<String> {
+    stdout.lines().map(str::trim).find(|l| !l.is_empty()).map(str::to_string)
+}
+
+/// Version du yt-dlp embarqué, lue une fois par session. Seul un succès est mis en cache :
+/// une erreur renvoie `None` et sera retentée à l'appel suivant.
+#[tauri::command]
+pub async fn get_ytdlp_version(app: AppHandle) -> Option<String> {
+    let state = app.state::<AppState>();
+    if let Some(v) = state.ytdlp_version.lock().ok()?.clone() {
+        return Some(v);
+    }
+    let cmd = crate::ytdlp_bin::ytdlp_command(&app).ok()?;
+    let output = cmd.args(["--version"]).output().await.ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let v = parse_version(&String::from_utf8_lossy(&output.stdout))?;
+    if let Ok(mut g) = state.ytdlp_version.lock() {
+        *g = Some(v.clone());
+    }
+    Some(v)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use download_core::model::RequestHeaders;
 
+    #[test]
+    fn parse_version_strips_crlf() {
+        assert_eq!(parse_version("2026.10.30
+"), Some("2026.10.30".into()));
+    }
+
+    #[test]
+    fn parse_version_empty_is_none() {
+        assert_eq!(parse_version(""), None);
+        assert_eq!(parse_version("  
+
+"), None);
+    }
+
+    #[test]
+    fn parse_version_takes_first_non_empty_line() {
+        assert_eq!(parse_version("
+ 2026.10.30 
+autre
+"), Some("2026.10.30".into()));
+    }
     #[test]
     fn header_args_forwards_cookie_referer_not_user_agent() {
         let h = RequestHeaders {

@@ -109,10 +109,11 @@ export function NewPage({
     setBatchError(null);
     try {
       const s = await api.addBatchDownloads(text, "", mode, hold);
-      const parts = [`${s.added} ajouté(s)`];
-      if (s.skipped_duplicate) parts.push(`${s.skipped_duplicate} doublon(s)`);
-      if (s.skipped_invalid) parts.push(`${s.skipped_invalid} ignoré(s)`);
-      if (s.failed) parts.push(`${s.failed} échec(s)`);
+      const parts = [t("batch.added", { n: s.added })];
+      if (s.skipped_duplicate) parts.push(t("batch.duplicates", { n: s.skipped_duplicate }));
+      if (s.skipped_invalid) parts.push(t("batch.invalid", { n: s.skipped_invalid }));
+      if (s.failed) parts.push(t("batch.failed", { n: s.failed }));
+      if (s.not_replaced) parts.push(t("batch.notReplaced", { n: s.not_replaced }));
       onDone(parts.join(" · "));
     } catch (e) {
       setBatchError(`Échec de l'ajout en lot : ${errText(e)}`);
