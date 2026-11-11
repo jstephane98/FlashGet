@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "FlashGet — Capture",
-  "version": "0.1.0",
+  "version": "2.0.0",
   "description": "Envoie les téléchargements à l'application FlashGet (capture automatique et manuelle).",
   "permissions": ["contextMenus", "storage", "activeTab", "alarms", "cookies", "downloads", "webRequest"],
   "host_permissions": ["ws://127.0.0.1/*", "<all_urls>"],

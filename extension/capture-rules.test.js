@@ -49,4 +49,11 @@ describe("shouldCapture", () => {
     expect(shouldCapture({ url: "data:text/plain;base64,AAAA" }, settings)).toBe(false);
     expect(shouldCapture({ url: "file:///c:/x.zip" }, settings)).toBe(false);
   });
+  it("rejects an ignored site, by url or by referrer", () => {
+    const ignored = ["exemple.com"];
+    expect(shouldCapture({ url: "https://cdn.exemple.com/f.zip" }, settings, ignored)).toBe(false);
+    expect(shouldCapture({ url: "https://h/f.zip", referrer: "https://www.exemple.com/p" }, settings, ignored)).toBe(false);
+    expect(shouldCapture({ url: "https://h/f.zip", referrer: "https://autre.com/p" }, settings, ignored)).toBe(true);
+    expect(shouldCapture({ url: "https://h/f.zip" }, settings, undefined)).toBe(true);
+  });
 });
