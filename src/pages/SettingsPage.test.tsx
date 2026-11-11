@@ -35,7 +35,7 @@ beforeEach(() => {
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
 async function ready() {
-  render(<SettingsPage onSaved={onSaved} updates={{ app: null, ytdlp: null }} onUpdatesChanged={() => {}} recording={false} />);
+  render(<SettingsPage onSaved={onSaved} updates={{ app: null, ytdlp: null }} onUpdatesChanged={() => {}} recording={false} bridgeStatus={null} />);
   await screen.findByRole("switch", { name: /zone de notification/ });
 }
 const goTo = (name: string) => fireEvent.click(screen.getByRole("button", { name }));
@@ -152,7 +152,7 @@ describe("SettingsPage", () => {
 
   it("échec de chargement puis Réessayer", async () => {
     getSettings.mockRejectedValueOnce("x");
-    render(<SettingsPage onSaved={onSaved} updates={{ app: null, ytdlp: null }} onUpdatesChanged={() => {}} recording={false} />);
+    render(<SettingsPage onSaved={onSaved} updates={{ app: null, ytdlp: null }} onUpdatesChanged={() => {}} recording={false} bridgeStatus={null} />);
     expect(await screen.findByText("Impossible de charger les paramètres.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Réessayer" }));
     expect(await screen.findByRole("switch", { name: /zone de notification/ })).toBeTruthy();

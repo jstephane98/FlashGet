@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import "./index.css";
 import { X } from "lucide-react";
-import type { Download, Priority } from "./types";
+import type { BridgeStatus, Download, Priority } from "./types";
 import * as api from "./api";
 import { t } from "./i18n";
 import type { PageId } from "./navigation";
@@ -36,7 +36,7 @@ export default function App() {
   const extSeq = useRef(0);
   const [segs, setSegs] = useState<Record<string, { done: number; total: number }>>({});
   const [maxSpeedBps, setMaxSpeedBps] = useState(0);
-  const [bridgeListening, setBridgeListening] = useState(false);
+  const [bridgeStatus, setBridgeStatus] = useState<BridgeStatus | null>(null);
   const [maxConcurrent, setMaxConcurrent] = useState(3);
   const [schedule, setSchedule] = useState<api.Schedule | null>(null);
   const [queuePaused, setQueuePaused] = useState(false);
@@ -47,10 +47,9 @@ export default function App() {
     setDownloads(await api.listDownloads());
   }
 
-  // Données de la barre d'état : limite de vitesse et état du pont extension.
+  // Données de la barre d'état : limite de vitesse .
   function refreshStatusInfo() {
     api.getSettings().then((s) => { setMaxSpeedBps(s.max_speed_bps); setMaxConcurrent(s.max_concurrent); }).catch(() => {});
-    api.getBridgeInfo().then((b) => setBridgeListening(b.listening)).catch(() => {});
   }
 
   // La page Nouveau s'ouvre, préremplie ; rien ne démarre avant confirmation.
@@ -85,6 +84,8 @@ export default function App() {
     const unProbed = api.onLinkProbed((probe) => showExternal({ kind: "probed", probe }));
     const unFinished = api.onQueueFinished(({ action }) => setEndAction(action));
     const unLinkErr = api.onLinkError(({ url, message }) => showExternal({ kind: "error", url, message }));
+    api.getBridgeStatus().then(setBridgeStatus).catch(() => {});
+    const unBridge = api.onBridgeStatus(setBridgeStatus);
     const unApp = api.onAppUpdateAvailable((app) => setUpdates((u) => ({ ...u, app })));
     const unYtAvail = api.onYtdlpUpdateAvailable(({ latest }) => setUpdates((u) => ({ ...u, ytdlp: latest })));
     const unYtDone = api.onYtdlpUpdated((p) => {
@@ -93,11 +94,19 @@ export default function App() {
       void applyUpdated(p, () => {});
     });
     return () => {
-      unApp.then((f) => f()); unYtAvail.then((f) => f()); unYtDone.then((f) => f());
+      unBridge.then((f) => f()); unApp.then((f) => f()); unYtAvail.then((f) => f()); unYtDone.then((f) => f());
       un.then((f) => f());
       unProbing.then((f) => f()); unProbed.then((f) => f()); unLinkErr.then((f) => f()); unFinished.then((f) => f());
     };
   }, []);
+
+  // L'état « jeton refusé » expire de lui-même sans événement : on le relit toutes les 30 s.
+  const rejected = bridgeStatus?.state === "rejected";
+  useEffect(() => {
+    if (!rejected) return;
+    const id = setInterval(() => { api.getBridgeStatus().then(setBridgeStatus).catch(() => {}); }, 30_000);
+    return () => clearInterval(id);
+  }, [rejected]);
 
   function refreshQueueInfo() {
     api.getQueuePaused().then(setQueuePaused).catch(() => {});
@@ -221,6 +230,7 @@ export default function App() {
                 updates={updates}
                 onUpdatesChanged={(patch) => setUpdates((u) => ({ ...u, ...patch }))}
                 recording={downloads.some((d) => d.status === "recording")}
+                bridgeStatus={bridgeStatus}
               />
             ) : page === "completed" ? (
               <CompletedPage
@@ -250,7 +260,7 @@ export default function App() {
             active={stats.active}
             queued={stats.queued}
             maxSpeedBps={maxSpeedBps}
-            bridgeListening={bridgeListening}
+            bridgeState={bridgeStatus?.state ?? "waiting"}
             totalSpeedBps={stats.totalSpeed}
           />
         </main>

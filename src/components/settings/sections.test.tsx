@@ -5,7 +5,6 @@ import type { Settings } from "../../types";
 vi.mock("../../api");
 import * as api from "../../api";
 import { VideoSection } from "./VideoSection";
-import { ExtensionSection } from "./ExtensionSection";
 import { NotificationsSection } from "./NotificationsSection";
 import { AboutSection } from "./AboutSection";
 
@@ -27,8 +26,6 @@ beforeEach(() => {
   vi.mocked(api.getCookiesFromBrowser).mockResolvedValue(null);
   vi.mocked(api.setCookiesFromBrowser).mockResolvedValue(undefined);
   vi.mocked(api.onYoutubeStatus).mockImplementation(async (cb) => { ytCb = cb; return () => {}; });
-  vi.mocked(api.getBridgeInfo).mockResolvedValue({ listening: true, port: 6789, token: "tok-abc" });
-  vi.mocked(api.regenerateBridgeToken).mockResolvedValue("tok-new");
 });
 afterEach(() => { cleanup(); vi.clearAllMocks(); vi.unstubAllGlobals(); });
 
@@ -112,32 +109,6 @@ describe("VideoSection", () => {
     await screen.findByText("2026.10.30");
     unmount();
     await waitFor(() => expect(unsub).toHaveBeenCalled());
-  });
-});
-
-describe("ExtensionSection", () => {
-  it("état, copie du jeton", async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined);
-    vi.stubGlobal("navigator", { clipboard: { writeText } });
-    render(<ExtensionSection />);
-    expect(await screen.findByText("À l'écoute sur le port")).toBeTruthy();
-    expect(screen.getByText("6789").className).toContain("font-mono");
-    fireEvent.click(screen.getByRole("button", { name: "Copier" }));
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith("tok-abc"));
-    expect(await screen.findByRole("button", { name: "Copié" })).toBeTruthy();
-  });
-
-  it("régénérer demande confirmation", async () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
-    render(<ExtensionSection />);
-    const btn = await screen.findByRole("button", { name: "Régénérer" });
-    fireEvent.click(btn);
-    expect(api.regenerateBridgeToken).not.toHaveBeenCalled();
-    confirm.mockReturnValue(true);
-    fireEvent.click(btn);
-    await waitFor(() => expect(api.regenerateBridgeToken).toHaveBeenCalled());
-    expect(await screen.findByText("tok-new")).toBeTruthy();
-    confirm.mockRestore();
   });
 });
 

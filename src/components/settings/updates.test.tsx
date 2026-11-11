@@ -213,7 +213,7 @@ describe("état conservé et cas d'erreur", () => {
     vi.mocked(api.getSettings).mockResolvedValue({ ...S });
     vi.mocked(api.getAutostart).mockResolvedValue(false);
     vi.mocked(api.getEndAction).mockResolvedValue("none");
-    render(<SettingsPage onSaved={() => {}} updates={{ app: null, ytdlp: "2026.11.08" }} onUpdatesChanged={() => {}} recording={false} />);
+    render(<SettingsPage onSaved={() => {}} updates={{ app: null, ytdlp: "2026.11.08" }} onUpdatesChanged={() => {}} recording={false} bridgeStatus={null} />);
     const btn = await screen.findByRole("button", { name: /Vidéo/ });
     expect(btn.querySelector('[aria-label="Mise à jour disponible"]')).toBeTruthy();
     expect(screen.getByRole("button", { name: /Mises à jour/ }).querySelector('[aria-label="Mise à jour disponible"]')).toBeNull();
