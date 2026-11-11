@@ -65,6 +65,8 @@ export interface Settings {
   audio_format: AudioFormat;
   audio_kbps: number;
   sub_langs: string[];
+  ytdlp_auto_update: boolean;
+  app_update_check: boolean;
 }
 
 export interface Progress {

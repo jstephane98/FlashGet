@@ -10,6 +10,7 @@ mod remux;
 mod retry;
 mod state;
 mod ytdlp;
+mod ytdlp_bin;
 mod youtube;
 
 use download_core::storage::Storage;
@@ -39,6 +40,12 @@ pub fn run() {
                 migrate::MigrationOutcome::NotNeeded => {}
             }
             std::fs::create_dir_all(&dir).ok();
+            // Installe un yt-dlp mis à jour en attente, avant toute utilisation de yt-dlp.
+            if let Some(bin) = ytdlp_bin::data_bin_dir(app.handle()) {
+                if let Err(e) = ytdlp_bin::apply_pending_swap(&bin) {
+                    eprintln!("mise à jour de yt-dlp : {e}");
+                }
+            }
             let storage = Storage::open(&dir.join("downloads.sqlite")).map_err(|e| Box::<dyn std::error::Error>::from(e.to_string()))?;
             let settings = storage.get_settings().map_err(|e| Box::<dyn std::error::Error>::from(e.to_string()))?;
             app.manage(AppState::new(storage, settings.max_speed_bps));

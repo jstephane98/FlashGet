@@ -10,7 +10,6 @@ use std::path::Path;
 use std::time::Duration;
 use tauri::{AppHandle, Manager};
 use tauri_plugin_shell::process::CommandEvent;
-use tauri_plugin_shell::ShellExt;
 use tokio::sync::mpsc::UnboundedSender;
 
 /// Chemin du binaire ffmpeg sidecar (à côté de l'exécutable), pour `--ffmpeg-location`.
@@ -175,12 +174,7 @@ pub async fn list_entries(app: &AppHandle, url: &str) -> Result<Vec<(String, Str
         "node".into(),
         url.to_string(),
     ];
-    let cmd = app
-        .shell()
-        .sidecar("yt-dlp")
-        .map_err(|e| format!("yt-dlp introuvable: {e}"))?
-        .env("PYTHONUTF8", "1")
-        .env("PYTHONIOENCODING", "utf-8");
+    let cmd = crate::ytdlp_bin::ytdlp_command(app).map_err(|e| format!("yt-dlp introuvable: {e}"))?;
     let output = cmd.args(args).output().await.map_err(|e| format!("échec exécution yt-dlp: {e}"))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -224,12 +218,7 @@ async fn probe_once<T>(
     args.extend(extra.iter().cloned());
     args.push(url.to_string());
 
-    let cmd = app
-        .shell()
-        .sidecar("yt-dlp")
-        .map_err(|e| format!("yt-dlp introuvable: {e}"))?
-        .env("PYTHONUTF8", "1")
-        .env("PYTHONIOENCODING", "utf-8");
+    let cmd = crate::ytdlp_bin::ytdlp_command(app).map_err(|e| format!("yt-dlp introuvable: {e}"))?;
     let output = cmd.args(args).output().await.map_err(|e| format!("échec exécution yt-dlp: {e}"))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -297,12 +286,7 @@ async fn run_yt(
     args.extend(extra.iter().cloned());
     args.push(url.to_string());
 
-    let cmd = app
-        .shell()
-        .sidecar("yt-dlp")
-        .map_err(|e| CoreError::Media(format!("yt-dlp introuvable: {e}")))?
-        .env("PYTHONUTF8", "1")
-        .env("PYTHONIOENCODING", "utf-8");
+    let cmd = crate::ytdlp_bin::ytdlp_command(app).map_err(|e| CoreError::Media(format!("yt-dlp introuvable: {e}")))?;
     let (mut rx, child) = cmd.args(args).spawn().map_err(|e| CoreError::Media(format!("échec lancement yt-dlp: {e}")))?;
     let mut child = Some(child);
 
@@ -386,12 +370,7 @@ pub async fn get_ytdlp_version(app: AppHandle) -> Option<String> {
     if let Some(v) = state.ytdlp_version.lock().ok()?.clone() {
         return Some(v);
     }
-    let cmd = app
-        .shell()
-        .sidecar("yt-dlp")
-        .ok()?
-        .env("PYTHONUTF8", "1")
-        .env("PYTHONIOENCODING", "utf-8");
+    let cmd = crate::ytdlp_bin::ytdlp_command(&app).ok()?;
     let output = cmd.args(["--version"]).output().await.ok()?;
     if !output.status.success() {
         return None;

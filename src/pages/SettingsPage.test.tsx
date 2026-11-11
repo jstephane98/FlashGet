@@ -14,6 +14,7 @@ const S: Settings = {
   max_concurrent: 3, max_speed_bps: 0, connections: 8, retries: 5, auto_resume: true,
   conflict: "rename", close_to_tray: true, notify_complete: true, notify_error: true,
   video_max_height: 1080, audio_format: "mp3", audio_kbps: 320, sub_langs: ["fr"],
+  ytdlp_auto_update: true, app_update_check: true,
 };
 const getSettings = vi.mocked(api.getSettings);
 const saveSettings = vi.mocked(api.saveSettings);

@@ -474,6 +474,8 @@ impl Storage {
             sub_langs: read("sub_langs")
                 .and_then(|v| serde_json::from_str::<Vec<String>>(&v).ok())
                 .unwrap_or(d.sub_langs),
+            ytdlp_auto_update: flag("ytdlp_auto_update").unwrap_or(d.ytdlp_auto_update),
+            app_update_check: flag("app_update_check").unwrap_or(d.app_update_check),
         })
     }
 
@@ -503,6 +505,8 @@ impl Storage {
         put("audio_format", fmt.to_string())?;
         put("audio_kbps", s.audio_kbps.to_string())?;
         put("sub_langs", serde_json::to_string(&s.sub_langs).map_err(|e| CoreError::Storage(e.to_string()))?)?;
+        put("ytdlp_auto_update", b(s.ytdlp_auto_update))?;
+        put("app_update_check", b(s.app_update_check))?;
         Ok(())
     }
 }
@@ -855,6 +859,7 @@ mod tests {
         assert_eq!(g, Settings::default());
         assert_eq!((g.connections, g.retries, g.video_max_height), (8, 3, 1080));
         assert_eq!(g.sub_langs, vec!["fr", "en"]);
+        assert!(g.ytdlp_auto_update && g.app_update_check);
     }
 
     #[test]
@@ -874,6 +879,8 @@ mod tests {
             audio_format: AudioFormat::Opus,
             audio_kbps: 256,
             sub_langs: vec!["de".into(), "es".into(), "it".into()],
+            ytdlp_auto_update: false,
+            app_update_check: false,
         };
         s.set_settings(&v).unwrap();
         assert_eq!(s.get_settings().unwrap(), v);

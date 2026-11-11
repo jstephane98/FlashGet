@@ -84,6 +84,10 @@ pub struct Settings {
     /// 0 = qualité maximale.
     pub audio_kbps: u32,
     pub sub_langs: Vec<String>,
+    /// Met yt-dlp à jour automatiquement.
+    pub ytdlp_auto_update: bool,
+    /// Vérifie la disponibilité d'une nouvelle version de l'application.
+    pub app_update_check: bool,
 }
 
 impl Default for Settings {
@@ -102,6 +106,8 @@ impl Default for Settings {
             audio_format: AudioFormat::Mp3,
             audio_kbps: 0,
             sub_langs: vec!["fr".to_string(), "en".to_string()],
+            ytdlp_auto_update: true,
+            app_update_check: true,
         }
     }
 }
