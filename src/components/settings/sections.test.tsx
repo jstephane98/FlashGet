@@ -120,7 +120,8 @@ describe("ExtensionSection", () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     vi.stubGlobal("navigator", { clipboard: { writeText } });
     render(<ExtensionSection />);
-    expect(await screen.findByText("À l'écoute sur le port 6789")).toBeTruthy();
+    expect(await screen.findByText("À l'écoute sur le port")).toBeTruthy();
+    expect(screen.getByText("6789").className).toContain("font-mono");
     fireEvent.click(screen.getByRole("button", { name: "Copier" }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("tok-abc"));
     expect(await screen.findByRole("button", { name: "Copié" })).toBeTruthy();

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, waitFor, act } from "@testing-library/react";
 import type { Settings } from "../types";
 
 vi.mock("../api");
@@ -81,6 +81,34 @@ describe("SettingsPage", () => {
     expect(saveSettings).not.toHaveBeenCalled();
     fireEvent.blur(f);
     await waitFor(() => expect(saveSettings).toHaveBeenCalledWith({ ...S, max_speed_bps: 2621440 }));
+  });
+
+  it("limite coupée puis réactivée : la dernière valeur est rétablie", async () => {
+    getSettings.mockResolvedValue({ ...S, max_speed_bps: 2097152 });
+    await ready();
+    goTo("Téléchargements");
+    const sw = await screen.findByRole("switch", { name: "Limiter la vitesse" });
+    fireEvent.click(sw);
+    await waitFor(() => expect(saveSettings).toHaveBeenLastCalledWith({ ...S, max_speed_bps: 0 }));
+    await waitFor(() => expect(screen.getByRole("switch", { name: "Limiter la vitesse" }).getAttribute("aria-checked")).toBe("false"));
+    fireEvent.click(screen.getByRole("switch", { name: "Limiter la vitesse" }));
+    await waitFor(() => expect(saveSettings).toHaveBeenLastCalledWith({ ...S, max_speed_bps: 2097152 }));
+  });
+
+  it("succès dépassé puis refus du dernier : retour à la valeur du succès", async () => {
+    let resolveA!: (s: Settings) => void;
+    let rejectB!: (e: string) => void;
+    saveSettings
+      .mockImplementationOnce(() => new Promise<Settings>((r) => { resolveA = r; }))
+      .mockImplementationOnce(() => new Promise<Settings>((_, j) => { rejectB = j; }));
+    await ready();
+    const sw = () => screen.getByRole("switch", { name: /zone de notification/ });
+    fireEvent.click(sw()); // A : close_to_tray false
+    fireEvent.click(sw()); // B : close_to_tray true
+    await act(async () => { resolveA({ ...S, close_to_tray: false }); });
+    await act(async () => { rejectB("Refusé"); });
+    expect(await screen.findByRole("alert")).toHaveProperty("textContent", "Refusé");
+    await waitFor(() => expect(sw().getAttribute("aria-checked")).toBe("false"));
   });
 
   it("refus : message affiché et valeur restaurée", async () => {

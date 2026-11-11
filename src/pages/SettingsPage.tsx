@@ -24,6 +24,8 @@ export function SettingsPage({ onSaved }: { onSaved(s: Settings): void }) {
   const saved = useRef<Settings | null>(null);
   const latest = useRef<Settings | null>(null);
   const seq = useRef(0);
+  // Plus haute séquence enregistrée avec succès : fixe le point de retour d'un refus tardif.
+  const lastOk = useRef(0);
 
   useEffect(() => {
     let alive = true;
@@ -47,8 +49,12 @@ export function SettingsPage({ onSaved }: { onSaved(s: Settings): void }) {
     const mine = ++seq.current;
     api.saveSettings(next).then(
       (res) => {
+        // Un succès dépassé reste la dernière valeur connue côté serveur (point de retour).
+        if (mine > lastOk.current) {
+          saved.current = res;
+          lastOk.current = mine;
+        }
         if (mine !== seq.current) return;
-        saved.current = res;
         latest.current = res;
         setSettings(res);
         onSaved(res);

@@ -14,7 +14,7 @@ export function DownloadsSection({ settings, save, error, rev }: { settings: Set
   const [endAction, setEnd] = useState<EndAction | null>(null);
   const [localError, setLocalError] = useState<string>();
   // Dernière limite non nulle : réaffichée quand on réactive l'interrupteur.
-  const [lastMb, setLastMb] = useState(5);
+  const [lastMb, setLastMb] = useState(settings.max_speed_bps > 0 ? settings.max_speed_bps / MB : 5);
 
   useEffect(() => {
     let alive = true;
@@ -33,7 +33,11 @@ export function DownloadsSection({ settings, save, error, rev }: { settings: Set
   };
 
   const limitOn = settings.max_speed_bps > 0;
-  const toggleLimit = (on: boolean) => save({ max_speed_bps: on ? Math.round(lastMb * MB) : 0 });
+  const toggleLimit = (on: boolean) => {
+    // On mémorise la limite courante avant de la mettre à 0, pour la rétablir à la réactivation.
+    if (!on && settings.max_speed_bps > 0) setLastMb(settings.max_speed_bps / MB);
+    save({ max_speed_bps: on ? Math.round(lastMb * MB) : 0 });
+  };
 
   return (
     <SectionShell title={t("set.nav.downloads")} desc={t("set.downloads.desc")} error={error ?? localError}>

@@ -46,7 +46,11 @@ export function ExtensionSection() {
         <SettingRow label={t("set.extServer")}>
           <span className={`inline-flex items-center gap-1.5 text-[13px] ${bridge?.listening ? "text-ok" : "text-ink-mute"}`}>
             <span className={`inline-block w-2 h-2 rounded-full ${bridge?.listening ? "bg-ok" : "bg-ink-mute"}`} />
-            <span>{bridge?.listening ? t("set.extListening", { port: bridge.port }) : t("set.extInactive")}</span>
+            <span>
+              {bridge?.listening ? (
+                <>{t("set.extListening")} <span className="font-mono">{bridge.port}</span></>
+              ) : t("set.extInactive")}
+            </span>
           </span>
         </SettingRow>
       </Card>
