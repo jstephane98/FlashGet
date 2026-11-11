@@ -53,7 +53,7 @@
 | Fréquence yt-dlp | au démarrage, 10 s après l'ouverture, si `now - last_check >= 86 400 s` ; « Rechercher » force la vérification |
 | Migration | si `{new}/downloads.sqlite` n'existe pas et que `{old}/downloads.sqlite` existe : la base est copiée par `VACUUM INTO` (copie cohérente même si l'ancien FlashGet tourne), puis les autres fichiers de `{old}` sont copiés (sans écraser). L'ancien dossier n'est jamais modifié. `{old}` = dossier parent de `{new}` + `com.steph.tauri-app` |
 | Démarrage avec Windows | au démarrage, si l'autolancement est actif, on l'enregistre de nouveau, pour que le chemin pointe vers `FlashGet.exe` |
-| Événements Rust → front | `ytdlp-update-available {current, latest}`, `ytdlp-updated {version}`, `ytdlp-update-progress {downloaded, total}`, `app-update-available {version, date, notes}`, `app-update-progress {downloaded, total}` (`total: number \| null`) |
+| Événements Rust → front | `ytdlp-update-available {current, latest}`, `ytdlp-updated {version, pending}`, `ytdlp-update-progress {downloaded, total}`, `app-update-available {version, date, notes}`, `app-update-progress {downloaded, total}` (`total: number \| null`) |
 
 ## Global Constraints
 
