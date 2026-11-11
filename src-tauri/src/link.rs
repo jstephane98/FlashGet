@@ -277,18 +277,20 @@ pub async fn capture(
             Ok(p)
         }
         Err(message) => {
-            let origin = origin_from_referrer(kept_headers.referrer.as_deref());
-            let capture_id = uuid::Uuid::new_v4().to_string();
-            let now = Instant::now();
-            let ctx = FailedCapture { url: url.to_string(), headers: kept_headers, hint: kept_hint, filename: kept_name, origin, created: now };
-            let origin = ctx.origin.clone();
-            {
+            let (capture_id, origin) = if has_context(&kept_headers, &kept_hint) {
+                let origin = origin_from_referrer(kept_headers.referrer.as_deref());
+                let id = uuid::Uuid::new_v4().to_string();
+                let now = Instant::now();
+                let ctx = FailedCapture { url: url.to_string(), headers: kept_headers, hint: kept_hint, filename: kept_name, origin: origin.clone(), created: now };
                 let state = app.state::<AppState>();
-                remember_failed(&mut state.failed_captures.lock().unwrap(), capture_id.clone(), ctx, now);
-            }
+                remember_failed(&mut state.failed_captures.lock().unwrap(), id.clone(), ctx, now);
+                (Some(id), origin)
+            } else {
+                (None, None)
+            };
             let _ = app.emit(
                 "link://error",
-                LinkErrorEvent { url: url.to_string(), message: message.clone(), capture_id: Some(capture_id), origin },
+                LinkErrorEvent { url: url.to_string(), message: message.clone(), capture_id, origin },
             );
             Err(message)
         }
@@ -309,6 +311,12 @@ pub struct FailedCapture {
     pub filename: Option<String>,
     pub origin: Option<String>,
     pub created: Instant,
+}
+
+/// Une capture mérite un contexte de « Réessayer » seulement si elle porte des cookies,
+/// un référent, ou un indice autre que `Auto` ; sinon la relance simple suffit.
+pub fn has_context(headers: &RequestHeaders, hint: &ProbeHint) -> bool {
+    headers.cookie.is_some() || headers.referrer.is_some() || *hint != ProbeHint::Auto
 }
 
 /// Hôte du référent, `None` s'il est absent ou invalide.
@@ -1277,6 +1285,16 @@ mod tests {
     }
 
     // --- contexte des captures échouées ---
+
+    #[test]
+    fn has_context_only_with_cookie_referrer_or_hint() {
+        let none = RequestHeaders { referrer: None, cookie: None, user_agent: Some("UA".into()) };
+        assert!(!has_context(&none, &ProbeHint::Auto));
+        assert!(has_context(&RequestHeaders { cookie: Some("c=1".into()), ..none.clone() }, &ProbeHint::Auto));
+        assert!(has_context(&RequestHeaders { referrer: Some("https://r/".into()), ..none.clone() }, &ProbeHint::Auto));
+        assert!(has_context(&none, &ProbeHint::Page));
+        assert!(has_context(&none, &ProbeHint::Hls));
+    }
 
     fn failed(url: &str, created: Instant) -> FailedCapture {
         FailedCapture { url: url.into(), headers: hdrs(), hint: ProbeHint::Page, filename: Some("n.mp4".into()), origin: None, created }
