@@ -1,22 +1,15 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { Download, RefreshCw, Rocket } from "lucide-react";
-import * as api from "../../api";
 import type { AppUpdateInfo, UpdateProgress } from "../../api";
 import type { Settings } from "../../types";
 import { t, type MsgKey } from "../../i18n";
 import { Card, SectionShell, SettingRow, Switch, ghostBtn } from "./controls";
 import { useVersions } from "./versions";
-import { formatLastCheck, formatMo, formatPublished } from "./updateFormat";
+import { formatBytes, percent } from "../../format";
+import { formatLastCheck, formatPublished } from "./updateFormat";
+import { useAppUpdate, checkNow, downloadNow, installNow, refreshLastCheck } from "./appUpdateStore";
 
 export type UpdateFlags = { app: AppUpdateInfo | null; ytdlp: string | null };
-
-type Phase =
-  | { k: "idle" }
-  | { k: "checking" }
-  | { k: "uptodate" }
-  | { k: "downloading"; p: UpdateProgress | null }
-  | { k: "ready" }
-  | { k: "failed"; step: "check" | "download" | "install"; msg: string };
 
 const primaryBtn =
   "h-8 px-3 rounded-lg bg-accent text-accent-ink text-[13px] font-bold inline-flex items-center gap-1.5 hover:opacity-90 outline-none focus-visible:ring-1 focus-visible:ring-accent/50 disabled:opacity-45";
@@ -45,70 +38,27 @@ interface Props {
   settings: Settings;
   save(patch: Partial<Settings>): void;
   updates: UpdateFlags;
-  onUpdatesChanged(f: UpdateFlags): void;
+  onUpdatesChanged(patch: Partial<UpdateFlags>): void;
   recording: boolean;
 }
 
 export function UpdatesSection({ settings, save, updates, onUpdatesChanged, recording }: Props) {
   const { app } = useVersions();
-  const [phase, setPhase] = useState<Phase>({ k: "idle" });
-  const [lastCheck, setLastCheck] = useState<number | null>(null);
-  const alive = useRef(true);
-  useEffect(() => {
-    alive.current = true;
-    api.getAppLastCheck().then((v) => { if (alive.current) setLastCheck(v); }).catch(() => {});
-    return () => { alive.current = false; };
-  }, []);
+  const { state: phase, lastCheck } = useAppUpdate();
+  useEffect(() => { void refreshLastCheck(); }, []);
 
   const info = updates.app;
   const mono = (v: string) => <span className="font-mono">{v}</span>;
-
-  async function check() {
-    setPhase({ k: "checking" });
-    try {
-      const found = await api.checkAppUpdate();
-      if (!alive.current) return;
-      onUpdatesChanged({ ...updates, app: found });
-      setPhase(found ? { k: "idle" } : { k: "uptodate" });
-      api.getAppLastCheck().then((v) => { if (alive.current) setLastCheck(v); }).catch(() => {});
-    } catch (e) {
-      if (alive.current) setPhase({ k: "failed", step: "check", msg: String(e) });
-    }
-  }
-
-  async function download() {
-    setPhase({ k: "downloading", p: null });
-    let un: (() => void) | undefined;
-    try {
-      un = await api.onAppUpdateProgress((p) => {
-        if (alive.current) setPhase((cur) => (cur.k === "downloading" ? { k: "downloading", p } : cur));
-      });
-      await api.downloadAppUpdate();
-      if (alive.current) setPhase({ k: "ready" });
-    } catch (e) {
-      if (alive.current) setPhase({ k: "failed", step: "download", msg: String(e) });
-    } finally {
-      un?.();
-    }
-  }
-
-  async function install() {
-    try {
-      await api.installAppUpdate();
-    } catch (e) {
-      if (alive.current) setPhase({ k: "failed", step: "install", msg: String(e) });
-    }
-  }
-
+  const check = () => void checkNow((found) => onUpdatesChanged({ app: found }));
   const retry = () => {
     if (phase.k !== "failed") return;
-    if (phase.step === "check") void check();
-    else if (phase.step === "download") void download();
-    else void install();
+    if (phase.step === "check") check();
+    else if (phase.step === "download") void downloadNow();
+    else void installNow();
   };
 
   const searchBtn = (disabled: boolean) => (
-    <button type="button" className={ghost} disabled={disabled} onClick={() => void check()}>
+    <button type="button" className={ghost} disabled={disabled} onClick={check}>
       <RefreshCw size={14} aria-hidden />{t("set.upd.search")}
     </button>
   );
@@ -133,14 +83,14 @@ export function UpdatesSection({ settings, save, updates, onUpdatesChanged, reco
         <button type="button" className={primaryBtn} disabled>{t("set.upd.install")}</button>
       </Row>
     );
-  } else if (info && phase.k === "ready") {
+  } else if (info && (phase.k === "ready" || phase.k === "installing")) {
     row = (
       <Row
         title={withSlot("set.upd.ready", "version", mono(info.version))}
         hint={`${t("set.upd.readyHint")}${recording ? ` ${t("set.upd.readyRecording")}` : ""}`}
       >
-        <button type="button" className={primaryBtn} onClick={() => void install()}>
-          <Rocket size={14} aria-hidden />{t("set.upd.restart")}
+        <button type="button" className={primaryBtn} disabled={phase.k === "installing"} onClick={() => void installNow()}>
+          <Rocket size={14} aria-hidden />{phase.k === "installing" ? t("set.upd.installing") : t("set.upd.restart")}
         </button>
       </Row>
     );
@@ -152,7 +102,7 @@ export function UpdatesSection({ settings, save, updates, onUpdatesChanged, reco
           hint={info.date ? withSlot("set.upd.published", "date", mono(formatPublished(info.date))) : undefined}
         >
           <span className="text-[11px] px-2 py-0.5 rounded-full font-semibold bg-accent/15 text-accent-fg">{t("set.upd.pillUpdate")}</span>
-          <button type="button" className={primaryBtn} onClick={() => void download()}>
+          <button type="button" className={primaryBtn} onClick={() => void downloadNow()}>
             <Download size={14} aria-hidden />{t("set.upd.install")}
           </button>
         </Row>
@@ -197,7 +147,7 @@ export function UpdatesSection({ settings, save, updates, onUpdatesChanged, reco
 }
 
 function DownloadProgress({ p }: { p: UpdateProgress | null }) {
-  const pct = p && p.total ? Math.min(100, Math.round((p.downloaded / p.total) * 100)) : null;
+  const pct = p ? percent(p.downloaded, p.total) : 0;
   return (
     <>
       <div
@@ -205,16 +155,16 @@ function DownloadProgress({ p }: { p: UpdateProgress | null }) {
         aria-label={t("set.upd.progressLabel")}
         aria-valuemin={0}
         aria-valuemax={100}
-        aria-valuenow={pct ?? undefined}
+        aria-valuenow={p?.total ? pct : undefined}
         className="h-1.5 rounded-[3px] bg-line overflow-hidden mt-2"
       >
-        <div className="h-full bg-accent" style={{ width: `${pct ?? 0}%` }} />
+        <div className="h-full bg-accent" style={{ width: `${pct}%` }} />
       </div>
       {p ? (
         <div className="mt-1 font-mono">
           {p.total
-            ? t("set.upd.progress", { done: formatMo(p.downloaded), total: formatMo(p.total), pct: pct ?? 0 })
-            : t("set.upd.progressUnknown", { done: formatMo(p.downloaded) })}
+            ? t("set.upd.progress", { done: formatBytes(p.downloaded), total: formatBytes(p.total), pct })
+            : t("set.upd.progressUnknown", { done: formatBytes(p.downloaded) })}
         </div>
       ) : null}
     </>

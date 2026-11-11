@@ -19,8 +19,3 @@ export function formatPublished(raw: string): string {
   if (Number.isNaN(d.getTime())) return raw;
   return `${p2(d.getDate())}/${p2(d.getMonth() + 1)}/${d.getFullYear()}`;
 }
-
-/** Mégaoctets (10^6) avec une décimale et la virgule française. */
-export function formatMo(bytes: number): string {
-  return (bytes / 1_000_000).toFixed(1).replace(".", ",");
-}

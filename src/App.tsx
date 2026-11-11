@@ -214,7 +214,7 @@ export default function App() {
               <SettingsPage
                 onSaved={(s) => { setMaxSpeedBps(s.max_speed_bps); setMaxConcurrent(s.max_concurrent); }}
                 updates={updates}
-                onUpdatesChanged={setUpdates}
+                onUpdatesChanged={(patch) => setUpdates((u) => ({ ...u, ...patch }))}
                 recording={downloads.some((d) => d.status === "recording")}
               />
             ) : page === "completed" ? (

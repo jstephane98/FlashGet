@@ -16,7 +16,7 @@ import { ghostBtn } from "../components/settings/controls";
 interface SettingsPageProps {
   onSaved(s: Settings): void;
   updates: UpdateFlags;
-  onUpdatesChanged(f: UpdateFlags): void;
+  onUpdatesChanged(patch: Partial<UpdateFlags>): void;
   /** Vrai si un enregistrement en direct est en cours (avertissement avant l'installation). */
   recording: boolean;
 }

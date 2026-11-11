@@ -8,6 +8,8 @@ import type { AppUpdateInfo, UpdateProgress } from "../../api";
 import { UpdatesSection } from "./UpdatesSection";
 import { SettingsNav } from "./SettingsNav";
 import { formatLastCheck } from "./updateFormat";
+import { resetAppUpdateStore } from "./appUpdateStore";
+import { SettingsPage } from "../../pages/SettingsPage";
 import { Sidebar } from "../shell/Sidebar";
 
 const S: Settings = {
@@ -19,6 +21,7 @@ const S: Settings = {
 const INFO: AppUpdateInfo = { version: "2.1.0", date: "2026-11-12T10:00:00Z", notes: "Sites ignorés pour l'extension." };
 const save = vi.fn();
 const onChanged = vi.fn();
+const unlisten = vi.fn();
 let progressCb: (p: UpdateProgress) => void = () => {};
 
 function mount(updates: { app: AppUpdateInfo | null; ytdlp: string | null } = { app: null, ytdlp: null }, recording = false) {
@@ -26,13 +29,14 @@ function mount(updates: { app: AppUpdateInfo | null; ytdlp: string | null } = { 
 }
 
 beforeEach(() => {
+  resetAppUpdateStore();
   vi.mocked(api.appVersion).mockResolvedValue("2.0.0");
   vi.mocked(api.getYtdlpVersion).mockResolvedValue("2026.10.30");
   vi.mocked(api.getAppLastCheck).mockResolvedValue(null);
   vi.mocked(api.checkAppUpdate).mockResolvedValue(null);
   vi.mocked(api.downloadAppUpdate).mockResolvedValue(undefined);
   vi.mocked(api.installAppUpdate).mockResolvedValue(undefined);
-  vi.mocked(api.onAppUpdateProgress).mockImplementation(async (cb) => { progressCb = cb; return () => {}; });
+  vi.mocked(api.onAppUpdateProgress).mockImplementation(async (cb) => { progressCb = cb; return unlisten; });
 });
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
@@ -48,7 +52,7 @@ describe("UpdatesSection", () => {
     mount();
     fireEvent.click(await screen.findByRole("button", { name: "Rechercher" }));
     expect(await screen.findByText("FlashGet est à jour")).toBeTruthy();
-    expect(onChanged).toHaveBeenCalledWith({ app: null, ytdlp: null });
+    expect(onChanged).toHaveBeenCalledWith({ app: null });
   });
 
   it("recherche en cours : bouton désactivé", async () => {
@@ -65,7 +69,7 @@ describe("UpdatesSection", () => {
     vi.mocked(api.checkAppUpdate).mockResolvedValue(INFO);
     mount();
     fireEvent.click(await screen.findByRole("button", { name: "Rechercher" }));
-    await waitFor(() => expect(onChanged).toHaveBeenCalledWith({ app: INFO, ytdlp: null }));
+    await waitFor(() => expect(onChanged).toHaveBeenCalledWith({ app: INFO }));
   });
 
   it("disponible : version en mono, nouveautés et bouton", async () => {
@@ -84,7 +88,7 @@ describe("UpdatesSection", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Télécharger et installer" }));
     await waitFor(() => expect(api.downloadAppUpdate).toHaveBeenCalled());
     act(() => progressCb({ downloaded: 18_400_000, total: 29_600_000 }));
-    expect(screen.getByText("18,4 / 29,6 Mo · 62 %")).toBeTruthy();
+    expect(screen.getByText("17,5 Mo / 28,2 Mo · 62 %")).toBeTruthy();
     expect(screen.getByRole("progressbar")).toBeTruthy();
     expect((screen.getByRole("button", { name: "Télécharger et installer" }) as HTMLButtonElement).disabled).toBe(true);
   });
@@ -95,7 +99,7 @@ describe("UpdatesSection", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Télécharger et installer" }));
     await waitFor(() => expect(api.downloadAppUpdate).toHaveBeenCalled());
     act(() => progressCb({ downloaded: 5_000_000, total: null }));
-    expect(screen.getByText("5,0 Mo")).toBeTruthy();
+    expect(screen.getByText("4,8 Mo")).toBeTruthy();
     expect(screen.queryByText(/%/)).toBeNull();
   });
 
@@ -129,6 +133,90 @@ describe("UpdatesSection", () => {
     mount();
     fireEvent.click(await screen.findByRole("switch", { name: "Rechercher les mises à jour au démarrage" }));
     expect(save).toHaveBeenCalledWith({ app_update_check: false });
+  });
+});
+
+describe("état conservé et cas d'erreur", () => {
+  it("la progression survit au démontage de la section", async () => {
+    vi.mocked(api.downloadAppUpdate).mockReturnValue(new Promise(() => {}));
+    const first = mount({ app: INFO, ytdlp: null });
+    fireEvent.click(await screen.findByRole("button", { name: "Télécharger et installer" }));
+    await waitFor(() => expect(api.downloadAppUpdate).toHaveBeenCalled());
+    first.unmount();
+    act(() => progressCb({ downloaded: 18_400_000, total: 29_600_000 }));
+    mount({ app: INFO, ytdlp: null });
+    expect(await screen.findByText("17,5 Mo / 28,2 Mo · 62 %")).toBeTruthy();
+    expect(api.downloadAppUpdate).toHaveBeenCalledTimes(1);
+  });
+
+  it("échec du téléchargement puis Réessayer relance downloadAppUpdate", async () => {
+    vi.mocked(api.downloadAppUpdate).mockRejectedValueOnce("disque plein").mockResolvedValue(undefined);
+    mount({ app: INFO, ytdlp: null });
+    fireEvent.click(await screen.findByRole("button", { name: "Télécharger et installer" }));
+    expect(await screen.findByText("Impossible de télécharger la mise à jour")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Réessayer" }));
+    await waitFor(() => expect(api.downloadAppUpdate).toHaveBeenCalledTimes(2));
+    expect(await screen.findByRole("button", { name: "Installer et redémarrer" })).toBeTruthy();
+  });
+
+  it("échec de l'installation puis Réessayer relance installAppUpdate", async () => {
+    vi.mocked(api.installAppUpdate).mockRejectedValueOnce("verrouillé").mockResolvedValue(undefined);
+    mount({ app: INFO, ytdlp: null });
+    fireEvent.click(await screen.findByRole("button", { name: "Télécharger et installer" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Installer et redémarrer" }));
+    expect(await screen.findByText("Impossible d'installer la mise à jour")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Réessayer" }));
+    await waitFor(() => expect(api.installAppUpdate).toHaveBeenCalledTimes(2));
+  });
+
+  it("installation en cours : bouton désactivé « Installation… »", async () => {
+    vi.mocked(api.installAppUpdate).mockReturnValue(new Promise(() => {}));
+    mount({ app: INFO, ytdlp: null });
+    fireEvent.click(await screen.findByRole("button", { name: "Télécharger et installer" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Installer et redémarrer" }));
+    const btn = (await screen.findByRole("button", { name: "Installation…" })) as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+  });
+
+  it("installation réussie sans fermeture : retour à l'état prêt", async () => {
+    mount({ app: INFO, ytdlp: null });
+    fireEvent.click(await screen.findByRole("button", { name: "Télécharger et installer" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Installer et redémarrer" }));
+    expect(await screen.findByRole("button", { name: "Installer et redémarrer" })).toBeTruthy();
+  });
+
+  it("le désabonnement de la progression est appelé après le téléchargement", async () => {
+    mount({ app: INFO, ytdlp: null });
+    fireEvent.click(await screen.findByRole("button", { name: "Télécharger et installer" }));
+    await screen.findByRole("button", { name: "Installer et redémarrer" });
+    expect(unlisten).toHaveBeenCalled();
+  });
+
+  it("Dernière recherche apparaît après une recherche", async () => {
+    vi.mocked(api.getAppLastCheck).mockResolvedValueOnce(null).mockResolvedValue(Math.floor(Date.now() / 1000));
+    mount();
+    fireEvent.click(await screen.findByRole("button", { name: "Rechercher" }));
+    expect(await screen.findByText(/Dernière recherche/)).toBeTruthy();
+  });
+
+  it("un résultat de recherche est rapporté même si la section est démontée", async () => {
+    let resolve: (v: AppUpdateInfo | null) => void = () => {};
+    vi.mocked(api.checkAppUpdate).mockReturnValue(new Promise((r) => { resolve = r; }));
+    const view = mount();
+    fireEvent.click(await screen.findByRole("button", { name: "Rechercher" }));
+    view.unmount();
+    await act(async () => { resolve(INFO); });
+    expect(onChanged).toHaveBeenCalledWith({ app: INFO });
+  });
+
+  it("SettingsPage : point sur Vidéo quand yt-dlp a une mise à jour", async () => {
+    vi.mocked(api.getSettings).mockResolvedValue({ ...S });
+    vi.mocked(api.getAutostart).mockResolvedValue(false);
+    vi.mocked(api.getEndAction).mockResolvedValue("none");
+    render(<SettingsPage onSaved={() => {}} updates={{ app: null, ytdlp: "2026.11.08" }} onUpdatesChanged={() => {}} recording={false} />);
+    const btn = await screen.findByRole("button", { name: /Vidéo/ });
+    expect(btn.querySelector('[aria-label="Mise à jour disponible"]')).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Mises à jour/ }).querySelector('[aria-label="Mise à jour disponible"]')).toBeNull();
   });
 });
 
