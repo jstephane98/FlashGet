@@ -16,6 +16,7 @@ use download_core::ytdlp::{
     MediaPrefs, YtdlpFormat, YtdlpJob, CONVERT_FORMAT_ID,
 };
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
@@ -258,7 +259,8 @@ pub async fn analyze_named(
 }
 
 /// Capture de l'extension : `link://probing`, fenêtre au premier plan, analyse, puis
-/// `link://probed` (LinkProbe) ou `link://error`.
+/// `link://probed` (LinkProbe) ou `link://error`. Un échec garde le contexte de la capture
+/// (`failed_captures`) pour que « Réessayer » le renvoie à l'identique.
 pub async fn capture(
     app: &AppHandle,
     url: &str,
@@ -268,15 +270,80 @@ pub async fn capture(
 ) -> Result<LinkProbe, String> {
     let _ = app.emit("link://probing", LinkProbingEvent { url: url.to_string() });
     commands::focus_main_window(app);
+    let (kept_headers, kept_hint, kept_name) = (headers.clone(), hint.clone(), suggested_name.clone());
     match analyze_named(app, url, headers, hint, suggested_name).await {
         Ok(p) => {
             let _ = app.emit("link://probed", &p);
             Ok(p)
         }
         Err(message) => {
-            let _ = app.emit("link://error", LinkErrorEvent { url: url.to_string(), message: message.clone() });
+            let origin = origin_from_referrer(kept_headers.referrer.as_deref());
+            let capture_id = uuid::Uuid::new_v4().to_string();
+            let now = Instant::now();
+            let ctx = FailedCapture { url: url.to_string(), headers: kept_headers, hint: kept_hint, filename: kept_name, origin, created: now };
+            let origin = ctx.origin.clone();
+            {
+                let state = app.state::<AppState>();
+                remember_failed(&mut state.failed_captures.lock().unwrap(), capture_id.clone(), ctx, now);
+            }
+            let _ = app.emit(
+                "link://error",
+                LinkErrorEvent { url: url.to_string(), message: message.clone(), capture_id: Some(capture_id), origin },
+            );
             Err(message)
         }
+    }
+}
+
+/// Durée de vie du contexte d'une capture échouée.
+const FAILED_TTL: Duration = Duration::from_secs(30 * 60);
+/// Nombre maximal de contextes gardés (le plus ancien est retiré).
+const FAILED_CAP: usize = 20;
+
+/// Contexte d'une capture échouée, gardé pour « Réessayer ».
+#[derive(Debug, Clone)]
+pub struct FailedCapture {
+    pub url: String,
+    pub headers: RequestHeaders,
+    pub hint: ProbeHint,
+    pub filename: Option<String>,
+    pub origin: Option<String>,
+    pub created: Instant,
+}
+
+/// Hôte du référent, `None` s'il est absent ou invalide.
+pub fn origin_from_referrer(referrer: Option<&str>) -> Option<String> {
+    let url = url::Url::parse(referrer?).ok()?;
+    url.host_str().map(str::to_string)
+}
+
+/// Insère un contexte après avoir purgé les expirés et appliqué le plafond.
+pub fn remember_failed(map: &mut HashMap<String, FailedCapture>, id: String, capture: FailedCapture, now: Instant) {
+    map.retain(|_, c| now.saturating_duration_since(c.created) < FAILED_TTL);
+    while map.len() >= FAILED_CAP {
+        let Some(oldest) = map.iter().min_by_key(|(_, c)| c.created).map(|(k, _)| k.clone()) else { break };
+        map.remove(&oldest);
+    }
+    map.insert(id, capture);
+}
+
+/// Retire et renvoie le contexte, `None` s'il est inconnu ou expiré.
+pub fn take_failed(map: &mut HashMap<String, FailedCapture>, id: &str, now: Instant) -> Option<FailedCapture> {
+    map.remove(id).filter(|c| now.saturating_duration_since(c.created) < FAILED_TTL)
+}
+
+/// « Réessayer » : relance la capture échouée avec son contexte, ou `url` seule si le
+/// contexte a expiré. Émet de nouveau probing / probed / error.
+#[tauri::command]
+pub async fn retry_capture(app: AppHandle, capture_id: String, url: String) -> Result<LinkProbe, String> {
+    let ctx = {
+        let state = app.state::<AppState>();
+        let mut map = state.failed_captures.lock().unwrap();
+        take_failed(&mut map, &capture_id, Instant::now())
+    };
+    match ctx {
+        Some(c) => capture(&app, &c.url, c.headers, c.hint, c.filename).await,
+        None => capture(&app, &url, RequestHeaders::default(), ProbeHint::Auto, None).await,
     }
 }
 
@@ -289,6 +356,8 @@ pub struct LinkProbingEvent {
 pub struct LinkErrorEvent {
     pub url: String,
     pub message: String,
+    pub capture_id: Option<String>,
+    pub origin: Option<String>,
 }
 
 /// Analyse d'un lien collé dans la page Nouveau : `Auto`, sans en-têtes.
@@ -1205,5 +1274,66 @@ mod tests {
     fn ytdlp_errors_are_french() {
         assert_eq!(ytdlp_error("yt-dlp -J a échoué: ERROR: Unsupported URL: https://x"), NO_VIDEO);
         assert_eq!(ytdlp_error("yt-dlp -J a échoué: HTTP 403"), "Lien inaccessible : yt-dlp -J a échoué: HTTP 403");
+    }
+
+    // --- contexte des captures échouées ---
+
+    fn failed(url: &str, created: Instant) -> FailedCapture {
+        FailedCapture { url: url.into(), headers: hdrs(), hint: ProbeHint::Page, filename: Some("n.mp4".into()), origin: None, created }
+    }
+
+    #[test]
+    fn remember_and_take_failed() {
+        let now = Instant::now();
+        let mut map = HashMap::new();
+        remember_failed(&mut map, "a".into(), failed("https://x/a", now), now);
+        let got = take_failed(&mut map, "a", now).unwrap();
+        assert_eq!(got.url, "https://x/a");
+        assert_eq!(got.hint, ProbeHint::Page);
+        assert_eq!(got.filename.as_deref(), Some("n.mp4"));
+        assert_eq!(got.headers, hdrs());
+        assert!(take_failed(&mut map, "a", now).is_none());
+    }
+
+    #[test]
+    fn failed_capture_expires() {
+        let t0 = Instant::now();
+        let mut map = HashMap::new();
+        remember_failed(&mut map, "a".into(), failed("https://x/a", t0), t0);
+        let later = t0 + FAILED_TTL + Duration::from_secs(1);
+        assert!(take_failed(&mut map, "a", later).is_none());
+        // Une insertion tardive purge aussi les entrées expirées.
+        remember_failed(&mut map, "b".into(), failed("https://x/b", t0), t0);
+        remember_failed(&mut map, "c".into(), failed("https://x/c", later), later);
+        assert!(!map.contains_key("b"));
+        assert!(map.contains_key("c"));
+    }
+
+    #[test]
+    fn failed_capture_cap() {
+        let t0 = Instant::now();
+        let mut map = HashMap::new();
+        for i in 0..=FAILED_CAP {
+            let t = t0 + Duration::from_millis(i as u64);
+            remember_failed(&mut map, format!("id{i}"), failed("https://x/", t), t);
+        }
+        assert_eq!(map.len(), FAILED_CAP);
+        assert!(!map.contains_key("id0"));
+        assert!(map.contains_key("id1"));
+        assert!(map.contains_key(&format!("id{FAILED_CAP}")));
+    }
+
+    #[test]
+    fn retry_unknown_capture_id() {
+        let mut map: HashMap<String, FailedCapture> = HashMap::new();
+        assert!(take_failed(&mut map, "inconnu", Instant::now()).is_none());
+    }
+
+    #[test]
+    fn origin_from_referrer() {
+        assert_eq!(super::origin_from_referrer(Some("https://www.exemple.com/a/b?c=1")), Some("www.exemple.com".to_string()));
+        assert_eq!(super::origin_from_referrer(Some("pas une url")), None);
+        assert_eq!(super::origin_from_referrer(Some("")), None);
+        assert_eq!(super::origin_from_referrer(None), None);
     }
 }

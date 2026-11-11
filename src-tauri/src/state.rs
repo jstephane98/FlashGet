@@ -28,6 +28,8 @@ pub struct AppState {
     pub sites_lock: Mutex<()>,
     /// Liens analysés (page Nouveau / captures) en attente de confirmation (probe_id → PendingLink).
     pub pending_links: Mutex<HashMap<String, crate::link::PendingLink>>,
+    /// Contexte des captures échouées (capture_id → FailedCapture), pour « Réessayer ».
+    pub failed_captures: Mutex<HashMap<String, crate::link::FailedCapture>>,
     /// Planificateur et suivi de fin de file. Verrou feuille (voir `queue.rs`).
     pub planner: Mutex<crate::queue::PlannerState>,
     /// Version de yt-dlp, mise en cache pour la session (succès seulement).
@@ -58,6 +60,7 @@ impl AppState {
             bridge_config: tokio::sync::broadcast::channel(16).0,
             sites_lock: Mutex::new(()),
             pending_links: Mutex::new(HashMap::new()),
+            failed_captures: Mutex::new(HashMap::new()),
             planner: Mutex::new(crate::queue::PlannerState::default()),
             ytdlp_version: Mutex::new(None),
             ytdlp_updating: AtomicBool::new(false),

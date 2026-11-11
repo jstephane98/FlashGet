@@ -148,6 +148,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::add_batch_downloads,
+            commands::open_extension_folder,
+            link::retry_capture,
             commands::list_downloads,
             commands::start_download,
             commands::pause_download,

@@ -93,6 +93,8 @@ pub fn normalize_site(input: &str) -> Result<String, String> {
 
 /// Vrai si `host` est un des `sites`, ou (site de type nom de domaine) un sous-domaine de l'un d'eux.
 /// Une IPv4 ou `localhost` ne correspondent qu'à elles-mêmes.
+// Test seulement : l'extension décide des sites ignorés, pas l'application.
+#[cfg(test)]
 pub fn host_is_ignored(host: &str, sites: &[String]) -> bool {
     let host = match normalize_site(host) {
         Ok(h) => h,
