@@ -168,6 +168,7 @@ pub fn run() {
             library::allow_playback,
             library::delete_download,
             commands::get_bridge_info,
+            commands::get_bridge_status,
             commands::regenerate_bridge_token,
             commands::get_autostart,
             commands::set_autostart,

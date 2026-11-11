@@ -1084,6 +1084,12 @@ pub fn get_bridge_info(state: State<AppState>) -> Result<BridgeInfo, String> {
     })
 }
 
+/// État réel de la connexion avec l'extension.
+#[tauri::command]
+pub fn get_bridge_status(app: AppHandle) -> crate::bridge::status::BridgeStatus {
+    crate::bridge::server::current_status(&app)
+}
+
 /// Régénère le jeton du bridge et renvoie la nouvelle valeur.
 #[tauri::command]
 pub fn regenerate_bridge_token(state: State<AppState>) -> Result<String, String> {

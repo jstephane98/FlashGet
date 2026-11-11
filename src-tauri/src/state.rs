@@ -3,7 +3,7 @@ use download_core::http::ReqwestFetcher;
 use download_core::rate_limiter::RateLimiter;
 use download_core::storage::Storage;
 use std::collections::HashMap;
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, Mutex};
 
 /// État global géré par Tauri.
@@ -16,6 +16,12 @@ pub struct AppState {
     pub limiter: Arc<RateLimiter>,
     /// `true` une fois le serveur WebSocket du bridge à l'écoute sur la loopback.
     pub bridge_listening: Arc<AtomicBool>,
+    /// Extensions authentifiées (clé : id de connexion).
+    pub bridge_clients: Mutex<HashMap<u64, crate::bridge::status::ClientInfo>>,
+    /// Dernier refus de jeton (secondes Unix).
+    pub bridge_rejected_at: Mutex<Option<i64>>,
+    /// Compteur d'ids de connexion du bridge.
+    pub bridge_next_conn: AtomicU64,
     /// Liens analysés (page Nouveau / captures) en attente de confirmation (probe_id → PendingLink).
     pub pending_links: Mutex<HashMap<String, crate::link::PendingLink>>,
     /// Planificateur et suivi de fin de file. Verrou feuille (voir `queue.rs`).
@@ -42,6 +48,9 @@ impl AppState {
             fetcher: ReqwestFetcher::new(),
             limiter: Arc::new(RateLimiter::new(max_speed_bps)),
             bridge_listening: Arc::new(AtomicBool::new(false)),
+            bridge_clients: Mutex::new(HashMap::new()),
+            bridge_rejected_at: Mutex::new(None),
+            bridge_next_conn: AtomicU64::new(1),
             pending_links: Mutex::new(HashMap::new()),
             planner: Mutex::new(crate::queue::PlannerState::default()),
             ytdlp_version: Mutex::new(None),
