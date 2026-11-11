@@ -28,8 +28,16 @@
       "assetProtocol": { "enable": true, "scope": [] }
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "REMPLACER_PAR_LA_CLE_PUBLIQUE",
+      "endpoints": ["https://github.com/jstephane98/FlashGet/releases/latest/download/latest.json"],
+      "windows": { "installMode": "passive" }
+    }
+  },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": ["nsis"],
     "windows": {
       "nsis": {

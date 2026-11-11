@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { buildManifest } from "./manifest.mjs";
+import { buildManifest, checkPubkey } from "./manifest.mjs";
 
 const REPO = "jstephane98/FlashGet";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -19,6 +19,10 @@ function fail(msg) {
 
 if (notesIdx >= 0 && !notesFile) fail("L'option --notes attend un fichier.");
 
+const conf = JSON.parse(readFileSync(join(root, "src-tauri", "tauri.conf.json"), "utf8"));
+const pubkeyCheck = checkPubkey(conf);
+if (!pubkeyCheck.ok) fail(pubkeyCheck.message);
+
 if (!process.env.TAURI_SIGNING_PRIVATE_KEY && !process.env.TAURI_SIGNING_PRIVATE_KEY_PATH) {
   fail(
     "Clé de signature absente : définissez TAURI_SIGNING_PRIVATE_KEY_PATH " +
@@ -26,7 +30,6 @@ if (!process.env.TAURI_SIGNING_PRIVATE_KEY && !process.env.TAURI_SIGNING_PRIVATE
   );
 }
 
-const conf = JSON.parse(readFileSync(join(root, "src-tauri", "tauri.conf.json"), "utf8"));
 const version = conf.version;
 const fileName = `FlashGet_${version}_x64-setup.exe`;
 const bundleDir = join(root, "src-tauri", "target", "release", "bundle", "nsis");

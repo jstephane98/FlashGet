@@ -1,3 +1,4 @@
+mod app_update;
 mod bridge;
 mod commands;
 mod dest;
@@ -32,6 +33,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let dir = app.path().app_data_dir().map_err(|e| Box::<dyn std::error::Error>::from(e.to_string()))?;
             // Reprise des données de l'ancien identifiant avant toute ouverture de la base.
@@ -59,10 +61,12 @@ pub fn run() {
             }
             bridge::start(app.handle().clone());
             commands::recover_interrupted_recordings(app.handle());
-            let requeued = commands::recover_interrupted_downloads(app.handle());
+            let requeued = commands::recover_interrupted_downloads(app.handle())
+                + app_update::requeue_after_update(app.handle());
             // Charge les marques et fait un premier passage synchrone avant de rendre la main.
             queue::start_planner_loop(app.handle().clone());
             ytdlp_update::start_ytdlp_auto_check(app.handle().clone());
+            app_update::start_app_update_check(app.handle().clone());
             // Reprise automatique : relancer la file après ce premier passage, pour que les
             // téléchargements récupérés ne démarrent pas hors de la plage horaire.
             if requeued > 0 {
@@ -187,6 +191,10 @@ pub fn run() {
             ytdlp_update::check_ytdlp_update,
             ytdlp_update::update_ytdlp,
             ytdlp_update::get_ytdlp_last_check,
+            app_update::check_app_update,
+            app_update::download_app_update,
+            app_update::install_app_update,
+            app_update::get_app_last_check,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -24,6 +24,10 @@ pub struct AppState {
     pub ytdlp_version: Mutex<Option<String>>,
     /// `true` pendant une mise à jour de yt-dlp (refuse un second appel concurrent).
     pub ytdlp_updating: AtomicBool,
+    /// `Update` trouvée par la dernière vérification de FlashGet.
+    pub checked_update: Mutex<Option<tauri_plugin_updater::Update>>,
+    /// Mise à jour de FlashGet téléchargée (et signée), prête à installer sur clic.
+    pub pending_update: Mutex<Option<(tauri_plugin_updater::Update, Vec<u8>)>>,
 }
 
 impl AppState {
@@ -38,6 +42,8 @@ impl AppState {
             planner: Mutex::new(crate::queue::PlannerState::default()),
             ytdlp_version: Mutex::new(None),
             ytdlp_updating: AtomicBool::new(false),
+            checked_update: Mutex::new(None),
+            pending_update: Mutex::new(None),
         }
     }
 }
