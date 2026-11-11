@@ -2,12 +2,14 @@
 //! Lancée via `tauri::async_runtime::spawn` (JAMAIS `tokio::spawn` direct).
 
 use crate::bridge::protocol::{handle_message, parse_client_message, ClientMessage, ServerReply};
+use crate::bridge::sites;
 use crate::bridge::status::{summarize, BridgeStatus, ClientInfo};
 use crate::link;
 use crate::state::AppState;
 use download_core::model::RequestHeaders;
 use futures_util::{SinkExt, StreamExt};
 use std::sync::atomic::Ordering;
+use tokio::sync::broadcast::error::RecvError;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::tungstenite::Message;
@@ -34,6 +36,34 @@ pub fn current_status(app: &AppHandle) -> BridgeStatus {
 /// Émet `bridge-status` (aucun jeton dans le payload).
 pub fn emit_status(app: &AppHandle) {
     let _ = app.emit("bridge-status", current_status(app));
+}
+
+/// Liste courante des sites ignorés (valeur absente ou invalide : liste vide).
+pub fn load_sites(app: &AppHandle) -> Vec<String> {
+    let raw = app.state::<AppState>().storage.get_pref(sites::PREF_KEY).ok().flatten();
+    raw.and_then(|r| serde_json::from_str::<Vec<String>>(&r).ok()).unwrap_or_default()
+}
+
+/// Message `config` complet envoyé aux extensions.
+fn config_json(sites: &[String]) -> String {
+    serde_json::json!({ "type": "config", "ignored_sites": sites }).to_string()
+}
+
+/// Enregistre la liste (déjà normalisée), la diffuse aux extensions et prévient l'interface.
+pub fn apply_sites(app: &AppHandle, list: Vec<String>) -> Result<Vec<String>, String> {
+    let json = serde_json::to_string(&list).map_err(|e| e.to_string())?;
+    let st = app.state::<AppState>();
+    st.storage.set_pref(sites::PREF_KEY, &json).map_err(|e| e.to_string())?;
+    // Aucun abonné : l'erreur d'envoi est sans importance.
+    let _ = st.bridge_config.send(config_json(&list));
+    let _ = app.emit("ignored-sites-changed", &list);
+    Ok(list)
+}
+
+/// Une entrée du flux : message du socket, ou diffusion de configuration.
+enum Incoming {
+    Msg(Option<Result<Message, tokio_tungstenite::tungstenite::Error>>),
+    Cfg(Result<String, RecvError>),
 }
 
 /// Retire le client à la fermeture de la connexion, quelle qu'en soit la cause.
@@ -105,7 +135,40 @@ async fn handle_conn(app: AppHandle, stream: TcpStream) {
         .get_or_create_bridge_token()
         .unwrap_or_default();
 
-    while let Some(Ok(msg)) = read.next().await {
+    // Abonnement aux changements de configuration : uniquement une fois authentifié.
+    let mut cfg_rx: Option<tokio::sync::broadcast::Receiver<String>> = None;
+
+    loop {
+        let incoming = tokio::select! {
+            m = read.next() => Incoming::Msg(m),
+            c = async {
+                match cfg_rx.as_mut() {
+                    Some(r) => r.recv().await,
+                    None => std::future::pending().await,
+                }
+            } => Incoming::Cfg(c),
+        };
+        let msg = match incoming {
+            Incoming::Msg(Some(Ok(m))) => m,
+            Incoming::Msg(_) => break,
+            Incoming::Cfg(Ok(json)) => {
+                if write.send(Message::Text(json)).await.is_err() {
+                    break;
+                }
+                continue;
+            }
+            Incoming::Cfg(Err(RecvError::Lagged(_))) => {
+                // Retard : on renvoie simplement la dernière liste.
+                if write.send(Message::Text(config_json(&load_sites(&app)))).await.is_err() {
+                    break;
+                }
+                continue;
+            }
+            Incoming::Cfg(Err(RecvError::Closed)) => {
+                cfg_rx = None;
+                continue;
+            }
+        };
         let text = match msg {
             Message::Text(t) => t,
             Message::Close(_) => break,
@@ -142,17 +205,18 @@ async fn handle_conn(app: AppHandle, stream: TcpStream) {
             _ => {}
         }
 
-        let out = match reply {
-            ServerReply::Authed => serde_json::json!({ "type": "authed" }).to_string(),
+        let just_authed = matches!(reply, ServerReply::Authed);
+        let out: Option<String> = match reply {
+            ServerReply::Authed => Some(serde_json::json!({ "type": "authed" }).to_string()),
             ServerReply::AuthFailed => {
-                serde_json::json!({ "type": "error", "error": "auth_failed" }).to_string()
+                Some(serde_json::json!({ "type": "error", "error": "auth_failed" }).to_string())
             }
-            ServerReply::Pong => serde_json::json!({ "type": "pong" }).to_string(),
+            ServerReply::Pong => Some(serde_json::json!({ "type": "pong" }).to_string()),
             ServerReply::NeedAuth => {
-                serde_json::json!({ "type": "error", "error": "need_auth" }).to_string()
+                Some(serde_json::json!({ "type": "error", "error": "need_auth" }).to_string())
             }
             ServerReply::Error { msg } => {
-                serde_json::json!({ "type": "error", "error": msg }).to_string()
+                Some(serde_json::json!({ "type": "error", "error": msg }).to_string())
             }
             ServerReply::CaptureRequested { url, filename, referrer, cookie, user_agent, kind, fallback_url, fallback_kind } => {
                 // Toute capture (fichier direct sans `kind` compris) passe par l'analyse de lien :
@@ -163,13 +227,35 @@ async fn handle_conn(app: AppHandle, stream: TcpStream) {
                 let ack_kind = kind.clone().unwrap_or_else(|| "file".to_string());
                 let hint = link::hint_for_kind(kind.as_deref(), fallback_url, fallback_kind);
                 match link::capture(&app, &url, headers, hint, filename).await {
-                    Ok(p) => serde_json::json!({ "type": "ack", "kind": ack_kind, "probe_id": p.probe_id() }).to_string(),
-                    Err(e) => serde_json::json!({ "type": "error", "error": e }).to_string(),
+                    Ok(p) => Some(serde_json::json!({ "type": "ack", "kind": ack_kind, "probe_id": p.probe_id() }).to_string()),
+                    Err(e) => Some(serde_json::json!({ "type": "error", "error": e }).to_string()),
+                }
+            }
+            ServerReply::SetSiteIgnoredRequested { host, ignored } => {
+                if sites::normalize_site(&host).is_err() {
+                    Some(serde_json::json!({ "type": "error", "error": "invalid_site" }).to_string())
+                } else {
+                    let list = sites::set_ignored(&load_sites(&app), &host, ignored);
+                    match apply_sites(&app, list) {
+                        Ok(_) => None, // la diffusion `config` tient lieu de réponse
+                        Err(e) => Some(serde_json::json!({ "type": "error", "error": e }).to_string()),
+                    }
                 }
             }
         };
-        if write.send(Message::Text(out)).await.is_err() {
-            break;
+        if let Some(out) = out {
+            if write.send(Message::Text(out)).await.is_err() {
+                break;
+            }
+        }
+        if just_authed {
+            // Abonnement AVANT la lecture de la liste : aucun changement ne peut passer entre les deux.
+            if cfg_rx.is_none() {
+                cfg_rx = Some(app.state::<AppState>().bridge_config.subscribe());
+            }
+            if write.send(Message::Text(config_json(&load_sites(&app)))).await.is_err() {
+                break;
+            }
         }
     }
 }

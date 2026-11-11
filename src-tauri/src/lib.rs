@@ -169,6 +169,8 @@ pub fn run() {
             library::delete_download,
             commands::get_bridge_info,
             commands::get_bridge_status,
+            commands::get_ignored_sites,
+            commands::set_ignored_sites,
             commands::regenerate_bridge_token,
             commands::get_autostart,
             commands::set_autostart,

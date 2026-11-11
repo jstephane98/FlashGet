@@ -18,6 +18,7 @@ pub enum ClientMessage {
         fallback_url: Option<String>,
         fallback_kind: Option<String>,
     },
+    SetSiteIgnored { host: String, ignored: bool },
     Unknown,
 }
 
@@ -38,6 +39,7 @@ pub enum ServerReply {
         fallback_url: Option<String>,
         fallback_kind: Option<String>,
     },
+    SetSiteIgnoredRequested { host: String, ignored: bool },
     Error { msg: String },
 }
 
@@ -69,6 +71,8 @@ enum RawMessage {
         #[serde(default)]
         fallback_kind: Option<String>,
     },
+    #[serde(rename = "set_site_ignored")]
+    SetSiteIgnored { host: String, ignored: bool },
 }
 
 /// Parse un texte JSON en `ClientMessage`. Tout échec ⇒ `Unknown`.
@@ -79,6 +83,7 @@ pub fn parse_client_message(text: &str) -> ClientMessage {
         Ok(RawMessage::Capture { url, filename, referrer, cookie, user_agent, kind, fallback_url, fallback_kind }) => {
             ClientMessage::Capture { url, filename, referrer, cookie, user_agent, kind, fallback_url, fallback_kind }
         }
+        Ok(RawMessage::SetSiteIgnored { host, ignored }) => ClientMessage::SetSiteIgnored { host, ignored },
         Err(_) => ClientMessage::Unknown,
     }
 }
@@ -108,6 +113,13 @@ pub fn handle_message(
         ClientMessage::Capture { url, filename, referrer, cookie, user_agent, kind, fallback_url, fallback_kind } => {
             if authed {
                 (authed, ServerReply::CaptureRequested { url, filename, referrer, cookie, user_agent, kind, fallback_url, fallback_kind })
+            } else {
+                (authed, ServerReply::NeedAuth)
+            }
+        }
+        ClientMessage::SetSiteIgnored { host, ignored } => {
+            if authed {
+                (authed, ServerReply::SetSiteIgnoredRequested { host, ignored })
             } else {
                 (authed, ServerReply::NeedAuth)
             }
@@ -273,5 +285,17 @@ mod tests {
             }
             other => panic!("attendu CaptureRequested, obtenu {other:?}"),
         }
+    }
+
+    #[test]
+    fn set_site_ignored_requires_auth() {
+        let msg = parse_client_message(r#"{"type":"set_site_ignored","host":"a.com","ignored":true}"#);
+        assert_eq!(msg, ClientMessage::SetSiteIgnored { host: "a.com".into(), ignored: true });
+        let (authed, reply) = handle_message(false, "secret", msg.clone());
+        assert!(!authed);
+        assert_eq!(reply, ServerReply::NeedAuth);
+        let (authed, reply) = handle_message(true, "secret", msg);
+        assert!(authed);
+        assert_eq!(reply, ServerReply::SetSiteIgnoredRequested { host: "a.com".into(), ignored: true });
     }
 }

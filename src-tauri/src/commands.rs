@@ -1090,6 +1090,19 @@ pub fn get_bridge_status(app: AppHandle) -> crate::bridge::status::BridgeStatus 
     crate::bridge::server::current_status(&app)
 }
 
+/// Sites ignorés par l'extension (liste partagée avec elle).
+#[tauri::command]
+pub fn get_ignored_sites(app: AppHandle) -> Vec<String> {
+    crate::bridge::server::load_sites(&app)
+}
+
+/// Remplace la liste des sites ignorés. Une entrée invalide refuse toute la liste.
+#[tauri::command]
+pub fn set_ignored_sites(app: AppHandle, sites: Vec<String>) -> Result<Vec<String>, String> {
+    let list = crate::bridge::sites::clean_list(&sites)?;
+    crate::bridge::server::apply_sites(&app, list)
+}
+
 /// Régénère le jeton du bridge et renvoie la nouvelle valeur.
 #[tauri::command]
 pub fn regenerate_bridge_token(state: State<AppState>) -> Result<String, String> {

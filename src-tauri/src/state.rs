@@ -22,6 +22,8 @@ pub struct AppState {
     pub bridge_rejected_at: Mutex<Option<i64>>,
     /// Compteur d'ids de connexion du bridge.
     pub bridge_next_conn: AtomicU64,
+    /// Diffusion du message `config` (JSON complet) aux extensions authentifiées.
+    pub bridge_config: tokio::sync::broadcast::Sender<String>,
     /// Liens analysés (page Nouveau / captures) en attente de confirmation (probe_id → PendingLink).
     pub pending_links: Mutex<HashMap<String, crate::link::PendingLink>>,
     /// Planificateur et suivi de fin de file. Verrou feuille (voir `queue.rs`).
@@ -51,6 +53,7 @@ impl AppState {
             bridge_clients: Mutex::new(HashMap::new()),
             bridge_rejected_at: Mutex::new(None),
             bridge_next_conn: AtomicU64::new(1),
+            bridge_config: tokio::sync::broadcast::channel(16).0,
             pending_links: Mutex::new(HashMap::new()),
             planner: Mutex::new(crate::queue::PlannerState::default()),
             ytdlp_version: Mutex::new(None),
