@@ -1100,7 +1100,7 @@ pub fn get_ignored_sites(app: AppHandle) -> Vec<String> {
 #[tauri::command]
 pub fn set_ignored_sites(app: AppHandle, sites: Vec<String>) -> Result<Vec<String>, String> {
     let list = crate::bridge::sites::clean_list(&sites)?;
-    crate::bridge::server::apply_sites(&app, list)
+    crate::bridge::server::update_sites(&app, |_| Ok(list))
 }
 
 /// Régénère le jeton du bridge et renvoie la nouvelle valeur.

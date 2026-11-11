@@ -45,12 +45,15 @@ pub fn normalize_site(input: &str) -> Result<String, String> {
     if s.is_empty() || s.chars().any(|c| c.is_whitespace()) {
         return Err(err());
     }
+    // Schéma seulement en tête (`^[a-z][a-z0-9+.-]*://`) ; sinon la chaîne reste telle quelle
+    // et la coupe au premier `/`, `?` ou `#` s'en charge.
     if let Some(i) = s.find("://") {
-        let scheme = &s[..i];
-        if scheme.is_empty() || !scheme.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'-' || b == b'.') {
-            return Err(err());
+        let scheme = s[..i].as_bytes();
+        if scheme.first().map_or(false, |b| b.is_ascii_lowercase())
+            && scheme.iter().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'+' | b'-' | b'.'))
+        {
+            s = s[i + 3..].to_string();
         }
-        s = s[i + 3..].to_string();
     }
     if let Some(i) = s.find(|c| c == '/' || c == '?' || c == '#') {
         s.truncate(i);
@@ -155,6 +158,8 @@ mod tests {
         assert_eq!(normalize_site("https://www.Exemple.com/page").unwrap(), "exemple.com");
         assert_eq!(normalize_site("éxemple.com").unwrap(), "xn--xemple-9ua.com");
         assert_eq!(normalize_site("www.www.exemple.com").unwrap(), "www.exemple.com");
+        assert_eq!(normalize_site("a.com/x?u=http://b.com").unwrap(), "a.com");
+        assert_eq!(normalize_site("https://a.com/r?u=http://x.com").unwrap(), "a.com");
     }
 
     #[test]

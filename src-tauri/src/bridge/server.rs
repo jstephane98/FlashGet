@@ -49,10 +49,16 @@ fn config_json(sites: &[String]) -> String {
     serde_json::json!({ "type": "config", "ignored_sites": sites }).to_string()
 }
 
-/// Enregistre la liste (déjà normalisée), la diffuse aux extensions et prévient l'interface.
-pub fn apply_sites(app: &AppHandle, list: Vec<String>) -> Result<Vec<String>, String> {
-    let json = serde_json::to_string(&list).map_err(|e| e.to_string())?;
+/// Seul chemin d'écriture de la liste : sous `sites_lock`, lit la liste, applique `f`, enregistre,
+/// diffuse aux extensions et prévient l'interface. Tout est synchrone (aucun `.await` sous le verrou).
+pub fn update_sites(
+    app: &AppHandle,
+    f: impl FnOnce(Vec<String>) -> Result<Vec<String>, String>,
+) -> Result<Vec<String>, String> {
     let st = app.state::<AppState>();
+    let _guard = st.sites_lock.lock().unwrap();
+    let list = f(load_sites(app))?;
+    let json = serde_json::to_string(&list).map_err(|e| e.to_string())?;
     st.storage.set_pref(sites::PREF_KEY, &json).map_err(|e| e.to_string())?;
     // Aucun abonné : l'erreur d'envoi est sans importance.
     let _ = st.bridge_config.send(config_json(&list));
@@ -181,6 +187,10 @@ async fn handle_conn(app: AppHandle, stream: TcpStream) {
         };
         let (new_authed, reply) = handle_message(authed, &expected, parsed);
         authed = new_authed;
+        if !authed {
+            // Ré-authentification refusée : plus de relais de configuration sur cette connexion.
+            cfg_rx = None;
+        }
         let now = now_secs();
         match &reply {
             ServerReply::Authed => {
@@ -235,8 +245,7 @@ async fn handle_conn(app: AppHandle, stream: TcpStream) {
                 if sites::normalize_site(&host).is_err() {
                     Some(serde_json::json!({ "type": "error", "error": "invalid_site" }).to_string())
                 } else {
-                    let list = sites::set_ignored(&load_sites(&app), &host, ignored);
-                    match apply_sites(&app, list) {
+                    match update_sites(&app, |cur| Ok(sites::set_ignored(&cur, &host, ignored))) {
                         Ok(_) => None, // la diffusion `config` tient lieu de réponse
                         Err(e) => Some(serde_json::json!({ "type": "error", "error": e }).to_string()),
                     }
