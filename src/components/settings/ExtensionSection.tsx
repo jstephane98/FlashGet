@@ -31,7 +31,7 @@ const iconBtn = `${ghostBtn} inline-flex items-center gap-1.5`;
 function Step({ n, title, hint, children }: { n: number; title: string; hint: ReactNode; children: ReactNode }) {
   return (
     <div className="flex items-center gap-3 px-4 py-3 border-b border-line last:border-b-0">
-      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-accent-soft text-[12px] font-bold text-accent-bright">{n}</span>
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-surface text-[12px] font-extrabold text-accent-bright">{n}</span>
       <div className="flex-1 min-w-0">
         <div className="text-[13px] font-semibold text-ink">{title}</div>
         <div className="text-[12px] text-ink-mute">{hint}</div>
