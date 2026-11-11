@@ -18,12 +18,17 @@ pub fn sidecar_path(dest: &Path) -> PathBuf {
     PathBuf::from(s)
 }
 
+/// Fichier temporaire de `save` : écrit puis renommé sur le sidecar.
+fn tmp_path(dest: &Path) -> PathBuf {
+    let mut s = sidecar_path(dest).into_os_string();
+    s.push(".tmp");
+    PathBuf::from(s)
+}
+
 pub fn save(dest: &Path, state: &ResumeState) -> Result<(), CoreError> {
     let json = serde_json::to_vec_pretty(state)?;
     let target = sidecar_path(dest);
-    let mut tmp = target.clone().into_os_string();
-    tmp.push(".tmp");
-    let tmp = PathBuf::from(tmp);
+    let tmp = tmp_path(dest);
     std::fs::write(&tmp, json)?;
     if let Err(e) = std::fs::rename(&tmp, &target) {
         let _ = std::fs::remove_file(&tmp);
@@ -39,6 +44,8 @@ pub fn load(dest: &Path) -> Option<ResumeState> {
 
 pub fn clear(dest: &Path) {
     let _ = std::fs::remove_file(sidecar_path(dest));
+    // Reste éventuel d'un `save` interrompu entre l'écriture et le renommage.
+    let _ = std::fs::remove_file(tmp_path(dest));
 }
 
 #[cfg(test)]

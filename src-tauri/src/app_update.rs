@@ -177,31 +177,44 @@ impl Drop for FlagGuard<'_> {
     }
 }
 
-/// Sous un seul verrou `handles` : met en pause les téléchargements actifs (leurs ids sont à
-/// reprendre) et arrête les enregistrements en direct (finalisés, jamais repris).
-/// Renvoie `(à_reprendre, enregistrements_arrêtés)`.
-pub(crate) fn capture_active(st: &AppState) -> (Vec<String>, Vec<String>) {
+/// Sous un seul verrou `handles` : met en pause les téléchargements actifs, dont les ids sont
+/// à reprendre. Les enregistrements en direct ne sont pas touchés : les arrêter lancerait le
+/// remux ffmpeg, qui survivrait à la fermeture et verrouillerait `ffmpeg.exe` pour
+/// l'installeur. La fermeture coupe la capture, et le démarrage suivant la finalise
+/// (`recover_interrupted_recordings`), une fois la nouvelle version installée.
+pub(crate) fn capture_active(st: &AppState) -> Vec<String> {
     let handles = st.handles.lock().unwrap();
     let mut resume = Vec::new();
-    let mut stopped = Vec::new();
     for d in st.storage.list().unwrap_or_default() {
         let Some(h) = handles.get(&d.id) else { continue };
         if h.is_paused() || h.is_cancelled() {
             continue;
         }
-        match d.status {
-            DownloadStatus::Downloading => {
-                h.pause();
-                resume.push(d.id);
-            }
-            DownloadStatus::Recording => {
-                h.stop();
-                stopped.push(d.id);
-            }
-            _ => {}
+        if d.status == DownloadStatus::Downloading {
+            h.pause();
+            resume.push(d.id);
         }
     }
-    (resume, stopped)
+    resume
+}
+
+/// Remet `app_installing` à `false` en sortie, sauf si `disarm` a été appelé juste avant
+/// l'installation (qui, sous Windows, termine le processus).
+struct InstallingGuard<'a> {
+    flag: &'a AtomicBool,
+    armed: bool,
+}
+impl InstallingGuard<'_> {
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+impl Drop for InstallingGuard<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            self.flag.store(false, AtomicOrdering::SeqCst);
+        }
+    }
 }
 
 #[tauri::command]
@@ -217,12 +230,13 @@ pub async fn install_app_update(app: AppHandle) -> Result<(), String> {
     };
     // Gèle la file : plus aucun lancement, y compris ceux du planificateur.
     st.app_installing.store(true, AtomicOrdering::SeqCst);
-    let (ids, stopped) = capture_active(&st);
+    let mut installing = InstallingGuard { flag: &st.app_installing, armed: true };
+    let ids = capture_active(&st);
     let deadline = Instant::now() + Duration::from_secs(5);
     while Instant::now() < deadline {
         let gone = {
             let handles = st.handles.lock().unwrap();
-            ids.iter().chain(stopped.iter()).all(|id| !handles.contains_key(id))
+            ids.iter().all(|id| !handles.contains_key(id))
         };
         if gone {
             break;
@@ -231,6 +245,7 @@ pub async fn install_app_update(app: AppHandle) -> Result<(), String> {
     }
     remember_resume_ids(&st.storage, &ids);
     // Sous Windows, l'installeur NSIS se lance en mode passif et le processus se termine.
+    installing.disarm();
     if let Err(e) = update.install(&bytes) {
         eprintln!("mise à jour de FlashGet : installation : {e}");
         *st.pending_update.lock().unwrap() = Some((update, bytes));
@@ -240,6 +255,8 @@ pub async fn install_app_update(app: AppHandle) -> Result<(), String> {
         crate::commands::reevaluate(&app);
         return Err(INSTALL_ERR.to_string());
     }
+    // Hors Windows, `install` rend la main : la file reprend son cours.
+    st.app_installing.store(false, AtomicOrdering::SeqCst);
     Ok(())
 }
 
@@ -337,11 +354,11 @@ mod tests {
             h.insert("rec".into(), rec.clone());
             h.insert("paused_row".into(), prow);
         }
-        let (resume, stopped) = capture_active(&st);
+        // Un enregistrement en direct n'est ni mis en pause ni arrêté (voir `capture_active`).
+        let resume = capture_active(&st);
         assert_eq!(resume, vec!["run".to_string()]);
-        assert_eq!(stopped, vec!["rec".to_string()]);
         assert!(run.is_paused());
-        assert!(rec.is_stopped() && !rec.is_paused());
+        assert!(!rec.is_stopped() && !rec.is_paused());
     }
 
     #[test]
