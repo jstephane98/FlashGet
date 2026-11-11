@@ -12,7 +12,7 @@
 <p align="center">
   <a href="https://github.com/jstephane98/FlashGet/releases/latest"><b>Télécharger pour Windows</b></a>
   &nbsp;·&nbsp;
-  <a href="docs/presentation/FlashGet-presentation.html">Page de présentation</a>
+  <a href="https://jstephane98.github.io/FlashGet/">Page de présentation</a>
   &nbsp;·&nbsp;
   <a href="https://github.com/jstephane98/FlashGet/releases">Notes de version</a>
 </p>
@@ -100,7 +100,7 @@ La procédure complète (clé de signature, variables d'environnement, dépôt s
 | `src-tauri/crates/download-core/` | Moteur de téléchargement en Rust, sans dépendance à Tauri : segments, reprise, HLS et DASH, stockage SQLite |
 | `extension/` | Extension navigateur (Manifest V3) |
 | `scripts/` | Script de publication |
-| `docs/` | Spécifications, plans, guide de publication et page de présentation |
+| `docs/` | Spécifications, plans, guide de publication et page de présentation (publiée sur GitHub Pages par `.github/workflows/pages.yml`) |
 
 ## Composants intégrés
 
