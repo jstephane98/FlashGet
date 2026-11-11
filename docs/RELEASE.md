@@ -21,13 +21,14 @@ ffmpeg et yt-dlp doivent être présents dans `src-tauri/bin/` avant de compiler
 Dans PowerShell, à chaque session de publication (à saisir vous-même, sans les enregistrer dans un fichier du dépôt) :
 
 ```powershell
-$env:TAURI_SIGNING_PRIVATE_KEY_PATH = "$env:USERPROFILE\.tauri\flashget.key"
-$env:TAURI_SIGNING_PRIVATE_KEY_PASSWORD = "..."
+$env:TAURI_SIGNING_PRIVATE_KEY = "$env:USERPROFILE\.tauri\flashget.key"
 ```
 
-Le script vérifie seulement que la clé est définie ; Tauri lit le mot de passe lui-même.
+`TAURI_SIGNING_PRIVATE_KEY` accepte soit le contenu de la clé, soit son chemin. Le script vérifie seulement que la clé est définie (il accepte aussi `TAURI_SIGNING_PRIVATE_KEY_PATH` et la transmet à Tauri sous le bon nom).
 
-Attention : à cause de `createUpdaterArtifacts`, même un `npx tauri build` direct exige ces variables de signature. `tauri dev` n'est pas concerné.
+Laissez `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` non définie : Tauri demande alors le mot de passe à la signature. Le saisir dans `$env:` peut le laisser dans l'historique de PowerShell.
+
+Attention : à cause de `createUpdaterArtifacts`, même un `npx tauri build` direct exige la variable `TAURI_SIGNING_PRIVATE_KEY` (Tauri ne lit pas `TAURI_SIGNING_PRIVATE_KEY_PATH`). `tauri dev` n'est pas concerné.
 
 ## 3. Changer le numéro de version
 
@@ -71,3 +72,8 @@ L'ancien FlashGet 0.1.0 n'a pas d'updater : l'installeur 2.0.0 doit être lancé
 ## 7. Avertissement SmartScreen
 
 L'installeur n'est pas signé par un certificat de signature de code : Windows SmartScreen affichera un avertissement (« Informations complémentaires », puis « Exécuter quand même »). La signature Tauri protège les mises à jour, pas ce premier lancement.
+
+## Points d'attention
+
+- La Release GitHub doit être **publiée** : ni brouillon (draft), ni pré-version (pre-release). Sinon `releases/latest` ne pointe pas vers elle et les mises à jour ne la voient pas.
+- Fermez FlashGet 0.1.0 avant le premier lancement de 2.0.0. La migration des données copie sa base, et les deux versions se disputeraient le port de l'extension et l'entrée de démarrage automatique.

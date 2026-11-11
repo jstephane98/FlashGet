@@ -194,7 +194,9 @@ async fn current_version(app: &AppHandle) -> Option<String> {
     if let Some(path) = data_path {
         let data_v = exe_version(app, &path).await;
         let bundled_v = sidecar_version(app).await;
-        if should_drop_data_copy(bundled_v.as_deref(), data_v.as_deref()) && std::fs::remove_file(&path).is_ok() {
+        // Pendant une mise à jour, la copie fraîchement installée ne doit pas être supprimée.
+        let updating = app.state::<AppState>().ytdlp_updating.load(AtomicOrdering::SeqCst);
+        if !updating && should_drop_data_copy(bundled_v.as_deref(), data_v.as_deref()) && std::fs::remove_file(&path).is_ok() {
             if let Ok(mut g) = app.state::<AppState>().ytdlp_version.lock() {
                 *g = None;
             }
@@ -210,6 +212,8 @@ async fn current_version(app: &AppHandle) -> Option<String> {
             } else {
                 current = bundled_v;
             }
+        } else if updating {
+            current = data_v;
         } else {
             // Copie illisible : version inconnue, pour qu'une mise à jour puisse la réparer.
             current = data_v;

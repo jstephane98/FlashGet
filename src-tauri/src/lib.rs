@@ -53,6 +53,8 @@ pub fn run() {
             let settings = storage.get_settings().map_err(|e| Box::<dyn std::error::Error>::from(e.to_string()))?;
             app.manage(AppState::new(storage, settings.max_speed_bps));
             // Rafraîchit l'entrée de démarrage Windows (chemin de l'exe peut avoir changé).
+            // Jamais en développement : elle pointerait vers l'exe de débogage.
+            #[cfg(not(debug_assertions))]
             {
                 use tauri_plugin_autostart::ManagerExt;
                 if app.autolaunch().is_enabled().unwrap_or(false) {

@@ -47,7 +47,16 @@ if (dryRun) {
 
 const notes = notesFile ? readFileSync(resolve(notesFile), "utf8") : "";
 
-const build = spawnSync("npx tauri build", { cwd: root, stdio: "inherit", shell: true });
+const build = spawnSync("npx tauri build", {
+  cwd: root,
+  stdio: "inherit",
+  shell: true,
+  env: {
+    ...process.env,
+    // `tauri build` lit seulement TAURI_SIGNING_PRIVATE_KEY (contenu de la clé ou chemin).
+    TAURI_SIGNING_PRIVATE_KEY: process.env.TAURI_SIGNING_PRIVATE_KEY ?? process.env.TAURI_SIGNING_PRIVATE_KEY_PATH,
+  },
+});
 if (build.status !== 0) fail("La compilation a échoué.");
 
 if (!existsSync(exePath)) fail(`Installeur introuvable : ${exePath}`);
