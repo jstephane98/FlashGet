@@ -18,6 +18,10 @@ function fail(msg) {
 }
 
 if (notesIdx >= 0 && !notesFile) fail("L'option --notes attend un fichier.");
+// Vérifié avant la compilation (plusieurs minutes) : une faute de nom doit échouer tout de suite.
+if (notesFile && !existsSync(resolve(notesFile))) {
+  fail(`Fichier de notes introuvable : ${resolve(notesFile)}. Créez-le, ou relancez sans --notes.`);
+}
 
 const conf = JSON.parse(readFileSync(join(root, "src-tauri", "tauri.conf.json"), "utf8"));
 const pubkeyCheck = checkPubkey(conf);

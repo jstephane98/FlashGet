@@ -42,10 +42,10 @@ Mettez la même version dans :
 ## 4. Compiler et préparer les fichiers
 
 ```powershell
-npm run release -- --notes notes.md
+npm run release -- --notes docs/release-notes/2.0.0.md
 ```
 
-`--notes` est facultatif (le texte de `notes.md` s'affiche aux utilisateurs). Pour vérifier l'environnement sans compiler : `npm run release -- --dry-run`.
+`--notes` est facultatif : il désigne le fichier des nouveautés de la version (un fichier par version dans `docs/release-notes/`), dont le texte s'affiche dans la section « Mises à jour » de FlashGet. Pour vérifier l'environnement sans compiler : `npm run release -- --dry-run`.
 
 Le script crée `release/v{version}/` avec :
 
