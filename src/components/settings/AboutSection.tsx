@@ -1,5 +1,5 @@
-import { Download } from "lucide-react";
 import { t } from "../../i18n";
+import { BrandMark } from "../shell/BrandMark";
 import { SectionShell } from "./controls";
 import { useVersions } from "./versions";
 
@@ -8,8 +8,8 @@ export function AboutSection() {
   return (
     <SectionShell title={t("set.nav.about")} desc={t("set.about.desc")}>
       <div className="rounded-[10px] border border-border bg-panel px-6 py-8 flex flex-col items-center text-center gap-2">
-        <span role="img" aria-label={t("set.aboutLogo")} className="flex h-14 w-14 items-center justify-center rounded-2xl bg-accent text-accent-ink">
-          <Download size={30} strokeWidth={2.5} aria-hidden />
+        <span role="img" aria-label={t("set.aboutLogo")} className="flex">
+          <BrandMark size={64} />
         </span>
         <h3 className="text-[20px] font-extrabold text-ink">{t("set.appName")}</h3>
         {app ? <p className="font-mono text-[13px] text-ink-soft">{t("set.aboutVersion", { v: app })}</p> : null}

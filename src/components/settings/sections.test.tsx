@@ -124,6 +124,7 @@ describe("À propos", () => {
   it("À propos", async () => {
     render(<AboutSection />);
     expect(await screen.findByText("Version 0.1.0")).toBeTruthy();
+    expect(screen.getByRole("img", { name: "Logo FlashGet" }).querySelector("svg")).toBeTruthy();
     expect(screen.getByText(/yt-dlp, FFmpeg/)).toBeTruthy();
     expect(screen.queryByText(/aria2/)).toBeNull();
   });

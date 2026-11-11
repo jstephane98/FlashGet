@@ -1,6 +1,7 @@
-import { Download, Minus, Square, X } from "lucide-react";
+import { Minus, Square, X } from "lucide-react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { t } from "../../i18n";
+import { BrandMark } from "./BrandMark";
 
 const btn =
   "flex h-full w-11 items-center justify-center text-ink-soft transition-colors hover:bg-surface hover:text-ink";
@@ -13,12 +14,7 @@ export function TitleBar() {
       className="flex h-9 shrink-0 select-none items-center justify-between border-b border-border bg-deep font-sans"
     >
       <div data-tauri-drag-region className="flex items-center gap-2 pl-3">
-        <span
-          data-tauri-drag-region
-          className="flex h-5 w-5 items-center justify-center rounded-md bg-accent text-accent-ink"
-        >
-          <Download size={12} strokeWidth={2.5} />
-        </span>
+        <BrandMark size={20} className="pointer-events-none" />
         <span data-tauri-drag-region className="text-[13px] font-semibold text-ink">
           FlashGet
         </span>
