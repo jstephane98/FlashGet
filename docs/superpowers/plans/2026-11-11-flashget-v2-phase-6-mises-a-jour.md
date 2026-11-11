@@ -46,7 +46,7 @@
 | Nom de l'installeur produit | `FlashGet_{version}_x64-setup.exe` (+ `.sig`) |
 | Dernière version de yt-dlp | `GET https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest`, champ `tag_name`, en-tête `User-Agent: FlashGet` |
 | Binaire et somme | `https://github.com/yt-dlp/yt-dlp/releases/download/{tag}/yt-dlp.exe` et `.../{tag}/SHA2-256SUMS` (ligne `<hex>  yt-dlp.exe`) |
-| Emplacement du yt-dlp mis à jour | `{app_data}/bin/yt-dlp.exe` ; téléchargement dans `yt-dlp.download`. Si la cible est verrouillée (yt-dlp en cours), le fichier reste en `yt-dlp.next.exe` et il est échangé au démarrage suivant |
+| Emplacement du yt-dlp mis à jour | `{app_data}/bin/yt-dlp.exe` ; téléchargement dans `yt-dlp.download.exe`. Si la cible est verrouillée (yt-dlp en cours), le fichier reste en `yt-dlp.next.exe` et il est échangé au démarrage suivant |
 | Comparaison de versions yt-dlp | composants numériques séparés par `.`, un composant absent vaut 0 (`2026.11.08` < `2026.11.08.1`) |
 | Nouveaux réglages (`Settings`) | `ytdlp_auto_update: bool` (défaut `true`), `app_update_check: bool` (défaut `true`) |
 | Clés internes (table `settings`, via `get_pref`/`set_pref`, hors liste blanche UI) | `ytdlp_update.last_check`, `app_update.last_check` (secondes Unix en texte), `app_update.resume_ids` (JSON `string[]`) |
@@ -156,7 +156,7 @@ Il garde `flashget.key` et son mot de passe. Il transmet seulement le contenu de
 - Produces, côté fichiers (testable sans réseau) : `install_from_bytes(dir: &Path, bytes: &[u8], expected_sha: &str, run_version: impl Fn(&Path) -> Option<String>) -> Result<InstallOutcome, String>`, avec `enum InstallOutcome { Replaced(String), Pending(String) }` (la chaîne est la version).
 - Produces, les commandes :
   - `check_ytdlp_update(app) -> Result<YtdlpUpdateInfo, String>`, avec `struct YtdlpUpdateInfo { current: Option<String>, latest: String, available: bool, last_check: Option<i64> }` ;
-  - `update_ytdlp(app) -> Result<String, String>`, qui renvoie la nouvelle version ;
+  - `update_ytdlp(app) -> Result<YtdlpUpdateResult, String>`, avec `struct YtdlpUpdateResult { version: String, pending: bool }` (`pending` : la nouvelle version attend le prochain démarrage, cible verrouillée) ;
   - `get_ytdlp_last_check(app) -> Option<i64>`.
 - Produces : `start_ytdlp_auto_check(app: AppHandle)`, lancée par le setup.
 
@@ -272,7 +272,8 @@ Prérequis : la clé publique de l'étape P0.
     - à jour : la version en mono, « À jour » et « Rechercher » ;
     - disponible : « Nouvelle version disponible : X » et « Mettre à jour » ;
     - en cours : la barre de progression et le bouton désactivé ;
-    - échec : le message renvoyé par Rust, « La version actuelle reste utilisée » et « Réessayer ».
+    - échec : le message renvoyé par Rust, « La version actuelle reste utilisée » et « Réessayer » ;
+    - en attente (`pending`) : « La version X sera utilisée au prochain démarrage de FlashGet. »
   - Après une mise à jour réussie, la version affichée change et `onUpdated` est appelé.
   - L'interrupteur automatique enregistre `ytdlp_auto_update: false`.
 - [ ] **Step 2 :** constater l'échec.
