@@ -1,0 +1,3 @@
+# Scripts exécutés sous Linux (conteneur de compilation) : toujours en fins de ligne Unix.
+*.sh text eol=lf
+scripts/linux/Dockerfile text eol=lf

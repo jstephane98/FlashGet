@@ -5,8 +5,7 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 use tauri_plugin_shell::{process::Command, ShellExt};
 
-const CURRENT: &str = "yt-dlp.exe";
-const NEXT: &str = "yt-dlp.next.exe";
+use crate::platform::{YTDLP_FILE as CURRENT, YTDLP_NEXT as NEXT};
 
 /// Dossier des binaires mis à jour : `{app_data}/bin`.
 pub fn data_bin_dir(app: &AppHandle) -> Option<PathBuf> {
@@ -62,28 +61,28 @@ mod tests {
     #[test]
     fn resolve_override_some_when_present() {
         let d = tmp("present");
-        std::fs::write(d.join("yt-dlp.exe"), b"x").unwrap();
-        assert_eq!(resolve_override(&d), Some(d.join("yt-dlp.exe")));
+        std::fs::write(d.join(CURRENT), b"x").unwrap();
+        assert_eq!(resolve_override(&d), Some(d.join(CURRENT)));
         let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]
     fn swap_replaces_current_with_next() {
         let d = tmp("swap");
-        std::fs::write(d.join("yt-dlp.exe"), b"old").unwrap();
-        std::fs::write(d.join("yt-dlp.next.exe"), b"new").unwrap();
+        std::fs::write(d.join(CURRENT), b"old").unwrap();
+        std::fs::write(d.join(NEXT), b"new").unwrap();
         assert!(apply_pending_swap(&d).unwrap());
-        assert_eq!(std::fs::read(d.join("yt-dlp.exe")).unwrap(), b"new");
-        assert!(!d.join("yt-dlp.next.exe").exists());
+        assert_eq!(std::fs::read(d.join(CURRENT)).unwrap(), b"new");
+        assert!(!d.join(NEXT).exists());
         let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]
     fn swap_without_next_changes_nothing() {
         let d = tmp("noswap");
-        std::fs::write(d.join("yt-dlp.exe"), b"old").unwrap();
+        std::fs::write(d.join(CURRENT), b"old").unwrap();
         assert!(!apply_pending_swap(&d).unwrap());
-        assert_eq!(std::fs::read(d.join("yt-dlp.exe")).unwrap(), b"old");
+        assert_eq!(std::fs::read(d.join(CURRENT)).unwrap(), b"old");
         let _ = std::fs::remove_dir_all(&d);
     }
 }

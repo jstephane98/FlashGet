@@ -1,11 +1,39 @@
 // Logique pure du manifeste de mise à jour (latest.json) lu par l'updater Tauri.
-export function buildManifest({ version, notes, pubDate, signature, fileName, repo }) {
+
+// Fichiers produits par `tauri build` selon le système qui compile.
+// `files` : tout ce qui est déposé dans la Release ; `updater` : le fichier que l'updater installe.
+export function platformTarget(nodePlatform, version) {
+  switch (nodePlatform) {
+    case "win32":
+      return {
+        key: "windows-x86_64",
+        bundleDir: "nsis",
+        updater: `FlashGet_${version}_x64-setup.exe`,
+        files: [`FlashGet_${version}_x64-setup.exe`],
+      };
+    case "linux":
+      return {
+        key: "linux-x86_64",
+        bundleDir: "appimage",
+        updater: `FlashGet_${version}_amd64.AppImage`,
+        files: [`FlashGet_${version}_amd64.AppImage`, `../deb/FlashGet_${version}_amd64.deb`],
+      };
+    default:
+      return null;
+  }
+}
+
+// Manifeste pour une plateforme, fusionné avec celui d'une autre plateforme de la même version
+// (Windows et Linux sont compilés séparément, puis déposés dans la même Release).
+export function buildManifest({ version, notes, pubDate, signature, fileName, repo, platform = "windows-x86_64", existing = null }) {
+  const same = existing && existing.version === version;
   return {
     version,
-    notes,
+    notes: notes || (same ? existing.notes ?? "" : ""),
     pub_date: pubDate.toISOString(),
     platforms: {
-      "windows-x86_64": {
+      ...(same ? existing.platforms ?? {} : {}),
+      [platform]: {
         signature: signature.trim(),
         url: `https://github.com/${repo}/releases/download/v${version}/${fileName}`,
       },

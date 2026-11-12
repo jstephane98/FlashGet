@@ -118,12 +118,44 @@ pub fn effective_rate(settings_max_bps: u64, s: &Schedule, in_window: bool) -> u
     }
 }
 
+/// Système pour lequel construire la commande de fin de file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Os {
+    Windows,
+    Linux,
+    MacOs,
+}
+
+impl Os {
+    pub fn current() -> Self {
+        if cfg!(target_os = "macos") {
+            Os::MacOs
+        } else if cfg!(windows) {
+            Os::Windows
+        } else {
+            Os::Linux
+        }
+    }
+}
+
+/// Commande de l'action de fin de file pour le système courant.
 pub fn end_action_command(a: EndAction) -> Option<(&'static str, Vec<&'static str>)> {
-    match a {
-        EndAction::Sleep => Some(("rundll32.exe", vec!["powrprof.dll,SetSuspendState", "0,1,0"])),
-        EndAction::Hibernate => Some(("shutdown", vec!["/h"])),
-        EndAction::Shutdown => Some(("shutdown", vec!["/s", "/t", "0"])),
-        EndAction::None | EndAction::Quit => None,
+    end_action_command_for(Os::current(), a)
+}
+
+pub fn end_action_command_for(os: Os, a: EndAction) -> Option<(&'static str, Vec<&'static str>)> {
+    match (os, a) {
+        (_, EndAction::None | EndAction::Quit) => None,
+        (Os::Windows, EndAction::Sleep) => Some(("rundll32.exe", vec!["powrprof.dll,SetSuspendState", "0,1,0"])),
+        (Os::Windows, EndAction::Hibernate) => Some(("shutdown", vec!["/h"])),
+        (Os::Windows, EndAction::Shutdown) => Some(("shutdown", vec!["/s", "/t", "0"])),
+        // systemd : autorisé sans mot de passe pour l'utilisateur de la session active.
+        (Os::Linux, EndAction::Sleep) => Some(("systemctl", vec!["suspend"])),
+        (Os::Linux, EndAction::Hibernate) => Some(("systemctl", vec!["hibernate"])),
+        (Os::Linux, EndAction::Shutdown) => Some(("systemctl", vec!["poweroff"])),
+        // macOS n'a pas d'hibernation à la demande : veille, comme pour Sleep.
+        (Os::MacOs, EndAction::Sleep | EndAction::Hibernate) => Some(("pmset", vec!["sleepnow"])),
+        (Os::MacOs, EndAction::Shutdown) => Some(("osascript", vec!["-e", "tell application \"System Events\" to shut down"])),
     }
 }
 
@@ -232,11 +264,20 @@ mod tests {
 
     #[test]
     fn end_action_commands() {
-        assert_eq!(end_action_command(EndAction::Sleep).unwrap().0, "rundll32.exe");
-        assert_eq!(end_action_command(EndAction::Hibernate), Some(("shutdown", vec!["/h"])));
-        assert_eq!(end_action_command(EndAction::Shutdown), Some(("shutdown", vec!["/s", "/t", "0"])));
-        assert!(end_action_command(EndAction::None).is_none());
-        assert!(end_action_command(EndAction::Quit).is_none());
+        use Os::*;
+        assert_eq!(end_action_command_for(Windows, EndAction::Sleep).unwrap().0, "rundll32.exe");
+        assert_eq!(end_action_command_for(Windows, EndAction::Hibernate), Some(("shutdown", vec!["/h"])));
+        assert_eq!(end_action_command_for(Windows, EndAction::Shutdown), Some(("shutdown", vec!["/s", "/t", "0"])));
+        assert_eq!(end_action_command_for(Linux, EndAction::Sleep), Some(("systemctl", vec!["suspend"])));
+        assert_eq!(end_action_command_for(Linux, EndAction::Hibernate), Some(("systemctl", vec!["hibernate"])));
+        assert_eq!(end_action_command_for(Linux, EndAction::Shutdown), Some(("systemctl", vec!["poweroff"])));
+        assert_eq!(end_action_command_for(MacOs, EndAction::Sleep), Some(("pmset", vec!["sleepnow"])));
+        assert_eq!(end_action_command_for(MacOs, EndAction::Shutdown).unwrap().0, "osascript");
+        for os in [Windows, Linux, MacOs] {
+            assert!(end_action_command_for(os, EndAction::None).is_none());
+            assert!(end_action_command_for(os, EndAction::Quit).is_none());
+        }
+        assert_eq!(end_action_command(EndAction::Sleep), end_action_command_for(Os::current(), EndAction::Sleep));
     }
 
     #[test]

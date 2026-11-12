@@ -1,7 +1,7 @@
 import { describe, it, expect, afterEach } from "vitest";
 import { fr } from "./fr";
 import { en } from "./en";
-import { getLang, isLangPref, locale, resolveLang, setLang, subscribeLang, systemLang, t, type MsgKey } from "./index";
+import { detectOs, getLang, isLangPref, locale, resolveLang, setLang, subscribeLang, systemLang, t, type MsgKey } from "./index";
 import { formatBytes, formatClock, formatDecimal, formatNumericDate, formatSpeed, recordingLabel } from "../format";
 
 const vars = (s: string) => [...s.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
@@ -66,6 +66,22 @@ describe("langue", () => {
   it("utilise les réglages régionaux de la langue", () => {
     expect(locale("fr")).toBe("fr-FR");
     expect(locale("en")).toMatch(/^en/);
+  });
+});
+
+describe("nom du système dans les textes", () => {
+  it("reconnaît Windows, Linux et macOS", () => {
+    expect(detectOs("Mozilla/5.0 (Windows NT 10.0; Win64; x64) Edg/157")).toBe("Windows");
+    expect(detectOs("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15")).toBe("Linux");
+    expect(detectOs("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15")).toBe("macOS");
+  });
+
+  it("remplace {os} sans qu'on le passe", () => {
+    const os = detectOs();
+    expect(t("set.autostart")).toBe(`Lancer FlashGet au démarrage de ${os}`);
+    setLang("en");
+    expect(t("set.autostart")).toBe(`Launch FlashGet when ${os} starts`);
+    expect(t("set.autostart")).not.toContain("{os}");
   });
 });
 

@@ -1,5 +1,5 @@
 // @ts-expect-error module .mjs sans déclaration de types
-import { buildManifest, checkPubkey } from "./manifest.mjs";
+import { buildManifest, checkPubkey, platformTarget } from "./manifest.mjs";
 
 const base = {
   version: "2.0.0",
@@ -29,6 +29,31 @@ describe("buildManifest", () => {
     const m = buildManifest(base);
     expect(m.pub_date).toBe("2026-11-11T10:00:00.000Z");
     expect(m.pub_date).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$/);
+  });
+});
+
+describe("plusieurs plateformes", () => {
+  it("donne les fichiers de chaque système", () => {
+    expect(platformTarget("win32", "2.1.0")).toMatchObject({ key: "windows-x86_64", bundleDir: "nsis", updater: "FlashGet_2.1.0_x64-setup.exe" });
+    const linux = platformTarget("linux", "2.1.0");
+    expect(linux).toMatchObject({ key: "linux-x86_64", bundleDir: "appimage", updater: "FlashGet_2.1.0_amd64.AppImage" });
+    expect(linux.files).toContain("../deb/FlashGet_2.1.0_amd64.deb");
+    expect(platformTarget("darwin", "2.1.0")).toBeNull();
+  });
+
+  it("ajoute Linux au manifeste Windows de la même version", () => {
+    const win = buildManifest(base);
+    const both = buildManifest({ ...base, notes: "", platform: "linux-x86_64", fileName: "FlashGet_2.0.0_amd64.AppImage", existing: win });
+    expect(Object.keys(both.platforms).sort()).toEqual(["linux-x86_64", "windows-x86_64"]);
+    expect(both.platforms["windows-x86_64"]).toEqual(win.platforms["windows-x86_64"]);
+    expect(both.platforms["linux-x86_64"].url).toBe("https://github.com/jstephane98/FlashGet/releases/download/v2.0.0/FlashGet_2.0.0_amd64.AppImage");
+    expect(both.notes).toBe("Première version");
+  });
+
+  it("ignore le manifeste d'une autre version", () => {
+    const old = buildManifest({ ...base, version: "1.9.0" });
+    const m = buildManifest({ ...base, platform: "linux-x86_64", existing: old });
+    expect(Object.keys(m.platforms)).toEqual(["linux-x86_64"]);
   });
 });
 

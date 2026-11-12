@@ -26,8 +26,7 @@ fn NET() -> &'static str {
     download_core::i18n::tr("Impossible de joindre GitHub", "Couldn't reach GitHub")
 }
 const MAX_BYTES: u64 = 200 * 1024 * 1024;
-const DOWNLOAD_FILE: &str = "yt-dlp.download.exe";
-const NEXT_FILE: &str = "yt-dlp.next.exe";
+use crate::platform::{YTDLP_ASSET, YTDLP_DOWNLOAD as DOWNLOAD_FILE, YTDLP_FILE, YTDLP_NEXT as NEXT_FILE};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum InstallOutcome {
@@ -117,7 +116,7 @@ pub fn install_from_bytes(
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     let download = dir.join(DOWNLOAD_FILE);
     // `fs::write` referme le fichier avant le renommage.
-    if let Err(e) = std::fs::write(&download, bytes) {
+    if let Err(e) = std::fs::write(&download, bytes).and_then(|_| crate::platform::make_executable(&download)) {
         eprintln!("mise à jour de yt-dlp : écriture : {e}");
         let _ = std::fs::remove_file(&download);
         return Err(INVALID().to_string());
@@ -132,7 +131,7 @@ pub fn install_from_bytes(
         return Err(INVALID().to_string());
     };
     let next = dir.join(NEXT_FILE);
-    if std::fs::rename(&download, dir.join("yt-dlp.exe")).is_ok() {
+    if std::fs::rename(&download, dir.join(YTDLP_FILE)).is_ok() {
         // Une ancienne version en attente écraserait celle-ci au prochain démarrage.
         let _ = std::fs::remove_file(&next);
         return Ok(InstallOutcome::Replaced(version));
@@ -254,7 +253,7 @@ impl Drop for UpdatingGuard<'_> {
 
 /// Télécharge `yt-dlp.exe` en mémoire (plafonné), en signalant la progression.
 async fn download_exe(app: &AppHandle, client: &reqwest::Client, tag: &str) -> Result<Vec<u8>, String> {
-    let mut resp = client.get(format!("{DOWNLOAD_BASE}/{tag}/yt-dlp.exe")).send().await.map_err(|_| NET().to_string())?;
+    let mut resp = client.get(format!("{DOWNLOAD_BASE}/{tag}/{YTDLP_ASSET}")).send().await.map_err(|_| NET().to_string())?;
     if !resp.status().is_success() {
         return Err(NET().into());
     }
@@ -291,7 +290,7 @@ async fn fetch_and_install(app: &AppHandle) -> Result<InstallOutcome, String> {
         return Err(NET().into());
     }
     let sums = sums.text().await.map_err(|_| NET().to_string())?;
-    let expected = parse_sha256sums(&sums, "yt-dlp.exe").ok_or_else(|| INVALID().to_string())?;
+    let expected = parse_sha256sums(&sums, YTDLP_ASSET).ok_or_else(|| INVALID().to_string())?;
 
     let bytes = download_exe(app, &client, &tag).await?;
 
@@ -406,7 +405,7 @@ mod tests {
     #[test]
     fn install_rejects_bad_checksum() {
         let d = tmp("badsum");
-        std::fs::write(d.join("yt-dlp.exe"), b"old").unwrap();
+        std::fs::write(d.join(YTDLP_FILE), b"old").unwrap();
         let called = std::cell::Cell::new(false);
         let r = install_from_bytes(&d, b"new", &sha(b"autre"), |_| {
             called.set(true);
@@ -414,45 +413,45 @@ mod tests {
         });
         assert!(!called.get(), "run_version ne doit pas être appelé avant la somme");
         assert_eq!(r, Err("fichier téléchargé invalide".to_string()));
-        assert_eq!(std::fs::read(d.join("yt-dlp.exe")).unwrap(), b"old");
-        assert!(!d.join("yt-dlp.download.exe").exists());
+        assert_eq!(std::fs::read(d.join(YTDLP_FILE)).unwrap(), b"old");
+        assert!(!d.join(DOWNLOAD_FILE).exists());
         let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]
     fn install_rejects_unrunnable() {
         let d = tmp("unrunnable");
-        std::fs::write(d.join("yt-dlp.exe"), b"old").unwrap();
+        std::fs::write(d.join(YTDLP_FILE), b"old").unwrap();
         let r = install_from_bytes(&d, b"new", &sha(b"new"), |_| None);
         assert_eq!(r, Err("fichier téléchargé invalide".to_string()));
-        assert_eq!(std::fs::read(d.join("yt-dlp.exe")).unwrap(), b"old");
-        assert!(!d.join("yt-dlp.download.exe").exists());
+        assert_eq!(std::fs::read(d.join(YTDLP_FILE)).unwrap(), b"old");
+        assert!(!d.join(DOWNLOAD_FILE).exists());
         let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]
     fn install_replaces() {
         let d = tmp("replace");
-        std::fs::write(d.join("yt-dlp.exe"), b"old").unwrap();
-        std::fs::write(d.join("yt-dlp.next.exe"), b"older").unwrap();
+        std::fs::write(d.join(YTDLP_FILE), b"old").unwrap();
+        std::fs::write(d.join(NEXT_FILE), b"older").unwrap();
         let upper = sha(b"new").to_uppercase();
         let r = install_from_bytes(&d, b"new", &upper, |p| {
-            assert!(p.ends_with("yt-dlp.download.exe"));
+            assert!(p.ends_with(DOWNLOAD_FILE));
             Some("2026.11.08".into())
         });
         assert_eq!(r, Ok(InstallOutcome::Replaced("2026.11.08".into())));
-        assert_eq!(std::fs::read(d.join("yt-dlp.exe")).unwrap(), b"new");
-        assert!(!d.join("yt-dlp.next.exe").exists());
-        assert!(!d.join("yt-dlp.download.exe").exists());
+        assert_eq!(std::fs::read(d.join(YTDLP_FILE)).unwrap(), b"new");
+        assert!(!d.join(NEXT_FILE).exists());
+        assert!(!d.join(DOWNLOAD_FILE).exists());
         let _ = std::fs::remove_dir_all(&d);
     }
 
     #[test]
     fn install_falls_back_to_next_when_locked() {
         let d = tmp("locked");
-        let target = d.join("yt-dlp.exe");
+        let target = d.join(YTDLP_FILE);
         std::fs::write(&target, b"old").unwrap();
-        std::fs::write(d.join("yt-dlp.next.exe"), b"older").unwrap();
+        std::fs::write(d.join(NEXT_FILE), b"older").unwrap();
         #[cfg(windows)]
         let _lock = {
             use std::os::windows::fs::OpenOptionsExt;
@@ -466,8 +465,8 @@ mod tests {
         }
         let r = install_from_bytes(&d, b"new", &sha(b"new"), |_| Some("2026.11.08".into()));
         assert_eq!(r, Ok(InstallOutcome::Pending("2026.11.08".into())));
-        assert_eq!(std::fs::read(d.join("yt-dlp.next.exe")).unwrap(), b"new");
-        assert!(!d.join("yt-dlp.download.exe").exists());
+        assert_eq!(std::fs::read(d.join(NEXT_FILE)).unwrap(), b"new");
+        assert!(!d.join(DOWNLOAD_FILE).exists());
         #[cfg(windows)]
         {
             drop(_lock);
@@ -479,11 +478,11 @@ mod tests {
     #[test]
     fn download_removed_when_next_rename_fails() {
         let d = tmp("nextfail");
-        let target = d.join("yt-dlp.exe");
+        let target = d.join(YTDLP_FILE);
         std::fs::write(&target, b"old").unwrap();
         // `.next` est un dossier non vide : ni suppression ni renommage possibles.
-        std::fs::create_dir(d.join("yt-dlp.next.exe")).unwrap();
-        std::fs::write(d.join("yt-dlp.next.exe").join("x"), b"x").unwrap();
+        std::fs::create_dir(d.join(NEXT_FILE)).unwrap();
+        std::fs::write(d.join(NEXT_FILE).join("x"), b"x").unwrap();
         #[cfg(windows)]
         let _lock = {
             use std::os::windows::fs::OpenOptionsExt;
@@ -496,7 +495,7 @@ mod tests {
         }
         let r = install_from_bytes(&d, b"new", &sha(b"new"), |_| Some("1".into()));
         assert_eq!(r, Err("fichier téléchargé invalide".to_string()));
-        assert!(!d.join("yt-dlp.download.exe").exists());
+        assert!(!d.join(DOWNLOAD_FILE).exists());
         let _ = std::fs::remove_dir_all(&d);
     }
 

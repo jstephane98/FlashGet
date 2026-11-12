@@ -35,6 +35,18 @@ export function resolveLang(pref: LangPref, system: Lang = systemLang()): Lang {
   return pref === "auto" ? system : pref;
 }
 
+/** Nom du système, glissé dans les textes à la place de `{os}`. */
+export type OsName = "Windows" | "Linux" | "macOS";
+
+export function detectOs(ua: string = typeof navigator === "undefined" ? "" : navigator.userAgent): OsName {
+  if (/Windows/i.test(ua)) return "Windows";
+  if (/Mac OS X|Macintosh/i.test(ua)) return "macOS";
+  if (/Linux|X11/i.test(ua)) return "Linux";
+  return "Windows";
+}
+
+const OS_NAME: OsName = detectOs();
+
 let current: Lang = "fr";
 const listeners = new Set<() => void>();
 
@@ -69,9 +81,9 @@ export function locale(lang: Lang = current): string {
 /** Renvoie le texte de `key` dans la langue courante, en remplaçant chaque `{nom}` par `vars.nom`. */
 export function t(key: MsgKey, vars?: Record<string, string | number>): string {
   const template: string = DICTS[current][key] ?? fr[key];
-  if (!vars) return template;
+  const all: Record<string, string | number> = { os: OS_NAME, ...vars };
   return template.replace(/\{(\w+)\}/g, (match, name: string) =>
-    name in vars ? String(vars[name]) : match,
+    name in all ? String(all[name]) : match,
   );
 }
 
@@ -81,6 +93,7 @@ export function tNodes(key: MsgKey, vars: Record<string, ReactNode>): ReactNode[
   const template: string = DICTS[current][key] ?? fr[key];
   return template.split(/(\{\w+\})/).map((part, i) => {
     const m = /^\{(\w+)\}$/.exec(part);
-    return m && m[1] in vars ? <Fragment key={i}>{vars[m[1]]}</Fragment> : part;
+    if (m && m[1] in vars) return <Fragment key={i}>{vars[m[1]]}</Fragment>;
+    return m && m[1] === "os" ? OS_NAME : part;
   });
 }

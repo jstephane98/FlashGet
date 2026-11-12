@@ -7,6 +7,7 @@ mod language;
 mod library;
 mod link;
 mod migrate;
+mod platform;
 mod prefs;
 mod queue;
 mod remux;
