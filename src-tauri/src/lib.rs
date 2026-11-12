@@ -1,4 +1,5 @@
 mod app_update;
+mod autostart;
 mod bridge;
 mod commands;
 mod dest;
@@ -52,15 +53,9 @@ pub fn run() {
             let storage = Storage::open(&dir.join("downloads.sqlite")).map_err(|e| Box::<dyn std::error::Error>::from(e.to_string()))?;
             let settings = storage.get_settings().map_err(|e| Box::<dyn std::error::Error>::from(e.to_string()))?;
             app.manage(AppState::new(storage, settings.max_speed_bps));
-            // Rafraîchit l'entrée de démarrage Windows (chemin de l'exe peut avoir changé).
-            // Jamais en développement : elle pointerait vers l'exe de débogage.
-            #[cfg(not(debug_assertions))]
-            {
-                use tauri_plugin_autostart::ManagerExt;
-                if app.autolaunch().is_enabled().unwrap_or(false) {
-                    let _ = app.autolaunch().enable();
-                }
-            }
+            // Remet l'entrée de démarrage Windows en accord avec le choix enregistré
+            // (le désinstalleur l'efface, et le chemin de l'exe peut avoir changé).
+            autostart::reconcile(app.handle(), &app.state::<AppState>().storage);
             bridge::start(app.handle().clone());
             commands::recover_interrupted_recordings(app.handle());
             let requeued = commands::recover_interrupted_downloads(app.handle())
