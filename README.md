@@ -5,12 +5,12 @@
 <h1 align="center">FlashGet</h1>
 
 <p align="center">
-  The download manager for Windows.<br>
+  The download manager for Windows and Linux.<br>
   Multiple connections per file, videos from over a thousand sites, automatic resume, queue, scheduler and browser extension.
 </p>
 
 <p align="center">
-  <a href="https://github.com/jstephane98/FlashGet/releases/latest"><b>Download for Windows</b></a>
+  <a href="https://github.com/jstephane98/FlashGet/releases/latest"><b>Download</b></a>
   &nbsp;·&nbsp;
   <a href="docs/presentation/FlashGet-presentation.html">Presentation page</a>
   &nbsp;·&nbsp;
@@ -23,7 +23,7 @@
   <img src="docs/presentation/assets/hero-telechargements.webp" alt="FlashGet running three downloads, each one on eight connections" width="900">
 </p>
 
-> FlashGet's interface is in French for now. This README and the presentation page are in English.
+> FlashGet is available in English and French: pick the language in **Settings › General**, or let it follow your system.
 
 ## What FlashGet does
 
@@ -47,7 +47,7 @@
 - Real connection status, ignored sites shared with the app, and "Retry" that resends the capture context.
 
 **Day to day**
-- Dark, light or system theme. System tray, notifications on success and failure, launch at startup.
+- English or French, dark, light or system theme. System tray, notifications on success and failure, launch at startup.
 - Signed FlashGet updates: the app lets you know, nothing installs without your click.
 
 <p align="center">
@@ -57,11 +57,18 @@
 
 ## Install
 
-1. Download `FlashGet_<version>_x64-setup.exe` from the [latest release](https://github.com/jstephane98/FlashGet/releases/latest).
-2. Run it. It installs for your account only, without administrator rights. Windows SmartScreen may show a warning because the installer isn't signed with a Windows code-signing certificate: choose "More info", then "Run anyway".
-3. For the extension, open FlashGet, go to **Paramètres › Extension navigateur** (Settings › Browser extension) and follow the three steps. The extension folder ships with FlashGet.
+All files are in the [latest release](https://github.com/jstephane98/FlashGet/releases/latest).
 
-Requirements: Windows 10 or 11, 64-bit.
+**Windows** (10 or 11, 64-bit)
+1. Download `FlashGet_<version>_x64-setup.exe` and run it. It installs for your account only, without administrator rights.
+2. Windows SmartScreen may show a warning because the installer isn't signed with a Windows code-signing certificate: choose "More info", then "Run anyway".
+
+**Linux** (64-bit: Ubuntu 22.04 or newer, Debian 12, Fedora 38+ and others)
+- AppImage, no installation: download `FlashGet_<version>_amd64.AppImage`, make it executable (`chmod +x FlashGet_*.AppImage`) and run it. Updates install from within the app.
+- Debian and Ubuntu: `sudo apt install ./FlashGet_<version>_amd64.deb`.
+- The notification-area icon needs `libayatana-appindicator3`. For the built-in video player, install the GStreamer plugins (`gstreamer1.0-plugins-good`, `-bad` and `gstreamer1.0-libav`).
+
+**Browser extension**: open FlashGet, go to **Settings › Browser extension** and follow the three steps. The extension folder ships with FlashGet.
 
 **Coming from FlashGet 0.1.0?** Close it before installing 2.0. On first launch, your downloads, settings, extension token and YouTube sign-in are carried over automatically. Then reload the extension from your browser's extensions page.
 
@@ -105,6 +112,8 @@ npm run tauri dev
 
 On a machine with little memory, limit parallelism: `cargo test --workspace -j 1` and `npm test -- --maxWorkers=2`.
 
+The Linux version is built from Windows in a Docker container: see [scripts/linux/README.md](scripts/linux/README.md).
+
 ### Publishing a release
 
 The full procedure (signing key, environment variables, upload to GitHub Releases) is described in [docs/RELEASE.md](docs/RELEASE.md) (in French).
@@ -117,7 +126,7 @@ The full procedure (signing key, environment variables, upload to GitHub Release
 | `src-tauri/src/` | Tauri 2 app: commands, queue, scheduler, extension bridge, updates |
 | `src-tauri/crates/download-core/` | Download engine in Rust, independent of Tauri: segments, resume, HLS and DASH, SQLite storage |
 | `extension/` | Browser extension (Manifest V3) |
-| `scripts/` | Release script and logo rendering (`scripts/brand/`) |
+| `scripts/` | Release script, Linux build (`scripts/linux/`) and logo rendering (`scripts/brand/`) |
 | `docs/` | Specs, plans, release guide and presentation page |
 
 ## Bundled components

@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FlashGet, the download manager for Windows</title>
-<meta name="description" content="FlashGet speeds up your downloads, grabs videos from over a thousand sites, resumes after a dropped connection and keeps everything in a library. For Windows 10 and 11.">
+<title>FlashGet, the download manager for Windows and Linux</title>
+<meta name="description" content="FlashGet speeds up your downloads, grabs videos from over a thousand sites, resumes after a dropped connection and keeps everything in a library. For Windows and Linux, in English or French.">
 <meta property="og:title" content="FlashGet 2.0">
-<meta property="og:description" content="The download manager for Windows: multiple connections per file, videos, queue, scheduler and browser extension.">
+<meta property="og:description" content="The download manager for Windows and Linux: multiple connections per file, videos, queue, scheduler and browser extension.">
 <meta property="og:type" content="website">
 <meta property="og:image" content="assets/hero-telechargements.webp">
 <meta name="twitter:card" content="summary_large_image">
@@ -247,7 +247,7 @@
         <h1 id="titre">Download anything.<br><span>Then forget it.</span></h1>
         <p>Files, videos, playlists: FlashGet speeds them up, resumes after a dropped connection and files everything away for you.</p>
         <div class="actions">
-          <a class="btn btn-primary" href="#telecharger"><i class="ph ph-windows-logo" aria-hidden="true"></i>Download for Windows</a>
+          <a class="btn btn-primary" href="#telecharger"><i class="ph ph-download-simple" aria-hidden="true"></i>Download for free</a>
           <a class="btn btn-quiet" href="#application">Take a tour</a>
         </div>
       </div>
@@ -261,7 +261,7 @@
   <section id="application" aria-labelledby="t-app" style="padding-top:80px">
     <div class="wrap">
       <h2 id="t-app" class="reveal">A real app, not just another button.</h2>
-      <p class="lead reveal" style="--d:.08s">Every screen has one job: prepare, follow, find again. These are real screenshots of FlashGet 2.0, whose interface is in French.</p>
+      <p class="lead reveal" style="--d:.08s">Every screen has one job: prepare, follow, find again. These are real screenshots of FlashGet, in English or French as you prefer.</p>
 
       <div class="bento">
         <article class="tile t-lib reveal">
@@ -298,7 +298,7 @@
 
         <article class="tile t-light reveal" style="--d:.06s">
           <div class="txt">
-            <h3>Dark, light, or like Windows</h3>
+            <h3>Dark, light, or like your system</h3>
             <p>The theme follows your taste, or the system's.</p>
           </div>
           <div class="pic"><img src="assets/theme-clair.webp" width="872" height="434" loading="lazy" alt="The Completed library in the light theme"></div>
@@ -379,22 +379,23 @@
   <!-- ======================= Download ======================= -->
   <section id="telecharger" aria-labelledby="t-get">
     <div class="wrap">
-      <span class="kicker reveal"><i class="ph ph-download-simple" aria-hidden="true"></i>Version 2.0.0</span>
+      <span class="kicker reveal"><i class="ph ph-download-simple" aria-hidden="true"></i>Version 2.1.0</span>
       <h2 id="t-get" class="reveal" style="--d:.05s">Install FlashGet<br>in a minute.</h2>
       <div class="get">
         <div class="get-main reveal">
-          <div class="os"><i class="ph ph-windows-logo" aria-hidden="true"></i>Windows 10 and 11</div>
+          <div class="os"><i class="ph ph-windows-logo" aria-hidden="true"></i>Windows<span style="color:var(--ink-3);font-weight:600">&amp;</span><i class="ph ph-linux-logo" aria-hidden="true"></i>Linux</div>
           <div class="specs">
             <div><b>x64</b>Architecture</div>
-            <div><b>.exe</b>Installer</div>
+            <div><b>.exe</b>Windows 10 and 11</div>
+            <div><b>AppImage · .deb</b>Ubuntu, Debian, Fedora</div>
             <div><b>None</b>Admin rights needed</div>
-            <div><b>French</b>Interface language</div>
+            <div><b>EN · FR</b>Interface languages</div>
           </div>
-          <div><a class="btn btn-primary" href="https://github.com/jstephane98/FlashGet/releases/latest"><i class="ph ph-download-simple" aria-hidden="true"></i>Download for Windows</a></div>
+          <div><a class="btn btn-primary" href="https://github.com/jstephane98/FlashGet/releases/latest"><i class="ph ph-download-simple" aria-hidden="true"></i>Download the latest version</a></div>
         </div>
         <div class="get-side">
           <div class="get-card reveal" style="--d:.06s"><i class="ph ph-puzzle-piece" aria-hidden="true"></i><div><b>The extension is included</b><p>It comes with FlashGet. Open Settings, then Browser extension: three guided steps.</p></div></div>
-          <div class="get-card reveal" style="--d:.12s"><i class="ph ph-list-checks" aria-hidden="true"></i><div><b>What's new in 2.0</b><p>Every version and its release notes are on GitHub.</p><a href="https://github.com/jstephane98/FlashGet/releases">See all versions<i class="ph ph-arrow-up-right" aria-hidden="true"></i></a></div></div>
+          <div class="get-card reveal" style="--d:.12s"><i class="ph ph-list-checks" aria-hidden="true"></i><div><b>What's new in 2.1</b><p>Every version and its release notes are on GitHub.</p><a href="https://github.com/jstephane98/FlashGet/releases">See all versions<i class="ph ph-arrow-up-right" aria-hidden="true"></i></a></div></div>
         </div>
       </div>
     </div>
@@ -428,7 +429,11 @@
       <div class="reveal">
         <details>
           <summary>Is the app available in English?<i class="ph ph-plus" aria-hidden="true"></i></summary>
-          <p>Not yet. FlashGet's interface is in French for now. This page and the project's documentation are in English.</p>
+          <p>Yes. FlashGet is in English and French. By default it follows your system's language; you can change it any time in Settings › General.</p>
+        </details>
+        <details>
+          <summary>Does it run on Linux? And on a Mac?<i class="ph ph-plus" aria-hidden="true"></i></summary>
+          <p>Linux, yes: an AppImage that runs without installation, and a .deb package for Debian and Ubuntu. A macOS version isn't available yet.</p>
         </details>
         <details>
           <summary>I already have FlashGet 0.1.0. Will I lose my downloads?<i class="ph ph-plus" aria-hidden="true"></i></summary>

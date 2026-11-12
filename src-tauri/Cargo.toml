@@ -3,7 +3,7 @@ members = ["crates/download-core"]
 
 [package]
 name = "tauri-app"
-version = "2.0.0"
+version = "2.1.0"
 description = "FlashGet — gestionnaire de téléchargements"
 authors = ["you"]
 edition = "2021"

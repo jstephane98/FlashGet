@@ -53,10 +53,26 @@ Le script crée `release/v{version}/` avec :
 - `FlashGet_{version}_x64-setup.exe.sig`
 - `latest.json`
 
+## 4 bis. Compiler la version Linux
+
+Depuis Windows, dans Docker (voir `scripts/linux/README.md` pour la préparation de l'image) :
+
+```powershell
+docker run --rm -it -v "${PWD}:/src" -v flashget-target:/work/src-tauri/target -v flashget-cargo:/usr/local/cargo/registry -v "$env:USERPROFILE\.tauri:/key:ro" -e NOTES=docs/release-notes/2.1.0.md flashget-linux bash /src/scripts/linux/build.sh --release
+```
+
+Le mot de passe de la clé est demandé de la même façon. Le script ajoute à `release/v{version}/` :
+
+- `FlashGet_{version}_amd64.AppImage` et `FlashGet_{version}_amd64.AppImage.sig`
+- `FlashGet_{version}_amd64.deb`
+
+et complète `latest.json` avec la plateforme `linux-x86_64` (la plateforme Windows est conservée).
+Lancez donc d'abord `npm run release` sous Windows, puis la compilation Linux.
+
 ## 5. Créer la Release GitHub
 
 1. Sur `https://github.com/jstephane98/FlashGet/releases`, créez une Release avec le tag `v{version}`.
-2. Déposez les 3 fichiers ci-dessus.
+2. Déposez tous les fichiers de `release/v{version}/` : ceux de Windows, ceux de Linux et `latest.json`.
 3. Publiez.
 
 L'application interroge `https://github.com/jstephane98/FlashGet/releases/latest/download/latest.json`. Le dépôt, ou au moins ses Releases, doit donc être **public**, sinon l'updater n'atteindra pas `latest.json`.
