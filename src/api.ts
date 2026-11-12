@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import type { Download, Progress, Priority, Settings, Category, CategoryDirs, BridgeInfo, BridgeStatus } from "./types";
 
 export type FormatKind = "av" | "video" | "audio";
@@ -200,6 +201,13 @@ export function setIgnoredSites(sites: string[]): Promise<string[]> {
 
 export function onIgnoredSitesChanged(cb: (sites: string[]) => void): Promise<UnlistenFn> {
   return listen<string[]>("ignored-sites-changed", (e) => cb(e.payload));
+}
+
+/** Page de soutien du projet (Buy Me a Coffee), ouverte dans le navigateur. */
+export const SUPPORT_URL = "https://buymeacoffee.com/joelkamo";
+
+export function openSupportPage(): Promise<void> {
+  return openUrl(SUPPORT_URL);
 }
 
 export function openExtensionFolder(): Promise<void> {

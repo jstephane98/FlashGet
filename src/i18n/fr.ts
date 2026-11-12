@@ -379,6 +379,8 @@ export const fr = {
   "set.aboutVersion": "Version {v}",
   "set.aboutComponents": "Composants intégrés : yt-dlp, FFmpeg",
   "set.aboutLogo": "Logo FlashGet",
+  "set.aboutSupport": "Soutenir FlashGet",
+  "set.aboutSupportHint": "FlashGet est gratuit. S'il vous fait gagner du temps, offrez-moi un café.",
 } as const;
 
 export type MsgKey = keyof typeof fr;

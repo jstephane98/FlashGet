@@ -128,4 +128,19 @@ describe("À propos", () => {
     expect(screen.getByText(/yt-dlp, FFmpeg/)).toBeTruthy();
     expect(screen.queryByText(/aria2/)).toBeNull();
   });
+
+  it("Soutenir FlashGet ouvre la page de soutien", async () => {
+    vi.mocked(api.openSupportPage).mockResolvedValue(undefined);
+    render(<AboutSection />);
+    fireEvent.click(screen.getByRole("button", { name: "Soutenir FlashGet" }));
+    await waitFor(() => expect(api.openSupportPage).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("Soutenir FlashGet affiche l'erreur si le navigateur ne s'ouvre pas", async () => {
+    vi.mocked(api.openSupportPage).mockRejectedValue("Aucun navigateur");
+    render(<AboutSection />);
+    fireEvent.click(screen.getByRole("button", { name: "Soutenir FlashGet" }));
+    expect((await screen.findByRole("alert")).textContent).toBe("Aucun navigateur");
+  });
 });

@@ -1,16 +1,14 @@
 <!doctype html>
-<html lang="fr">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FlashGet, gestionnaire de téléchargements pour Windows</title>
-<meta name="description" content="FlashGet accélère vos téléchargements, récupère les vidéos de plus de mille sites, reprend après une coupure et range tout dans une bibliothèque. Pour Windows 10 et 11.">
+<title>FlashGet, the download manager for Windows</title>
+<meta name="description" content="FlashGet speeds up your downloads, grabs videos from over a thousand sites, resumes after a dropped connection and keeps everything in a library. For Windows 10 and 11.">
 <meta property="og:title" content="FlashGet 2.0">
-<meta property="og:description" content="Le gestionnaire de téléchargements pour Windows : plusieurs connexions par fichier, vidéos, file d'attente, planificateur et extension navigateur.">
-<link rel="canonical" href="https://jstephane98.github.io/FlashGet/">
+<meta property="og:description" content="The download manager for Windows: multiple connections per file, videos, queue, scheduler and browser extension.">
 <meta property="og:type" content="website">
-<meta property="og:url" content="https://jstephane98.github.io/FlashGet/">
-<meta property="og:image" content="https://jstephane98.github.io/FlashGet/assets/hero-telechargements.webp">
+<meta property="og:image" content="assets/hero-telechargements.webp">
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="assets/favicon-32.png" sizes="32x32">
 <link rel="icon" href="assets/flashget-256.png" sizes="256x256">
@@ -75,7 +73,7 @@
   /* ---------- Hero ---------- */
   .hero { position: relative; overflow: hidden; padding: 72px 0 40px; }
   .hero::before { content: ""; position: absolute; width: 1100px; height: 700px; right: -260px; top: -120px; background: radial-gradient(closest-side, rgba(245,165,36,.22), transparent 72%); pointer-events: none; }
-  .hero .wrap { position: relative; display: grid; grid-template-columns: minmax(0, 590px) minmax(0, 1fr); gap: 40px; align-items: center; min-height: calc(100dvh - 66px - 112px); }
+  .hero .wrap { position: relative; display: grid; grid-template-columns: minmax(0, 620px) minmax(0, 1fr); gap: 40px; align-items: center; min-height: calc(100dvh - 66px - 112px); }
   h1 { font-size: clamp(40px, 4.3vw, 60px); line-height: 1.04; letter-spacing: -.04em; font-weight: 900; margin: 0 0 22px; white-space: nowrap; }
   h1 span { color: var(--amber); }
   .hero p { font-size: 19px; color: var(--ink-2); margin: 0 0 34px; max-width: 30ch; }
@@ -215,13 +213,14 @@
 <header class="nav">
   <div class="wrap">
     <a class="brand" href="#"><img src="assets/flashget-256.png" alt="" width="30" height="30">FlashGet</a>
-    <nav aria-label="Navigation principale">
-      <a href="#application">Application</a>
+    <nav aria-label="Main navigation">
+      <a href="#application">App</a>
       <a href="#extension">Extension</a>
-      <a href="#reglages">Réglages</a>
-      <a href="#questions">Questions</a>
+      <a href="#reglages">Settings</a>
+      <a href="#questions">FAQ</a>
+      <a href="https://buymeacoffee.com/joelkamo" rel="noopener">Support</a>
     </nav>
-    <a class="btn btn-primary" href="#telecharger"><i class="ph ph-download-simple" aria-hidden="true"></i><span>Télécharger</span></a>
+    <a class="btn btn-primary" href="#telecharger"><i class="ph ph-download-simple" aria-hidden="true"></i><span>Download</span></a>
   </div>
 </header>
 
@@ -230,15 +229,15 @@
   <section class="hero" aria-labelledby="titre">
     <div class="wrap">
       <div>
-        <h1 id="titre">Téléchargez tout,<br><span>sans surveiller.</span></h1>
-        <p>Fichiers, vidéos, playlists : FlashGet accélère, reprend après une coupure et range tout pour vous.</p>
+        <h1 id="titre">Download anything.<br><span>Then forget it.</span></h1>
+        <p>Files, videos, playlists: FlashGet speeds them up, resumes after a dropped connection and files everything away for you.</p>
         <div class="actions">
-          <a class="btn btn-primary" href="#telecharger"><i class="ph ph-windows-logo" aria-hidden="true"></i>Télécharger pour Windows</a>
-          <a class="btn btn-quiet" href="#application">Découvrir l'application</a>
+          <a class="btn btn-primary" href="#telecharger"><i class="ph ph-windows-logo" aria-hidden="true"></i>Download for Windows</a>
+          <a class="btn btn-quiet" href="#application">Take a tour</a>
         </div>
       </div>
       <div class="shot-hero">
-        <img src="assets/hero-telechargements.webp" width="1440" height="900" alt="FlashGet pendant trois téléchargements : chaque fichier avance sur huit connexions, avec la vitesse et le temps restant">
+        <img src="assets/hero-telechargements.webp" width="1440" height="900" alt="FlashGet running three downloads: each file moves along on eight connections, with speed and time remaining">
       </div>
     </div>
   </section>
@@ -246,48 +245,48 @@
   <!-- ======================= Application ======================= -->
   <section id="application" aria-labelledby="t-app" style="padding-top:80px">
     <div class="wrap">
-      <h2 id="t-app" class="reveal">Une vraie application, pas un bouton de plus.</h2>
-      <p class="lead reveal" style="--d:.08s">Chaque écran a un rôle : préparer, suivre, retrouver. Ce sont de vraies captures de FlashGet 2.0.</p>
+      <h2 id="t-app" class="reveal">A real app, not just another button.</h2>
+      <p class="lead reveal" style="--d:.08s">Every screen has one job: prepare, follow, find again. These are real screenshots of FlashGet 2.0, whose interface is in French.</p>
 
       <div class="bento">
         <article class="tile t-lib reveal">
           <div class="txt">
-            <h3>Vos téléchargements deviennent une bibliothèque</h3>
-            <p>Vignettes, durées, tailles, classement par jour. Retrouvez une vidéo d'hier en deux secondes.</p>
+            <h3>Your downloads become a library</h3>
+            <p>Thumbnails, durations, sizes, grouped by day. Find yesterday's video in two seconds.</p>
           </div>
-          <div class="pic"><img src="assets/bibliotheque.webp" width="1440" height="900" loading="lazy" alt="La bibliothèque Terminés en grille de vignettes, filtrable par type"></div>
+          <div class="pic"><img src="assets/bibliotheque.webp" width="1440" height="900" loading="lazy" alt="The Completed library as a thumbnail grid, filterable by type"></div>
         </article>
 
         <article class="tile t-new reveal" style="--d:.06s">
           <div class="txt">
-            <h3>Choisissez avant de télécharger</h3>
-            <p>Collez un lien : formats, qualités et tailles s'affichent. Votre qualité préférée est déjà cochée.</p>
+            <h3>Choose before you download</h3>
+            <p>Paste a link: formats, qualities and sizes show up. Your preferred quality is already selected.</p>
           </div>
-          <div class="pic"><img src="assets/nouveau.webp" width="1440" height="900" loading="lazy" alt="La page Nouveau : 19 formats détectés pour une vidéo, de 144p à 2160p, le 1080p recommandé"></div>
+          <div class="pic"><img src="assets/nouveau.webp" width="1440" height="900" loading="lazy" alt="The New page: 19 formats found for a video, from 144p to 2160p, with 1080p recommended"></div>
         </article>
 
         <article class="tile t-resume reveal" style="--d:.12s">
           <i class="ph ph-arrows-clockwise big" aria-hidden="true"></i>
           <div>
-            <h3>Coupure réseau ?<br>Il reprend tout seul.</h3>
-            <p>FlashGet réessaie avec un délai croissant et repart exactement là où il s'était arrêté.</p>
+            <h3>Connection dropped?<br>It picks up on its own.</h3>
+            <p>FlashGet retries with a growing delay and resumes exactly where it stopped.</p>
           </div>
         </article>
 
         <article class="tile t-queue reveal">
           <div class="txt">
-            <h3>Une file que vous ordonnez</h3>
-            <p>Glissez pour changer l'ordre, donnez la priorité à l'urgent, lancez tout d'un clic.</p>
+            <h3>A queue you control</h3>
+            <p>Drag to reorder, put urgent files first, start everything in one click.</p>
           </div>
-          <div class="pic"><img src="assets/file-attente.webp" width="982" height="384" loading="lazy" alt="La file d'attente avec quatre téléchargements, leurs priorités et leurs tailles"></div>
+          <div class="pic"><img src="assets/file-attente.webp" width="982" height="384" loading="lazy" alt="The queue with four downloads, their priorities and sizes"></div>
         </article>
 
         <article class="tile t-light reveal" style="--d:.06s">
           <div class="txt">
-            <h3>Sombre, clair, ou comme Windows</h3>
-            <p>Le thème suit vos goûts, ou celui du système.</p>
+            <h3>Dark, light, or like Windows</h3>
+            <p>The theme follows your taste, or the system's.</p>
           </div>
-          <div class="pic"><img src="assets/theme-clair.webp" width="872" height="434" loading="lazy" alt="La bibliothèque Terminés en thème clair"></div>
+          <div class="pic"><img src="assets/theme-clair.webp" width="872" height="434" loading="lazy" alt="The Completed library in the light theme"></div>
         </article>
       </div>
     </div>
@@ -296,122 +295,128 @@
   <!-- ======================= Extension ======================= -->
   <section id="extension" aria-labelledby="t-ext">
     <div class="wrap ext">
-      <div class="shot reveal"><img src="assets/extension.webp" width="772" height="776" loading="lazy" alt="Paramètres de l'extension : connectée à Chrome, jeton, installation en trois étapes et sites ignorés"></div>
+      <div class="shot reveal"><img src="assets/extension.webp" width="772" height="776" loading="lazy" alt="Extension settings: connected to Chrome, token, three-step setup and ignored sites"></div>
       <div>
-        <span class="kicker reveal"><i class="ph ph-puzzle-piece" aria-hidden="true"></i>Extension pour Chrome, Edge et Brave</span>
-        <h2 class="reveal" style="--d:.05s">Le navigateur télécharge, FlashGet prend le relais.</h2>
-        <p class="lead reveal" style="--d:.1s">Les téléchargements arrivent dans FlashGet avec les cookies de la page, pour les sites où il faut être connecté.</p>
+        <span class="kicker reveal"><i class="ph ph-puzzle-piece" aria-hidden="true"></i>Extension for Chrome, Edge and Brave</span>
+        <h2 class="reveal" style="--d:.05s">Your browser starts the download, FlashGet takes over.</h2>
+        <p class="lead reveal" style="--d:.1s">Downloads land in FlashGet with the page's cookies, so sites that need you to be signed in still work.</p>
         <ol class="flow">
-          <li class="reveal" style="--d:.12s"><i class="ph ph-cursor-click" aria-hidden="true"></i><div><b>Vous cliquez</b><span>sur un lien, un bouton de téléchargement ou une vidéo.</span></div></li>
-          <li class="reveal" style="--d:.18s"><i class="ph ph-magnifying-glass" aria-hidden="true"></i><div><b>FlashGet analyse</b><span>fichier direct, flux HLS ou DASH, ou page vidéo.</span></div></li>
-          <li class="reveal" style="--d:.24s"><i class="ph ph-check-circle" aria-hidden="true"></i><div><b>Vous confirmez</b><span>le format, le dossier et le nom.</span></div></li>
-          <li class="reveal" style="--d:.3s"><i class="ph ph-prohibit" aria-hidden="true"></i><div><b>Vous gardez la main</b><span>sur les sites à ignorer, depuis FlashGet ou l'extension.</span></div></li>
+          <li class="reveal" style="--d:.12s"><i class="ph ph-cursor-click" aria-hidden="true"></i><div><b>You click</b><span>a link, a download button or a video.</span></div></li>
+          <li class="reveal" style="--d:.18s"><i class="ph ph-magnifying-glass" aria-hidden="true"></i><div><b>FlashGet inspects it</b><span>direct file, HLS or DASH stream, or video page.</span></div></li>
+          <li class="reveal" style="--d:.24s"><i class="ph ph-check-circle" aria-hidden="true"></i><div><b>You confirm</b><span>the format, the folder and the name.</span></div></li>
+          <li class="reveal" style="--d:.3s"><i class="ph ph-prohibit" aria-hidden="true"></i><div><b>You stay in charge</b><span>of which sites to ignore, from FlashGet or the extension.</span></div></li>
         </ol>
       </div>
     </div>
   </section>
 
-  <!-- ======================= Réglages ======================= -->
+  <!-- ======================= Settings ======================= -->
   <section id="reglages" aria-labelledby="t-reg" style="padding-bottom:90px">
     <div class="wrap">
-      <h2 id="t-reg" class="reveal">Réglé une fois, tranquille ensuite.</h2>
-      <p class="lead reveal" style="--d:.08s">Huit sections claires. Chaque changement est enregistré tout de suite, sans bouton « Appliquer ».</p>
+      <h2 id="t-reg" class="reveal">Set it once, then relax.</h2>
+      <p class="lead reveal" style="--d:.08s">Eight clear sections. Every change is saved right away, no "Apply" button.</p>
     </div>
-    <div class="rail" tabindex="0" aria-label="Captures des réglages, à faire défiler horizontalement">
-      <figure class="reveal"><img src="assets/reglages-telechargements.webp" width="772" height="704" loading="lazy" alt="Réglages des téléchargements : simultanés, connexions par fichier, limite de vitesse, nouvelles tentatives"><figcaption><b>Vitesse et fiabilité</b>Jusqu'à 32 connexions par fichier, nouvelles tentatives, reprise au démarrage.</figcaption></figure>
-      <figure class="reveal" style="--d:.06s"><img src="assets/reglages-video.webp" width="772" height="800" loading="lazy" alt="Réglages vidéo : moteur yt-dlp, qualité préférée, format audio, sous-titres et comptes"><figcaption><b>Vidéo et audio</b>Qualité préférée, MP3, M4A ou Opus, langues de sous-titres.</figcaption></figure>
-      <figure class="reveal" style="--d:.12s"><img src="assets/planificateur.webp" width="1222" height="724" loading="lazy" alt="Le planificateur : plage horaire, jours, limite de vitesse et action quand tout est terminé"><figcaption><b>Planificateur</b>Lancez la file aux heures creuses, puis mettez le PC en veille.</figcaption></figure>
-      <figure class="reveal" style="--d:.18s"><img src="assets/reglages-dossiers.webp" width="772" height="644" loading="lazy" alt="Un dossier de destination par catégorie : vidéos, documents, programmes, archives, musique"><figcaption><b>Un dossier par type</b>Les vidéos d'un côté, les programmes de l'autre, automatiquement.</figcaption></figure>
-      <figure class="reveal" style="--d:.24s"><img src="assets/reglages-maj.webp" width="772" height="484" loading="lazy" alt="Section Mises à jour : version installée et recherche d'une nouvelle version"><figcaption><b>Mises à jour signées</b>FlashGet vous prévient. Rien ne s'installe sans votre clic.</figcaption></figure>
+    <div class="rail" tabindex="0" aria-label="Settings screenshots, scroll horizontally">
+      <figure class="reveal"><img src="assets/reglages-telechargements.webp" width="772" height="704" loading="lazy" alt="Download settings: simultaneous downloads, connections per file, speed limit, retries"><figcaption><b>Speed and reliability</b>Up to 32 connections per file, retries, resume at startup.</figcaption></figure>
+      <figure class="reveal" style="--d:.06s"><img src="assets/reglages-video.webp" width="772" height="800" loading="lazy" alt="Video settings: yt-dlp engine, preferred quality, audio format, subtitles and accounts"><figcaption><b>Video and audio</b>Preferred quality, MP3, M4A or Opus, subtitle languages.</figcaption></figure>
+      <figure class="reveal" style="--d:.12s"><img src="assets/planificateur.webp" width="1222" height="724" loading="lazy" alt="The scheduler: time window, days, speed limit and what to do when everything is done"><figcaption><b>Scheduler</b>Run the queue during off-peak hours, then put the PC to sleep.</figcaption></figure>
+      <figure class="reveal" style="--d:.18s"><img src="assets/reglages-dossiers.webp" width="772" height="644" loading="lazy" alt="One destination folder per category: videos, documents, programs, archives, music"><figcaption><b>One folder per type</b>Videos on one side, programs on the other, automatically.</figcaption></figure>
+      <figure class="reveal" style="--d:.24s"><img src="assets/reglages-maj.webp" width="772" height="484" loading="lazy" alt="Updates section: installed version and check for a new version"><figcaption><b>Signed updates</b>FlashGet lets you know. Nothing installs without your click.</figcaption></figure>
     </div>
   </section>
 
-  <!-- ======================= Capacités ======================= -->
+  <!-- ======================= Features ======================= -->
   <section aria-labelledby="t-caps" style="padding-top:60px">
     <div class="wrap">
-      <h2 id="t-caps" class="reveal">Ce qu'il sait faire.</h2>
+      <h2 id="t-caps" class="reveal">What it can do.</h2>
       <div class="caps">
         <div class="reveal">
-          <h3>Télécharger vite</h3>
+          <h3>Fast downloads</h3>
           <ul>
-            <li><i class="ph ph-lightning" aria-hidden="true"></i><span><b>Plusieurs connexions</b> par fichier, jusqu'à 32.</span></li>
-            <li><i class="ph ph-gauge" aria-hidden="true"></i><span><b>Limite de vitesse</b> globale, ou seulement la nuit.</span></li>
-            <li><i class="ph ph-stack" aria-hidden="true"></i><span><b>Plusieurs liens</b> collés d'un coup.</span></li>
-            <li><i class="ph ph-copy" aria-hidden="true"></i><span><b>Fichier déjà présent</b> : renommé, ou l'ancien part à la Corbeille.</span></li>
+            <li><i class="ph ph-lightning" aria-hidden="true"></i><span><b>Multiple connections</b> per file, up to 32.</span></li>
+            <li><i class="ph ph-gauge" aria-hidden="true"></i><span><b>Speed limit</b> all the time, or only at night.</span></li>
+            <li><i class="ph ph-stack" aria-hidden="true"></i><span><b>Many links</b> pasted at once.</span></li>
+            <li><i class="ph ph-copy" aria-hidden="true"></i><span><b>File already there</b>: renamed, or the old one goes to the Recycle Bin.</span></li>
           </ul>
         </div>
         <div class="reveal" style="--d:.08s">
-          <h3>Vidéo et audio</h3>
+          <h3>Video and audio</h3>
           <ul>
-            <li><i class="ph ph-film-strip" aria-hidden="true"></i><span><b>Plus de mille sites</b> grâce à yt-dlp, mis à jour seul.</span></li>
-            <li><i class="ph ph-playlist" aria-hidden="true"></i><span><b>Playlists</b> entières en une fois.</span></li>
-            <li><i class="ph ph-broadcast" aria-hidden="true"></i><span><b>Directs HLS</b> enregistrés pendant la diffusion.</span></li>
-            <li><i class="ph ph-scissors" aria-hidden="true"></i><span><b>Extrait</b> découpé, sous-titres intégrés.</span></li>
+            <li><i class="ph ph-film-strip" aria-hidden="true"></i><span><b>Over a thousand sites</b> thanks to yt-dlp, which updates itself.</span></li>
+            <li><i class="ph ph-playlist" aria-hidden="true"></i><span><b>Whole playlists</b> in one go.</span></li>
+            <li><i class="ph ph-broadcast" aria-hidden="true"></i><span><b>HLS live streams</b> recorded while they air.</span></li>
+            <li><i class="ph ph-scissors" aria-hidden="true"></i><span><b>Clips</b> cut out, subtitles embedded.</span></li>
           </ul>
         </div>
         <div class="reveal" style="--d:.16s">
-          <h3>Vivre avec</h3>
+          <h3>Day to day</h3>
           <ul>
-            <li><i class="ph ph-tray" aria-hidden="true"></i><span><b>Zone de notification</b> : il continue fenêtre fermée.</span></li>
-            <li><i class="ph ph-bell-ringing" aria-hidden="true"></i><span><b>Notifications</b> à la fin ou en cas d'échec.</span></li>
-            <li><i class="ph ph-power" aria-hidden="true"></i><span><b>Fin de file</b> : veille ou arrêt, avec 60 s pour annuler.</span></li>
-            <li><i class="ph ph-shield-check" aria-hidden="true"></i><span><b>Installation</b> sans droits administrateur.</span></li>
+            <li><i class="ph ph-tray" aria-hidden="true"></i><span><b>System tray</b>: keeps going with the window closed.</span></li>
+            <li><i class="ph ph-bell-ringing" aria-hidden="true"></i><span><b>Notifications</b> when a download finishes or fails.</span></li>
+            <li><i class="ph ph-power" aria-hidden="true"></i><span><b>End of queue</b>: sleep or shut down, with 60 s to cancel.</span></li>
+            <li><i class="ph ph-shield-check" aria-hidden="true"></i><span><b>Installs</b> without administrator rights.</span></li>
           </ul>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- ======================= Télécharger ======================= -->
+  <!-- ======================= Download ======================= -->
   <section id="telecharger" aria-labelledby="t-get">
     <div class="wrap">
       <span class="kicker reveal"><i class="ph ph-download-simple" aria-hidden="true"></i>Version 2.0.0</span>
-      <h2 id="t-get" class="reveal" style="--d:.05s">Installez FlashGet en une minute.</h2>
+      <h2 id="t-get" class="reveal" style="--d:.05s">Install FlashGet<br>in a minute.</h2>
       <div class="get">
         <div class="get-main reveal">
-          <div class="os"><i class="ph ph-windows-logo" aria-hidden="true"></i>Windows 10 et 11</div>
+          <div class="os"><i class="ph ph-windows-logo" aria-hidden="true"></i>Windows 10 and 11</div>
           <div class="specs">
             <div><b>x64</b>Architecture</div>
-            <div><b>.exe</b>Installeur</div>
-            <div><b>Aucun</b>Droit administrateur</div>
+            <div><b>.exe</b>Installer</div>
+            <div><b>None</b>Admin rights needed</div>
+            <div><b>French</b>Interface language</div>
           </div>
-          <div><a class="btn btn-primary" href="https://github.com/jstephane98/FlashGet/releases/latest"><i class="ph ph-download-simple" aria-hidden="true"></i>Télécharger pour Windows</a></div>
+          <div><a class="btn btn-primary" href="https://github.com/jstephane98/FlashGet/releases/latest"><i class="ph ph-download-simple" aria-hidden="true"></i>Download for Windows</a></div>
         </div>
         <div class="get-side">
-          <div class="get-card reveal" style="--d:.06s"><i class="ph ph-puzzle-piece" aria-hidden="true"></i><div><b>L'extension est incluse</b><p>Elle est installée avec FlashGet. Paramètres, puis Extension navigateur : trois étapes guidées.</p></div></div>
-          <div class="get-card reveal" style="--d:.12s"><i class="ph ph-list-checks" aria-hidden="true"></i><div><b>Nouveautés de la 2.0</b><p>Toutes les versions et leurs notes sont sur GitHub.</p><a href="https://github.com/jstephane98/FlashGet/releases">Voir les versions<i class="ph ph-arrow-up-right" aria-hidden="true"></i></a></div></div>
+          <div class="get-card reveal" style="--d:.06s"><i class="ph ph-puzzle-piece" aria-hidden="true"></i><div><b>The extension is included</b><p>It comes with FlashGet. Open Settings, then Browser extension: three guided steps.</p></div></div>
+          <div class="get-card reveal" style="--d:.12s"><i class="ph ph-list-checks" aria-hidden="true"></i><div><b>What's new in 2.0</b><p>Every version and its release notes are on GitHub.</p><a href="https://github.com/jstephane98/FlashGet/releases">See all versions<i class="ph ph-arrow-up-right" aria-hidden="true"></i></a></div></div>
+          <div class="get-card reveal" style="--d:.18s"><i class="ph ph-coffee" aria-hidden="true"></i><div><b>Free, and made by one person</b><p>If FlashGet saves you time, you can support its development.</p><a href="https://buymeacoffee.com/joelkamo" rel="noopener">Buy me a coffee<i class="ph ph-arrow-up-right" aria-hidden="true"></i></a></div></div>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- ======================= Questions ======================= -->
+  <!-- ======================= FAQ ======================= -->
   <section id="questions" aria-labelledby="t-faq" style="padding-top:40px">
     <div class="wrap faq">
       <div class="side">
-        <h2 id="t-faq" class="reveal">Questions fréquentes</h2>
-        <p class="lead reveal" style="--d:.06s">Une autre question ? Ouvrez un ticket sur GitHub.</p>
+        <h2 id="t-faq" class="reveal">Frequently asked questions</h2>
+        <p class="lead reveal" style="--d:.06s">Another question? Open an issue on GitHub.</p>
       </div>
       <div class="reveal">
         <details>
-          <summary>J'ai déjà FlashGet 0.1.0. Je perds mes téléchargements ?<i class="ph ph-plus" aria-hidden="true"></i></summary>
-          <p>Non. Fermez l'ancien FlashGet puis installez la 2.0 : vos téléchargements, vos réglages, le jeton de l'extension et votre connexion YouTube sont repris au premier lancement. Rechargez ensuite l'extension dans votre navigateur.</p>
+          <summary>Is the app available in English?<i class="ph ph-plus" aria-hidden="true"></i></summary>
+          <p>Not yet. FlashGet's interface is in French for now. This page and the project's documentation are in English.</p>
         </details>
         <details>
-          <summary>Pourquoi Windows affiche un avertissement ?<i class="ph ph-plus" aria-hidden="true"></i></summary>
-          <p>L'installeur n'est pas encore signé par un certificat Windows, alors SmartScreen le signale par précaution. Choisissez « Informations complémentaires » puis « Exécuter quand même ». Les mises à jour de FlashGet, elles, sont signées et vérifiées avant installation.</p>
+          <summary>I already have FlashGet 0.1.0. Will I lose my downloads?<i class="ph ph-plus" aria-hidden="true"></i></summary>
+          <p>No. Close the old FlashGet, then install 2.0: your downloads, settings, extension token and YouTube sign-in are carried over on first launch. Then reload the extension in your browser.</p>
         </details>
         <details>
-          <summary>Les mises à jour s'installent toutes seules ?<i class="ph ph-plus" aria-hidden="true"></i></summary>
-          <p>FlashGet vous prévient, et rien ne s'installe sans votre clic. Seul yt-dlp, le moteur vidéo, se met à jour automatiquement, une fois par jour, parce que les sites changent souvent. Vous pouvez le désactiver.</p>
+          <summary>Why does Windows show a warning?<i class="ph ph-plus" aria-hidden="true"></i></summary>
+          <p>The installer isn't signed with a Windows code-signing certificate yet, so SmartScreen flags it as a precaution. Choose "More info", then "Run anyway". FlashGet's updates, on the other hand, are signed and checked before they install.</p>
         </details>
         <details>
-          <summary>Quels sites vidéo sont pris en charge ?<i class="ph ph-plus" aria-hidden="true"></i></summary>
-          <p>Les flux HLS et DASH, à la demande ou en direct, et plus d'un millier de sites grâce à yt-dlp. Les plateformes protégées par un DRM, comme Netflix ou Disney+, ne le sont pas.</p>
+          <summary>Do updates install by themselves?<i class="ph ph-plus" aria-hidden="true"></i></summary>
+          <p>FlashGet lets you know, and nothing installs without your click. Only yt-dlp, the video engine, updates automatically once a day, because sites change often. You can turn that off.</p>
         </details>
         <details>
-          <summary>L'extension envoie mes données quelque part ?<i class="ph ph-plus" aria-hidden="true"></i></summary>
-          <p>Non. Elle ne parle qu'à FlashGet, sur votre ordinateur, et seulement avec le jeton que vous lui avez donné. Les sites que vous ignorez ne sont jamais capturés automatiquement.</p>
+          <summary>Which video sites are supported?<i class="ph ph-plus" aria-hidden="true"></i></summary>
+          <p>HLS and DASH streams, on demand or live, and over a thousand sites thanks to yt-dlp. DRM-protected platforms such as Netflix or Disney+ are not supported.</p>
+        </details>
+        <details>
+          <summary>Does the extension send my data anywhere?<i class="ph ph-plus" aria-hidden="true"></i></summary>
+          <p>No. It only talks to FlashGet, on your own computer, and only with the token you gave it. Sites you ignore are never captured automatically.</p>
         </details>
       </div>
     </div>
@@ -422,14 +427,15 @@
   <div class="wrap">
     <a class="brand" href="#"><img src="assets/flashget-256.png" alt="" width="30" height="30">FlashGet</a>
     <div>
-      <p>Composants intégrés : yt-dlp et FFmpeg.</p>
-      <p>Les captures montrent des données de démonstration. Image de <i>Big Buck Bunny</i> © Blender Foundation, sous licence CC BY 3.0.</p>
+      <p>Enjoying FlashGet? <a href="https://buymeacoffee.com/joelkamo" rel="noopener" style="color:var(--amber-hi);font-weight:700">Buy me a coffee</a>.</p>
+      <p>Built-in components: yt-dlp and FFmpeg.</p>
+      <p>Screenshots show demo data. <i>Big Buck Bunny</i> image © Blender Foundation, licensed under CC BY 3.0.</p>
     </div>
   </div>
 </footer>
 
 <script>
-  // Apparition des blocs à l'entrée dans l'écran (une seule fois).
+  // Fade blocks in as they enter the viewport (once).
   (function () {
     var items = document.querySelectorAll(".reveal");
     if (!("IntersectionObserver" in window)) { items.forEach(function (el) { el.classList.add("in"); }); return; }

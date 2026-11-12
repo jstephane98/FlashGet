@@ -5,103 +5,115 @@
 <h1 align="center">FlashGet</h1>
 
 <p align="center">
-  Le gestionnaire de téléchargements pour Windows.<br>
-  Plusieurs connexions par fichier, vidéos de plus de mille sites, reprise automatique, file d'attente, planificateur et extension navigateur.
+  The download manager for Windows.<br>
+  Multiple connections per file, videos from over a thousand sites, automatic resume, queue, scheduler and browser extension.
 </p>
 
 <p align="center">
-  <a href="https://github.com/jstephane98/FlashGet/releases/latest"><b>Télécharger pour Windows</b></a>
+  <a href="https://github.com/jstephane98/FlashGet/releases/latest"><b>Download for Windows</b></a>
   &nbsp;·&nbsp;
-  <a href="https://jstephane98.github.io/FlashGet/">Page de présentation</a>
+  <a href="docs/presentation/FlashGet-presentation.html">Presentation page</a>
   &nbsp;·&nbsp;
-  <a href="https://github.com/jstephane98/FlashGet/releases">Notes de version</a>
+  <a href="https://github.com/jstephane98/FlashGet/releases">Release notes</a>
+  &nbsp;·&nbsp;
+  <a href="https://buymeacoffee.com/joelkamo">Buy me a coffee</a>
 </p>
 
 <p align="center">
-  <img src="docs/presentation/assets/hero-telechargements.webp" alt="FlashGet pendant trois téléchargements, chacun sur huit connexions" width="900">
+  <img src="docs/presentation/assets/hero-telechargements.webp" alt="FlashGet running three downloads, each one on eight connections" width="900">
 </p>
 
-## Ce que fait FlashGet
+> FlashGet's interface is in French for now. This README and the presentation page are in English.
 
-**Télécharger vite**
-- Chaque fichier est découpé en plusieurs morceaux téléchargés en parallèle, jusqu'à 32 connexions.
-- Après une coupure réseau ou une erreur serveur, FlashGet réessaie avec un délai croissant et reprend là où il s'était arrêté.
-- Limite de vitesse globale, plusieurs liens collés d'un coup, et un dossier de destination par type de fichier.
+## What FlashGet does
 
-**Vidéo et audio**
-- Plus de mille sites grâce à [yt-dlp](https://github.com/yt-dlp/yt-dlp), mis à jour automatiquement et vérifié par empreinte SHA-256.
-- Choix de la qualité avant de télécharger, audio seul en MP3, M4A ou Opus, sous-titres, extraits, playlists entières.
-- Flux HLS et DASH, à la demande ou en direct (enregistrement pendant la diffusion).
+**Fast downloads**
+- Each file is split into several parts downloaded in parallel, up to 32 connections.
+- After a dropped connection or a server error, FlashGet retries with a growing delay and resumes where it stopped.
+- Global speed limit, many links pasted at once, and a destination folder per file type.
 
-**Organiser**
-- Une bibliothèque « Terminés » en liste ou en grille, avec vignettes, durées et un lecteur intégré.
-- Une file d'attente que l'on réordonne par glisser-déposer, avec des priorités.
-- Un planificateur : plage horaire, jours, limite de vitesse, puis veille ou arrêt quand tout est fini.
+**Video and audio**
+- Over a thousand sites through [yt-dlp](https://github.com/yt-dlp/yt-dlp), updated automatically and verified with a SHA-256 checksum.
+- Pick the quality before downloading, audio only as MP3, M4A or Opus, subtitles, clips, whole playlists.
+- HLS and DASH streams, on demand or live (recorded while they air).
 
-**Extension navigateur** (Chrome, Edge, Brave)
-- Les téléchargements du navigateur arrivent dans FlashGet avec les cookies et la page d'origine.
-- État réel de la connexion, sites ignorés partagés avec l'application, « Réessayer » qui renvoie le contexte de la capture.
+**Stay organized**
+- A "Completed" library as a list or a grid, with thumbnails, durations and a built-in player.
+- A queue you reorder by drag and drop, with priorities.
+- A scheduler: time window, days, speed limit, then sleep or shut down when everything is done.
 
-**Au quotidien**
-- Thème sombre, clair ou celui de Windows. Zone de notification, notifications de fin et d'échec, lancement au démarrage.
-- Mises à jour de FlashGet signées : l'application prévient, rien ne s'installe sans votre clic.
+**Browser extension** (Chrome, Edge, Brave)
+- Browser downloads land in FlashGet with the cookies and the originating page.
+- Real connection status, ignored sites shared with the app, and "Retry" that resends the capture context.
+
+**Day to day**
+- Dark, light or system theme. System tray, notifications on success and failure, launch at startup.
+- Signed FlashGet updates: the app lets you know, nothing installs without your click.
 
 <p align="center">
-  <img src="docs/presentation/assets/nouveau.webp" alt="La page Nouveau : formats détectés pour une vidéo, avec la qualité recommandée" width="440">
-  <img src="docs/presentation/assets/bibliotheque.webp" alt="La bibliothèque Terminés en grille de vignettes" width="440">
+  <img src="docs/presentation/assets/nouveau.webp" alt="The New page: formats found for a video, with the recommended quality" width="440">
+  <img src="docs/presentation/assets/bibliotheque.webp" alt="The Completed library as a thumbnail grid" width="440">
 </p>
 
-## Installer
+## Install
 
-1. Téléchargez `FlashGet_<version>_x64-setup.exe` depuis la [dernière version](https://github.com/jstephane98/FlashGet/releases/latest).
-2. Lancez-le. L'installation se fait pour votre compte, sans droits administrateur. Windows SmartScreen peut afficher un avertissement, car l'installeur n'est pas signé par un certificat Windows : choisissez « Informations complémentaires », puis « Exécuter quand même ».
-3. Pour l'extension, ouvrez FlashGet, puis **Paramètres › Extension navigateur**, et suivez les trois étapes. Le dossier de l'extension est fourni avec FlashGet.
+1. Download `FlashGet_<version>_x64-setup.exe` from the [latest release](https://github.com/jstephane98/FlashGet/releases/latest).
+2. Run it. It installs for your account only, without administrator rights. Windows SmartScreen may show a warning because the installer isn't signed with a Windows code-signing certificate: choose "More info", then "Run anyway".
+3. For the extension, open FlashGet, go to **Paramètres › Extension navigateur** (Settings › Browser extension) and follow the three steps. The extension folder ships with FlashGet.
 
-Configuration requise : Windows 10 ou 11, 64 bits.
+Requirements: Windows 10 or 11, 64-bit.
 
-**Vous aviez FlashGet 0.1.0 ?** Fermez-le avant d'installer la 2.0. Au premier lancement, vos téléchargements, vos réglages, le jeton de l'extension et votre connexion YouTube sont repris automatiquement. Rechargez ensuite l'extension depuis la page des extensions du navigateur.
+**Coming from FlashGet 0.1.0?** Close it before installing 2.0. On first launch, your downloads, settings, extension token and YouTube sign-in are carried over automatically. Then reload the extension from your browser's extensions page.
 
-## Compiler depuis les sources
+## Support the project
 
-### Prérequis
-- [Node.js](https://nodejs.org/) 20 ou plus récent.
-- [Rust](https://www.rust-lang.org/tools/install) (stable) et les [prérequis Tauri 2 pour Windows](https://v2.tauri.app/start/prerequisites/) (Microsoft C++ Build Tools, WebView2).
-- Les deux programmes embarqués, à placer dans `src-tauri/bin/` (ils ne sont pas dans le dépôt) :
-  - `ffmpeg-x86_64-pc-windows-msvc.exe` : voir [src-tauri/bin/README.md](src-tauri/bin/README.md) ;
-  - `yt-dlp-x86_64-pc-windows-msvc.exe` : le `yt-dlp.exe` de la [dernière version de yt-dlp](https://github.com/yt-dlp/yt-dlp/releases/latest), renommé.
+FlashGet is free and built by one person. If it saves you time, you can [buy me a coffee](https://buymeacoffee.com/joelkamo). Bug reports and ideas are welcome in the [issues](https://github.com/jstephane98/FlashGet/issues).
 
-### Commandes
+<p>
+  <a href="https://buymeacoffee.com/joelkamo"><img src="https://img.shields.io/badge/Buy%20me%20a%20coffee-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=black" alt="Buy me a coffee"></a>
+</p>
+
+## Build from source
+
+### Prerequisites
+- [Node.js](https://nodejs.org/) 20 or newer.
+- [Rust](https://www.rust-lang.org/tools/install) (stable) and the [Tauri 2 prerequisites for Windows](https://v2.tauri.app/start/prerequisites/) (Microsoft C++ Build Tools, WebView2).
+- The two bundled programs, placed in `src-tauri/bin/` (they are not in the repository):
+  - `ffmpeg-x86_64-pc-windows-msvc.exe`: see [src-tauri/bin/README.md](src-tauri/bin/README.md);
+  - `yt-dlp-x86_64-pc-windows-msvc.exe`: the `yt-dlp.exe` from the [latest yt-dlp release](https://github.com/yt-dlp/yt-dlp/releases/latest), renamed.
+
+### Commands
 
 ```powershell
 npm install
 npm run tauri dev
 ```
 
-| Commande | Rôle |
+| Command | Purpose |
 |---|---|
-| `npm run tauri dev` | Lance FlashGet en mode développement |
-| `npm test` | Tests de l'interface et de l'extension (Vitest) |
-| `npx tsc --noEmit` | Vérification des types TypeScript |
-| `cargo test --workspace` (dans `src-tauri`) | Tests du moteur et de l'application (Rust) |
-| `npm run release` | Construit l'installeur signé et `latest.json` (voir [docs/RELEASE.md](docs/RELEASE.md)) |
+| `npm run tauri dev` | Runs FlashGet in development mode |
+| `npm test` | UI and extension tests (Vitest) |
+| `npx tsc --noEmit` | TypeScript type check |
+| `cargo test --workspace` (in `src-tauri`) | Engine and app tests (Rust) |
+| `npm run release` | Builds the signed installer and `latest.json` (see [docs/RELEASE.md](docs/RELEASE.md)) |
 
-Sur une machine avec peu de mémoire, limitez le parallélisme : `cargo test --workspace -j 1` et `npm test -- --maxWorkers=2`.
+On a machine with little memory, limit parallelism: `cargo test --workspace -j 1` and `npm test -- --maxWorkers=2`.
 
-### Publier une version
+### Publishing a release
 
-La procédure complète (clé de signature, variables d'environnement, dépôt sur GitHub Releases) est décrite dans [docs/RELEASE.md](docs/RELEASE.md).
+The full procedure (signing key, environment variables, upload to GitHub Releases) is described in [docs/RELEASE.md](docs/RELEASE.md) (in French).
 
-## Organisation du dépôt
+## Repository layout
 
-| Dossier | Contenu |
+| Folder | Contents |
 |---|---|
-| `src/` | Interface React 19 + TypeScript + Tailwind |
-| `src-tauri/src/` | Application Tauri 2 : commandes, file d'attente, planificateur, pont avec l'extension, mises à jour |
-| `src-tauri/crates/download-core/` | Moteur de téléchargement en Rust, sans dépendance à Tauri : segments, reprise, HLS et DASH, stockage SQLite |
-| `extension/` | Extension navigateur (Manifest V3) |
-| `scripts/` | Script de publication |
-| `docs/` | Spécifications, plans, guide de publication et page de présentation (publiée sur GitHub Pages par `.github/workflows/pages.yml`) |
+| `src/` | React 19 + TypeScript + Tailwind interface |
+| `src-tauri/src/` | Tauri 2 app: commands, queue, scheduler, extension bridge, updates |
+| `src-tauri/crates/download-core/` | Download engine in Rust, independent of Tauri: segments, resume, HLS and DASH, SQLite storage |
+| `extension/` | Browser extension (Manifest V3) |
+| `scripts/` | Release script and logo rendering (`scripts/brand/`) |
+| `docs/` | Specs, plans, release guide and presentation page |
 
-## Composants intégrés
+## Bundled components
 
-FlashGet embarque [yt-dlp](https://github.com/yt-dlp/yt-dlp) et [FFmpeg](https://ffmpeg.org/). Les captures de ce dépôt montrent des données de démonstration ; l'image de *Big Buck Bunny* est © Blender Foundation, sous licence [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/).
+FlashGet ships with [yt-dlp](https://github.com/yt-dlp/yt-dlp) and [FFmpeg](https://ffmpeg.org/). Screenshots in this repository show demo data; the *Big Buck Bunny* image is © Blender Foundation, licensed under [CC BY 3.0](https://creativecommons.org/licenses/by/3.0/).
