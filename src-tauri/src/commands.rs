@@ -108,7 +108,7 @@ async fn add_ytdlp_queued(app: &AppHandle, url: &str, title: &str, audio: bool, 
     let dest_dir = crate::dest::dest_dir_for(app, dest_dir, category)?;
     // Nom invalide refusé avant tout passage à la Corbeille.
     if dest_dir.join(&file_name).parent() != Some(dest_dir.as_path()) {
-        return Err("nom de fichier invalide".into());
+        return Err(download_core::i18n::tr("nom de fichier invalide", "Invalid file name").into());
     }
     let placed = crate::dest::place_file(app, &dest_dir, &file_name);
     let file_name = placed.file_name;
@@ -229,7 +229,7 @@ pub(crate) async fn hls_variants(
     let fetcher = { app.state::<AppState>().fetcher.clone() };
     let text = tokio::time::timeout(std::time::Duration::from_secs(30), fetch_text(&fetcher, url, headers))
         .await
-        .map_err(|_| "délai dépassé lors de la récupération de la playlist".to_string())?
+        .map_err(|_| download_core::i18n::tr("délai dépassé lors de la récupération de la playlist", "Timed out while fetching the playlist").to_string())?
         .map_err(|e| e.to_string())?;
 
     let (master, total_duration) = if is_master(&text) {
@@ -285,7 +285,7 @@ pub(crate) async fn dash_variants(
     let fetcher = { app.state::<AppState>().fetcher.clone() };
     let text = tokio::time::timeout(std::time::Duration::from_secs(30), fetch_text(&fetcher, url, headers))
         .await
-        .map_err(|_| "délai dépassé lors de la récupération du MPD".to_string())?
+        .map_err(|_| download_core::i18n::tr("délai dépassé lors de la récupération du MPD", "Timed out while fetching the MPD").to_string())?
         .map_err(|e| e.to_string())?;
     let mpd = download_core::dash::mpd::parse_mpd(&text, url).map_err(|e| e.to_string())?;
     let variants: Vec<MediaVariant> = download_core::dash::select::video_variants(&mpd).iter().map(|(_, v)| MediaVariant {
@@ -454,7 +454,7 @@ pub fn set_category_dir(state: State<AppState>, category: Category, path: Option
 #[tauri::command]
 pub fn remove_from_list(state: State<AppState>, id: String) -> Result<(), String> {
     if state.handles.lock().unwrap().contains_key(&id) {
-        return Err("arrêtez le téléchargement avant de le retirer".to_string());
+        return Err(download_core::i18n::tr("arrêtez le téléchargement avant de le retirer", "Stop the download before removing it").to_string());
     }
     state.storage.delete(&id).map_err(|e| e.to_string())?;
     crate::queue::reset_run_if_idle(&state);
@@ -489,7 +489,7 @@ pub fn open_folder(app: AppHandle, id: String) -> Result<(), String> {
 pub fn open_extension_folder(app: AppHandle) -> Result<(), String> {
     let dir = app.path().resource_dir().map_err(|e| e.to_string())?.join("extension");
     if !dir.is_dir() {
-        return Err("Dossier de l'extension introuvable".into());
+        return Err(download_core::i18n::tr("Dossier de l'extension introuvable", "Extension folder not found").into());
     }
     app.opener().open_path(dir.to_string_lossy(), None::<&str>).map_err(|e| e.to_string())
 }
@@ -713,7 +713,7 @@ pub fn recover_interrupted_recordings(app: &AppHandle) {
                     eprintln!("recovery: remux failed for {id}: {e}");
                     let _ = st
                         .storage
-                        .mark_error(&id, 0, "finalisation de l'enregistrement échouée");
+                        .mark_error(&id, 0, download_core::i18n::tr("finalisation de l'enregistrement échouée", "Couldn't finalize the recording"));
                 }
             }
         });
@@ -804,8 +804,8 @@ fn notify_terminal(app: &AppHandle, status: DownloadStatus, id: &str) {
         .map(|d| d.file_name)
         .unwrap_or_else(|| id.to_string());
     let (title, body) = match status {
-        DownloadStatus::Completed => ("Téléchargement terminé", file_name),
-        _ => ("Échec du téléchargement", file_name),
+        DownloadStatus::Completed => (download_core::i18n::tr("Téléchargement terminé", "Download complete"), file_name),
+        _ => (download_core::i18n::tr("Échec du téléchargement", "Download failed"), file_name),
     };
 
     #[cfg(target_os = "windows")]

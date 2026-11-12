@@ -64,13 +64,13 @@ pub fn parse_hhmm(s: &str) -> Option<u16> {
 }
 
 pub fn validate(s: &Schedule) -> Result<(), String> {
-    let start = parse_hhmm(&s.start).ok_or_else(|| format!("heure de début invalide : {}", s.start))?;
-    let end = parse_hhmm(&s.end).ok_or_else(|| format!("heure de fin invalide : {}", s.end))?;
+    let start = parse_hhmm(&s.start).ok_or_else(|| crate::trf!("heure de début invalide : {}", "Invalid start time: {}", s.start))?;
+    let end = parse_hhmm(&s.end).ok_or_else(|| crate::trf!("heure de fin invalide : {}", "Invalid end time: {}", s.end))?;
     if start == end {
-        return Err("l'heure de début et l'heure de fin doivent être différentes".into());
+        return Err(crate::i18n::tr("l'heure de début et l'heure de fin doivent être différentes", "Start and end times must be different").into());
     }
     if s.enabled && !s.days.iter().any(|d| *d) {
-        return Err("au moins un jour doit être coché".into());
+        return Err(crate::i18n::tr("au moins un jour doit être coché", "At least one day must be checked").into());
     }
     Ok(())
 }

@@ -61,14 +61,14 @@ impl LiveTrack {
                 Some(b) => b, None => return Ok(Step::Cancelled),
             };
             let bytes = if let Some(k) = &seg.key {
-                let uri = k.uri.as_ref().ok_or_else(|| CoreError::Media("clé AES-128 sans URI".into()))?;
+                let uri = k.uri.as_ref().ok_or_else(|| CoreError::Media(crate::i18n::tr("clé AES-128 sans URI", "AES-128 key without URI").into()))?;
                 let key = match self.key_cache.get(uri) {
                     Some(k) => *k,
                     None => {
                         let kb = match fetch_to_vec(fetcher, uri, None, headers, limiter, handle).await? {
                             Some(b) => b, None => return Ok(Step::Cancelled),
                         };
-                        if kb.len() != 16 { return Err(CoreError::Media("clé AES-128 de taille invalide".into())); }
+                        if kb.len() != 16 { return Err(CoreError::Media(crate::i18n::tr("clé AES-128 de taille invalide", "AES-128 key of invalid size").into())); }
                         let mut arr = [0u8; 16];
                         arr.copy_from_slice(&kb);
                         self.key_cache.insert(uri.clone(), arr);
@@ -97,7 +97,7 @@ fn reject_unsupported_crypto(pl: &MediaPlaylist) -> Result<(), CoreError> {
     for seg in &pl.segments {
         if let Some(k) = &seg.key {
             if k.method != KeyMethod::Aes128 {
-                return Err(CoreError::Media("chiffrement non supporté (DRM/SAMPLE-AES)".into()));
+                return Err(CoreError::Media(crate::i18n::tr("chiffrement non supporté (DRM/SAMPLE-AES)", "Unsupported encryption (DRM/SAMPLE-AES)").into()));
             }
         }
     }

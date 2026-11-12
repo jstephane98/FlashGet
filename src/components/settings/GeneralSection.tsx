@@ -2,11 +2,12 @@ import { useEffect, useState } from "react";
 import { Moon, Sun, Monitor } from "lucide-react";
 import * as api from "../../api";
 import type { Settings } from "../../types";
-import { t } from "../../i18n";
-import type { MsgKey } from "../../i18n";
+import { t, LANG_NAMES } from "../../i18n";
+import type { LangPref, MsgKey } from "../../i18n";
+import { useLanguage } from "../../i18n/LanguageProvider";
 import { useTheme } from "../../theme/ThemeProvider";
 import type { ThemePref } from "../../theme/theme";
-import { Card, SectionShell, SettingRow, Switch } from "./controls";
+import { Card, SectionShell, Select, SettingRow, Switch } from "./controls";
 
 const THEMES: { pref: ThemePref; icon: typeof Moon }[] = [
   { pref: "dark", icon: Moon },
@@ -16,6 +17,12 @@ const THEMES: { pref: ThemePref; icon: typeof Moon }[] = [
 
 export function GeneralSection({ settings, save, error }: { settings: Settings; save(p: Partial<Settings>): void; error?: string }) {
   const { pref, setPref } = useTheme();
+  const language = useLanguage();
+  const langOptions: { value: LangPref; label: string }[] = [
+    { value: "auto", label: t("set.languageAutoWith", { lang: LANG_NAMES[language.system] }) },
+    { value: "fr", label: LANG_NAMES.fr },
+    { value: "en", label: LANG_NAMES.en },
+  ];
   const [autostart, setAutostart] = useState<boolean | null>(null);
   const [localError, setLocalError] = useState<string>();
 
@@ -34,6 +41,9 @@ export function GeneralSection({ settings, save, error }: { settings: Settings; 
   return (
     <SectionShell title={t("set.nav.general")} desc={t("set.general.desc")} error={error ?? localError}>
       <Card title={t("set.general.appearance")}>
+        <SettingRow label={t("set.language")} hint={t("set.languageHint")}>
+          <Select label={t("set.language")} value={language.pref} options={langOptions} onChange={language.setPref} />
+        </SettingRow>
         <SettingRow label={t("set.theme")} hint={t("set.themeHint")}>
           <div className="inline-flex p-[3px] gap-0.5 rounded-lg bg-field border border-border" role="group" aria-label={t("set.theme")}>
             {THEMES.map(({ pref: p, icon: Icon }) => (

@@ -101,13 +101,13 @@ pub async fn finalize_and_remux<R: Remuxer>(
     let work_v = work.to_path_buf();
     let video = tokio::task::spawn_blocking(move || concat_track(&work_v, "v", video_has_init))
         .await
-        .map_err(|e| CoreError::Media(format!("tâche de concaténation interrompue: {e}")))??;
+        .map_err(|e| CoreError::Media(crate::trf!("tâche de concaténation interrompue: {e}", "Concatenation task interrupted: {e}")))??;
     let audio = if let Some(a_has_init) = audio_has_init {
         let work_a = work.to_path_buf();
         Some(
             tokio::task::spawn_blocking(move || concat_track(&work_a, "a", a_has_init))
                 .await
-                .map_err(|e| CoreError::Media(format!("tâche de concaténation interrompue: {e}")))??,
+                .map_err(|e| CoreError::Media(crate::trf!("tâche de concaténation interrompue: {e}", "Concatenation task interrupted: {e}")))??,
         )
     } else {
         None

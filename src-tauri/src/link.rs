@@ -21,7 +21,10 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
 /// Message affiché quand une page ne contient aucune vidéo exploitable.
-pub const NO_VIDEO: &str = "Aucune vidéo trouvée sur cette page.";
+#[allow(non_snake_case)]
+pub fn NO_VIDEO() -> &'static str {
+    download_core::i18n::tr("Aucune vidéo trouvée sur cette page.", "No video found on this page.")
+}
 
 /// Durée de vie d'une sonde jamais confirmée.
 const PENDING_TTL: Duration = Duration::from_secs(30 * 60);
@@ -138,7 +141,7 @@ pub fn hint_for_kind(kind: Option<&str>, fallback_url: Option<String>, fallback_
 /// Refuse une sonde média sans aucun format proposable.
 pub fn media_or_error(info: MediaInfo, formats: Vec<MediaFormat>) -> Result<(MediaInfo, Vec<MediaFormat>), String> {
     if formats.is_empty() {
-        return Err(NO_VIDEO.to_string());
+        return Err(NO_VIDEO().to_string());
     }
     Ok((info, formats))
 }
@@ -199,7 +202,7 @@ pub fn variant_formats(variants: &[MediaVariant]) -> Vec<MediaFormat> {
 /// Message d'erreur (français) pour un échec d'extraction yt-dlp.
 pub fn ytdlp_error(detail: &str) -> String {
     if detail.contains("Unsupported URL") {
-        return NO_VIDEO.to_string();
+        return NO_VIDEO().to_string();
     }
     inaccessible(detail)
 }
@@ -231,7 +234,7 @@ pub fn page_error(status: u16, ytdlp_err: String) -> String {
 }
 
 fn inaccessible(detail: impl std::fmt::Display) -> String {
-    format!("Lien inaccessible : {detail}")
+    download_core::trf!("Lien inaccessible : {detail}", "Link unreachable: {detail}")
 }
 
 /// Analyse un lien et mémorise la sonde dans `pending_links`. N'émet aucun événement.
@@ -250,7 +253,7 @@ pub async fn analyze_named(
 ) -> Result<LinkProbe, String> {
     let url = url.trim();
     if url.is_empty() {
-        return Err(inaccessible("lien vide"));
+        return Err(inaccessible(download_core::i18n::tr("lien vide", "empty link")));
     }
     let pending = resolve(app, url, headers, hint, suggested_name).await?;
     let probe = pending.probe.clone();
@@ -422,7 +425,7 @@ async fn resolve(
             let fetcher = { app.state::<AppState>().fetcher.clone() };
             let probe = tokio::time::timeout(Duration::from_secs(30), fetcher.probe(url, &headers))
                 .await
-                .map_err(|_| inaccessible("délai dépassé"))?
+                .map_err(|_| inaccessible(download_core::i18n::tr("délai dépassé", "timed out")))?
                 .map_err(inaccessible)?;
             let status = probe.status;
             match route_after_probe(url, probe.content_type.as_deref(), status)? {
@@ -548,10 +551,22 @@ async fn media_ytdlp(app: &AppHandle, url: &str, headers: RequestHeaders) -> Res
 // --- Confirmation ---
 
 /// Sonde inconnue, déjà confirmée ou expirée.
-pub const EXPIRED: &str = "Analyse expirée, relance l'analyse.";
-const NO_FORMAT: &str = "Format introuvable";
-const BAD_CUT: &str = "Découpe invalide";
-const NO_CUT: &str = "Découpe non disponible pour ce flux";
+#[allow(non_snake_case)]
+pub fn EXPIRED() -> &'static str {
+    download_core::i18n::tr("Analyse expirée, relance l'analyse.", "The analysis expired, run it again.")
+}
+#[allow(non_snake_case)]
+fn NO_FORMAT() -> &'static str {
+    download_core::i18n::tr("Format introuvable", "Format not found")
+}
+#[allow(non_snake_case)]
+fn BAD_CUT() -> &'static str {
+    download_core::i18n::tr("Découpe invalide", "Invalid clip")
+}
+#[allow(non_snake_case)]
+fn NO_CUT() -> &'static str {
+    download_core::i18n::tr("Découpe non disponible pour ce flux", "Clipping isn't available for this stream")
+}
 
 /// Découpe demandée (`"1:30"`, `"90"`, `"01:02:03"`) ; `end` absent ou vide = jusqu'à la fin.
 #[derive(Deserialize, Debug)]
@@ -586,7 +601,7 @@ pub struct PlannedDownload {
 
 /// Section yt-dlp `*début-fin` d'une découpe, validée contre la durée connue.
 fn cut_range(cut: &TimeCut, duration_s: Option<u64>) -> Result<String, String> {
-    let bad = || BAD_CUT.to_string();
+    let bad = || BAD_CUT().to_string();
     let start = parse_clock(&cut.start).ok_or_else(bad)?;
     let end = match cut.end.as_deref().map(str::trim).filter(|e| !e.is_empty()) {
         Some(e) => Some(parse_clock(e).ok_or_else(bad)?),
@@ -654,7 +669,7 @@ pub fn plan_download(pending: &PendingLink, req: &ConfirmLink, now_id: String, s
     match &pending.probe {
         LinkProbe::File { url, total_bytes, supports_ranges, category, .. } => {
             if req.cut.is_some() {
-                return Err(NO_CUT.into());
+                return Err(NO_CUT().into());
             }
             let mut d = base(url, sanitize_file_name(&req.file_name), *category, DownloadKind::Regular);
             d.total_bytes = *total_bytes;
@@ -665,7 +680,7 @@ pub fn plan_download(pending: &PendingLink, req: &ConfirmLink, now_id: String, s
             let fmt = req
                 .format_index
                 .and_then(|i| formats.get(i as usize))
-                .ok_or_else(|| NO_FORMAT.to_string())?;
+                .ok_or_else(|| NO_FORMAT().to_string())?;
             let audio = fmt.kind == FormatKind::Audio;
             let category = if audio { Category::Music } else { Category::Video };
             let file_name = ensure_extension(&sanitize_title(Some(&req.file_name)), &format_extension(fmt, &pending.media_prefs));
@@ -700,29 +715,29 @@ pub fn plan_download(pending: &PendingLink, req: &ConfirmLink, now_id: String, s
                 }
                 MediaSource::Hls => {
                     if req.cut.is_some() {
-                        return Err(NO_CUT.into());
+                        return Err(NO_CUT().into());
                     }
                     // `format_id` = indice de la variante dans la playlist maître (`variant_formats`).
-                    let master = pending.hls.as_ref().ok_or_else(|| NO_FORMAT.to_string())?;
+                    let master = pending.hls.as_ref().ok_or_else(|| NO_FORMAT().to_string())?;
                     let variant = fmt
                         .format_id
                         .parse::<usize>()
                         .ok()
                         .and_then(|i| master.variants.get(i))
-                        .ok_or_else(|| NO_FORMAT.to_string())?;
+                        .ok_or_else(|| NO_FORMAT().to_string())?;
                     d.kind = DownloadKind::Hls;
                     d.url = variant.uri.clone();
                     d.audio_url = pick_audio(master, variant).and_then(|a| a.uri.clone());
                 }
                 MediaSource::Dash => {
                     if req.cut.is_some() {
-                        return Err(NO_CUT.into());
+                        return Err(NO_CUT().into());
                     }
                     // `format_id` = indice de la variante vidéo DASH ; `url` = le MPD source.
-                    let video: u32 = fmt.format_id.parse().map_err(|_| NO_FORMAT.to_string())?;
+                    let video: u32 = fmt.format_id.parse().map_err(|_| NO_FORMAT().to_string())?;
                     if let Some(mpd) = &pending.dash {
                         if !download_core::dash::select::video_variants(mpd).iter().any(|(_, v)| v.index == video) {
-                            return Err(NO_FORMAT.into());
+                            return Err(NO_FORMAT().into());
                         }
                     }
                     d.kind = DownloadKind::Dash;
@@ -745,19 +760,19 @@ pub async fn confirm_link(app: AppHandle, req: ConfirmLink) -> Result<Download, 
         let pending = map
             .get(&req.probe_id)
             .filter(|p| p.created.elapsed() < PENDING_TTL)
-            .ok_or_else(|| EXPIRED.to_string())?;
+            .ok_or_else(|| EXPIRED().to_string())?;
         plan_download(pending, &req, uuid::Uuid::new_v4().to_string(), &settings)?
     };
     let dir = crate::dest::dest_dir_for(&app, req.dest_dir.as_deref(), category_for_dir)?;
     // Nom invalide refusé avant tout passage à la Corbeille.
     if dir.join(&download.file_name).parent() != Some(dir.as_path()) {
-        return Err("nom de fichier invalide".into());
+        return Err(download_core::i18n::tr("nom de fichier invalide", "Invalid file name").into());
     }
     // Conflit : renommer, ou (réglage « remplacer ») ancien fichier à la Corbeille.
     download.file_name = crate::dest::place_file(&app, &dir, &download.file_name).file_name;
     let dest_path = dir.join(&download.file_name);
     if dest_path.parent() != Some(dir.as_path()) {
-        return Err("nom de fichier invalide".into());
+        return Err(download_core::i18n::tr("nom de fichier invalide", "Invalid file name").into());
     }
     download.dest_path = dest_path.to_string_lossy().to_string();
     {
@@ -911,8 +926,8 @@ mod tests {
         );
         assert_eq!(route_after_probe("https://x/a.bin", Some("application/octet-stream"), 416), Ok(ProbeRoute::File));
         // Échec yt-dlp : le statut HTTP s'il était un échec, sinon l'erreur de yt-dlp.
-        assert_eq!(page_error(403, NO_VIDEO.into()), "Lien inaccessible : HTTP 403");
-        assert_eq!(page_error(200, NO_VIDEO.into()), NO_VIDEO);
+        assert_eq!(page_error(403, NO_VIDEO().into()), "Lien inaccessible : HTTP 403");
+        assert_eq!(page_error(200, NO_VIDEO().into()), NO_VIDEO());
         assert_eq!(page_error(416, "boum".into()), "boum");
     }
 
@@ -1280,7 +1295,7 @@ mod tests {
 
     #[test]
     fn ytdlp_errors_are_french() {
-        assert_eq!(ytdlp_error("yt-dlp -J a échoué: ERROR: Unsupported URL: https://x"), NO_VIDEO);
+        assert_eq!(ytdlp_error("yt-dlp -J a échoué: ERROR: Unsupported URL: https://x"), NO_VIDEO());
         assert_eq!(ytdlp_error("yt-dlp -J a échoué: HTTP 403"), "Lien inaccessible : yt-dlp -J a échoué: HTTP 403");
     }
 

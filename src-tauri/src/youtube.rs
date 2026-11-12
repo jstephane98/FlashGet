@@ -19,7 +19,7 @@ pub fn sync_cookies(app: &AppHandle) -> Result<bool, String> {
     let win = app
         .get_webview_window("yt-login")
         .or_else(|| app.get_webview_window("main"))
-        .ok_or("aucune fenêtre webview")?;
+        .ok_or(download_core::i18n::tr("aucune fenêtre webview", "No webview window"))?;
     let urls = [
         "https://www.youtube.com",
         "https://youtube.com",
@@ -52,7 +52,7 @@ pub fn sync_cookies(app: &AppHandle) -> Result<bool, String> {
     if !connected {
         return Ok(false);
     }
-    let path = cookies_path(app).ok_or("dossier de données indisponible")?;
+    let path = cookies_path(app).ok_or(download_core::i18n::tr("dossier de données indisponible", "Data folder unavailable"))?;
     std::fs::write(&path, cookies::to_netscape(&out)).map_err(|e| e.to_string())?;
     Ok(true)
 }

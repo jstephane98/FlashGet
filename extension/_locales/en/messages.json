@@ -1,0 +1,132 @@
+{
+  "uiLang": {
+    "message": "en",
+    "description": "Language code of this translation, used for the lang attribute of the pages."
+  },
+  "extName": {
+    "message": "FlashGet Capture",
+    "description": "Extension name."
+  },
+  "extDescription": {
+    "message": "Sends downloads to the FlashGet app (automatic and manual capture).",
+    "description": "Extension description."
+  },
+  "contextMenuDownload": {
+    "message": "Download with FlashGet",
+    "description": "Context menu entry on links, images, videos and audio."
+  },
+  "popupConnected": {
+    "message": "Connected",
+    "description": "Connection status in the popup header."
+  },
+  "popupNotConnected": {
+    "message": "Not connected",
+    "description": "Connection status in the popup header."
+  },
+  "popupDownloadVideo": {
+    "message": "Download the video on this page",
+    "description": "Main button of the popup."
+  },
+  "popupStaleNotice": {
+    "message": "The extension was updated. Reload it from the browser's extensions page (the ⟳ button on FlashGet), then reopen this window.",
+    "description": "Shown when the old background service is still running after an update."
+  },
+  "popupAutoCapture": {
+    "message": "Automatic capture",
+    "description": "Title of the current site row."
+  },
+  "popupAutoCaptureAria": {
+    "message": "Automatic capture on this site",
+    "description": "Accessible name of the current site switch."
+  },
+  "popupSiteActive": {
+    "message": "on $HOST$",
+    "description": "Subtitle when capture is on for the current site. Keep the non-breaking space.",
+    "placeholders": {
+      "host": { "content": "$1", "example": "example.com" }
+    }
+  },
+  "popupSiteIgnored": {
+    "message": "$HOST$ is ignored",
+    "description": "Subtitle when the current site (or a parent site) is ignored. Keep the non-breaking space.",
+    "placeholders": {
+      "host": { "content": "$1", "example": "example.com" }
+    }
+  },
+  "popupUrlSection": {
+    "message": "Download a file by URL",
+    "description": "Title of the send URL section."
+  },
+  "popupUrlPlaceholder": {
+    "message": "Paste a URL…",
+    "description": "Placeholder of the URL field."
+  },
+  "popupSend": {
+    "message": "Send",
+    "description": "Button that sends the URL."
+  },
+  "popupOffline": {
+    "message": "FlashGet isn't running. Open the app, then try again.",
+    "description": "Shown when the app does not answer."
+  },
+  "popupTokenRejected": {
+    "message": "The token no longer matches. Paste the current token in the options.",
+    "description": "Shown when the app rejects the token."
+  },
+  "popupOptions": {
+    "message": "Options",
+    "description": "Button that opens the options page."
+  },
+  "popupRetry": {
+    "message": "Retry",
+    "description": "Reconnect button."
+  },
+  "toastSent": {
+    "message": "Sent ✓",
+    "description": "Short message after a successful send."
+  },
+  "toastFailed": {
+    "message": "Failed: not connected",
+    "description": "Short message after a failed send."
+  },
+  "optionsTitle": {
+    "message": "FlashGet options",
+    "description": "Title of the options page."
+  },
+  "optionsTokenLabel": {
+    "message": "Pairing token (copied from the app)",
+    "description": "Label of the token field."
+  },
+  "optionsTokenPlaceholder": {
+    "message": "Paste the token…",
+    "description": "Placeholder of the token field."
+  },
+  "optionsAutoCapture": {
+    "message": "Capture downloads automatically",
+    "description": "Automatic capture checkbox."
+  },
+  "optionsCaptureTypesLabel": {
+    "message": "Captured types (file extensions, separated by commas)",
+    "description": "Label of the captured types list."
+  },
+  "optionsSave": {
+    "message": "Save",
+    "description": "Button that saves the options."
+  },
+  "optionsSaved": {
+    "message": "Saved ✓",
+    "description": "Short message after saving."
+  },
+  "optionsConnected": {
+    "message": "Connected to FlashGet",
+    "description": "Connection status on the options page."
+  },
+  "optionsTokenRefused": {
+    "message": "Token rejected. Paste the current token from FlashGet.",
+    "description": "Connection status when the token is rejected."
+  },
+  "optionsOffline": {
+    "message": "FlashGet isn't running.",
+    "description": "Connection status when the app does not answer."
+  }
+}

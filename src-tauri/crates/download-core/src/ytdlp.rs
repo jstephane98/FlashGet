@@ -324,7 +324,7 @@ pub fn build_media_formats(formats: &[YtdlpFormat], prefs: &MediaPrefs) -> Vec<M
             kind: FormatKind::Av,
             format_id: "bestvideo".into(),
             height: None,
-            label: "Meilleure qualité".into(),
+            label: crate::i18n::tr("Meilleure qualité", "Best quality").into(),
             container: None,
             codecs: None,
             fps: None,

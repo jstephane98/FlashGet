@@ -106,7 +106,7 @@ fn track_plan(repr: &Representation, mpd: &Mpd, clock: &Clock) -> Result<Segment
             let d = t.duration.unwrap_or(0) as f64 / t.timescale.max(1) as f64;
             Ok(live_number_window(repr, t, ast, mpd.time_shift_buffer_depth, clock.now_epoch(), d, &repr.base))
         }
-        _ => Err(CoreError::Media("adressage DASH live non supporté (timeline ou $Number$ requis)".into())),
+        _ => Err(CoreError::Media(crate::i18n::tr("adressage DASH live non supporté (timeline ou $Number$ requis)", "Unsupported live DASH addressing (timeline or $Number$ required)").into())),
     }
 }
 
@@ -143,7 +143,7 @@ pub async fn download_dash_live<F: ByteFetcher, R: Remuxer>(
                 .iter()
                 .find(|(_, vv)| vv.index == selection.video_index)
                 .or_else(|| vlist.first())
-                .ok_or_else(|| CoreError::Media("aucune variante vidéo".into()))?;
+                .ok_or_else(|| CoreError::Media(crate::i18n::tr("aucune variante vidéo", "No video variant").into()))?;
             let vrepr = &mpd.periods[vcoord.period].adaptation_sets[vcoord.adaptation].representations[vcoord.representation];
             // Valide le mode d'adressage vidéo (et la présence d'availabilityStartTime
             // pour le $Number$) via track_plan — source unique de vérité, fail-fast

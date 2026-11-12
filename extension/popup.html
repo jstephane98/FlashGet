@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="fr">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <link rel="stylesheet" href="ui.css" />
@@ -22,31 +22,32 @@
 
       <!-- Connected view -->
       <div id="connectedView" class="hidden">
-        <button id="downloadVideo" class="fg-cta"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg>Télécharger la vidéo de cette page</button>
+        <button id="downloadVideo" class="fg-cta"><svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/></svg><span data-i18n="popupDownloadVideo">Download the video on this page</span></button>
         <div id="toast"></div>
 
-        <p id="staleNotice" class="stale hidden">L'extension a été mise à jour : rechargez-la depuis la page des extensions du navigateur (bouton ⟳ de FlashGet), puis rouvrez cette fenêtre.</p>
+        <p id="staleNotice" class="stale hidden" data-i18n="popupStaleNotice">The extension was updated. Reload it from the browser's extensions page (the ⟳ button on FlashGet), then reopen this window.</p>
 
         <div id="siteRow" class="site-row hidden">
           <svg id="siteBan" class="ic hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="m5.6 5.6 12.8 12.8"/></svg>
-          <div class="tx"><b>Capture automatique</b><small id="siteText"></small></div>
-          <button id="siteSwitch" class="sw" role="switch" aria-checked="true" aria-label="Capture automatique sur ce site"></button>
+          <div class="tx"><b data-i18n="popupAutoCapture">Automatic capture</b><small id="siteText"></small></div>
+          <button id="siteSwitch" class="sw" role="switch" aria-checked="true" aria-label="Automatic capture on this site" data-i18n-aria-label="popupAutoCaptureAria"></button>
         </div>
 
-        <div class="url-section-label">Télécharger un fichier par URL</div>
-        <input id="url" class="fg-input" type="text" placeholder="Coller une URL…" />
-        <button id="sendUrl" class="fg-btn">Envoyer</button>
+        <div class="url-section-label" data-i18n="popupUrlSection">Download a file by URL</div>
+        <input id="url" class="fg-input" type="text" placeholder="Paste a URL…" data-i18n-placeholder="popupUrlPlaceholder" />
+        <button id="sendUrl" class="fg-btn" data-i18n="popupSend">Send</button>
       </div>
 
       <!-- Disconnected view -->
       <div id="disconnectedView" class="hidden">
-        <p id="disconnectedText" class="note-text">FlashGet n'est pas lancé. Ouvrez l'application, puis réessayez.</p>
-        <button id="openOptions" class="fg-btn">Options</button>
-        <button id="retry" class="fg-btn">Réessayer</button>
+        <p id="disconnectedText" class="note-text" data-i18n="popupOffline">FlashGet isn't running. Open the app, then try again.</p>
+        <button id="openOptions" class="fg-btn" data-i18n="popupOptions">Options</button>
+        <button id="retry" class="fg-btn" data-i18n="popupRetry">Retry</button>
       </div>
 
     </div>
 
+    <script src="i18n.js" type="module"></script>
     <script src="popup.js" type="module"></script>
   </body>
 </html>

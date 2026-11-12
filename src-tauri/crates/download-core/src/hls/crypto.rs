@@ -7,7 +7,7 @@ type Aes128CbcDec = cbc::Decryptor<aes::Aes128>;
 pub fn decrypt_aes128_cbc(data: &[u8], key: &[u8; 16], iv: &[u8; 16]) -> Result<Vec<u8>, CoreError> {
     Aes128CbcDec::new(key.into(), iv.into())
         .decrypt_padded_vec_mut::<Pkcs7>(data)
-        .map_err(|e| CoreError::Media(format!("échec déchiffrement AES-128: {e}")))
+        .map_err(|e| CoreError::Media(crate::trf!("échec déchiffrement AES-128: {e}", "AES-128 decryption failed: {e}")))
 }
 
 /// IV d'un segment : IV explicite s'il existe, sinon le numéro de séquence média

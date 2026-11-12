@@ -40,7 +40,7 @@ fn valid_host(h: &str) -> bool {
 /// Ordre : trim + minuscules ; schéma puis tout depuis le premier `/`, `?` ou `#` ; port ;
 /// point final ; `*.` de tête ; `www.` de tête (une seule fois) ; IDN -> punycode ; validation.
 pub fn normalize_site(input: &str) -> Result<String, String> {
-    let err = || format!("Adresse de site invalide : {}", input.trim());
+    let err = || download_core::trf!("Adresse de site invalide : {}", "Invalid site address: {}", input.trim());
     let mut s = input.trim().to_lowercase();
     if s.is_empty() || s.chars().any(|c| c.is_whitespace()) {
         return Err(err());

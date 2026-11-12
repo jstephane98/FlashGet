@@ -13,11 +13,26 @@ use tauri_plugin_updater::UpdaterExt;
 
 const LAST_CHECK_KEY: &str = "app_update.last_check";
 const RESUME_IDS_KEY: &str = "app_update.resume_ids";
-const CHECK_ERR: &str = "Impossible de rechercher les mises à jour";
-const DOWNLOAD_ERR: &str = "Échec du téléchargement de la mise à jour";
-const INSTALL_ERR: &str = "Échec de l'installation de la mise à jour";
-const BUSY: &str = "Mise à jour déjà en cours";
-const NONE_DOWNLOADED: &str = "Aucune mise à jour téléchargée";
+#[allow(non_snake_case)]
+fn CHECK_ERR() -> &'static str {
+    download_core::i18n::tr("Impossible de rechercher les mises à jour", "Couldn't check for updates")
+}
+#[allow(non_snake_case)]
+fn DOWNLOAD_ERR() -> &'static str {
+    download_core::i18n::tr("Échec du téléchargement de la mise à jour", "Couldn't download the update")
+}
+#[allow(non_snake_case)]
+fn INSTALL_ERR() -> &'static str {
+    download_core::i18n::tr("Échec de l'installation de la mise à jour", "Couldn't install the update")
+}
+#[allow(non_snake_case)]
+fn BUSY() -> &'static str {
+    download_core::i18n::tr("Mise à jour déjà en cours", "An update is already in progress")
+}
+#[allow(non_snake_case)]
+fn NONE_DOWNLOADED() -> &'static str {
+    download_core::i18n::tr("Aucune mise à jour téléchargée", "No update downloaded")
+}
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
 pub struct AppUpdateInfo {
@@ -88,11 +103,11 @@ fn info_of(u: &tauri_plugin_updater::Update) -> AppUpdateInfo {
 async fn run_check(app: &AppHandle) -> Result<Option<AppUpdateInfo>, String> {
     let updater = app.updater().map_err(|e| {
         eprintln!("mise à jour de FlashGet : {e}");
-        CHECK_ERR.to_string()
+        CHECK_ERR().to_string()
     })?;
     let found = updater.check().await.map_err(|e| {
         eprintln!("mise à jour de FlashGet : {e}");
-        CHECK_ERR.to_string()
+        CHECK_ERR().to_string()
     })?;
     let st = app.state::<AppState>();
     let info = found.as_ref().map(info_of);
@@ -125,7 +140,7 @@ pub fn get_app_last_check(app: AppHandle) -> Option<i64> {
 pub async fn download_app_update(app: AppHandle) -> Result<(), String> {
     let st = app.state::<AppState>();
     if st.app_update_busy.swap(true, AtomicOrdering::SeqCst) {
-        return Err(BUSY.to_string());
+        return Err(BUSY().to_string());
     }
     let _busy = FlagGuard(&st.app_update_busy);
     if st.pending_update.lock().unwrap().is_some() {
@@ -137,7 +152,7 @@ pub async fn download_app_update(app: AppHandle) -> Result<(), String> {
         None => {
             run_check(&app).await?;
             let found = st.checked_update.lock().unwrap().clone();
-            found.ok_or_else(|| "Aucune mise à jour disponible".to_string())?
+            found.ok_or_else(|| download_core::i18n::tr("Aucune mise à jour disponible", "No update available").to_string())?
         }
     };
     let mut downloaded: u64 = 0;
@@ -157,7 +172,7 @@ pub async fn download_app_update(app: AppHandle) -> Result<(), String> {
         .await
         .map_err(|e| {
             eprintln!("mise à jour de FlashGet : téléchargement : {e}");
-            DOWNLOAD_ERR.to_string()
+            DOWNLOAD_ERR().to_string()
         })?;
     let _ = app.emit("app-update-progress", serde_json::json!({ "downloaded": bytes.len(), "total": bytes.len() }));
     *st.pending_update.lock().unwrap() = Some((update, bytes));
@@ -221,12 +236,12 @@ impl Drop for InstallingGuard<'_> {
 pub async fn install_app_update(app: AppHandle) -> Result<(), String> {
     let st = app.state::<AppState>();
     if st.app_update_busy.swap(true, AtomicOrdering::SeqCst) {
-        return Err(BUSY.to_string());
+        return Err(BUSY().to_string());
     }
     let _busy = FlagGuard(&st.app_update_busy);
     let taken = st.pending_update.lock().unwrap().take();
     let Some((update, bytes)) = taken else {
-        return Err(NONE_DOWNLOADED.to_string());
+        return Err(NONE_DOWNLOADED().to_string());
     };
     // Gèle la file : plus aucun lancement, y compris ceux du planificateur.
     st.app_installing.store(true, AtomicOrdering::SeqCst);
@@ -253,7 +268,7 @@ pub async fn install_app_update(app: AppHandle) -> Result<(), String> {
         requeue_ids(&st.storage, &ids);
         st.app_installing.store(false, AtomicOrdering::SeqCst);
         crate::commands::reevaluate(&app);
-        return Err(INSTALL_ERR.to_string());
+        return Err(INSTALL_ERR().to_string());
     }
     // Hors Windows, `install` rend la main : la file reprend son cours.
     st.app_installing.store(false, AtomicOrdering::SeqCst);

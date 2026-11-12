@@ -16,9 +16,15 @@ use tauri_plugin_shell::ShellExt;
 const LAST_CHECK_KEY: &str = "ytdlp_update.last_check";
 const API_LATEST: &str = "https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest";
 const DOWNLOAD_BASE: &str = "https://github.com/yt-dlp/yt-dlp/releases/download";
-const INVALID: &str = "fichier téléchargé invalide";
+#[allow(non_snake_case)]
+fn INVALID() -> &'static str {
+    download_core::i18n::tr("fichier téléchargé invalide", "Invalid downloaded file")
+}
 const CHECK_INTERVAL_SECS: i64 = 86_400;
-const NET: &str = "Impossible de joindre GitHub";
+#[allow(non_snake_case)]
+fn NET() -> &'static str {
+    download_core::i18n::tr("Impossible de joindre GitHub", "Couldn't reach GitHub")
+}
 const MAX_BYTES: u64 = 200 * 1024 * 1024;
 const DOWNLOAD_FILE: &str = "yt-dlp.download.exe";
 const NEXT_FILE: &str = "yt-dlp.next.exe";
@@ -114,7 +120,7 @@ pub fn install_from_bytes(
     if let Err(e) = std::fs::write(&download, bytes) {
         eprintln!("mise à jour de yt-dlp : écriture : {e}");
         let _ = std::fs::remove_file(&download);
-        return Err(INVALID.to_string());
+        return Err(INVALID().to_string());
     }
     let verified = if hex(&Sha256::digest(bytes)).eq_ignore_ascii_case(expected_sha.trim()) {
         run_version(&download)
@@ -123,7 +129,7 @@ pub fn install_from_bytes(
     };
     let Some(version) = verified else {
         let _ = std::fs::remove_file(&download);
-        return Err(INVALID.to_string());
+        return Err(INVALID().to_string());
     };
     let next = dir.join(NEXT_FILE);
     if std::fs::rename(&download, dir.join("yt-dlp.exe")).is_ok() {
@@ -135,7 +141,7 @@ pub fn install_from_bytes(
     if let Err(e) = std::fs::rename(&download, &next) {
         eprintln!("mise à jour de yt-dlp : {e}");
         let _ = std::fs::remove_file(&download);
-        return Err(INVALID.to_string());
+        return Err(INVALID().to_string());
     }
     Ok(InstallOutcome::Pending(version))
 }
@@ -163,7 +169,7 @@ fn http_client() -> Result<reqwest::Client, String> {
         .build()
         .map_err(|e| {
             eprintln!("mise à jour de yt-dlp : client HTTP : {e}");
-            NET.to_string()
+            NET().to_string()
         })
 }
 
@@ -179,12 +185,12 @@ async fn sidecar_version(app: &AppHandle) -> Option<String> {
 }
 
 async fn fetch_latest(client: &reqwest::Client) -> Result<String, String> {
-    let resp = client.get(API_LATEST).timeout(Duration::from_secs(30)).send().await.map_err(|_| NET.to_string())?;
+    let resp = client.get(API_LATEST).timeout(Duration::from_secs(30)).send().await.map_err(|_| NET().to_string())?;
     if !resp.status().is_success() {
-        return Err(NET.to_string());
+        return Err(NET().to_string());
     }
-    let body = resp.text().await.map_err(|_| NET.to_string())?;
-    latest_tag(&body).ok_or_else(|| NET.to_string())
+    let body = resp.text().await.map_err(|_| NET().to_string())?;
+    latest_tag(&body).ok_or_else(|| NET().to_string())
 }
 
 /// Version de yt-dlp réellement utilisée ; supprime une copie périmée du dossier de données.
@@ -248,20 +254,20 @@ impl Drop for UpdatingGuard<'_> {
 
 /// Télécharge `yt-dlp.exe` en mémoire (plafonné), en signalant la progression.
 async fn download_exe(app: &AppHandle, client: &reqwest::Client, tag: &str) -> Result<Vec<u8>, String> {
-    let mut resp = client.get(format!("{DOWNLOAD_BASE}/{tag}/yt-dlp.exe")).send().await.map_err(|_| NET.to_string())?;
+    let mut resp = client.get(format!("{DOWNLOAD_BASE}/{tag}/yt-dlp.exe")).send().await.map_err(|_| NET().to_string())?;
     if !resp.status().is_success() {
-        return Err(NET.into());
+        return Err(NET().into());
     }
     let total = resp.content_length();
     if total.is_some_and(|t| t > MAX_BYTES) {
-        return Err(INVALID.into());
+        return Err(INVALID().into());
     }
     let mut bytes: Vec<u8> = Vec::with_capacity(total.unwrap_or(0).min(MAX_BYTES) as usize);
     let mut last_emit = Instant::now().checked_sub(Duration::from_secs(1)).unwrap_or_else(Instant::now);
-    while let Some(chunk) = resp.chunk().await.map_err(|_| NET.to_string())? {
+    while let Some(chunk) = resp.chunk().await.map_err(|_| NET().to_string())? {
         bytes.extend_from_slice(&chunk);
         if bytes.len() as u64 > MAX_BYTES {
-            return Err(INVALID.into());
+            return Err(INVALID().into());
         }
         if last_emit.elapsed() >= Duration::from_millis(100) {
             last_emit = Instant::now();
@@ -271,7 +277,7 @@ async fn download_exe(app: &AppHandle, client: &reqwest::Client, tag: &str) -> R
     let _ = app.emit("ytdlp-update-progress", serde_json::json!({ "downloaded": bytes.len(), "total": total }));
     // Un fichier tronqué est écarté ici : la somme ne correspondrait de toute façon pas.
     if !length_ok(total, bytes.len()) {
-        return Err(INVALID.into());
+        return Err(INVALID().into());
     }
     Ok(bytes)
 }
@@ -280,18 +286,18 @@ async fn download_exe(app: &AppHandle, client: &reqwest::Client, tag: &str) -> R
 async fn fetch_and_install(app: &AppHandle) -> Result<InstallOutcome, String> {
     let client = http_client()?;
     let tag = fetch_latest(&client).await?;
-    let sums = client.get(format!("{DOWNLOAD_BASE}/{tag}/SHA2-256SUMS")).timeout(Duration::from_secs(30)).send().await.map_err(|_| NET.to_string())?;
+    let sums = client.get(format!("{DOWNLOAD_BASE}/{tag}/SHA2-256SUMS")).timeout(Duration::from_secs(30)).send().await.map_err(|_| NET().to_string())?;
     if !sums.status().is_success() {
-        return Err(NET.into());
+        return Err(NET().into());
     }
-    let sums = sums.text().await.map_err(|_| NET.to_string())?;
-    let expected = parse_sha256sums(&sums, "yt-dlp.exe").ok_or_else(|| INVALID.to_string())?;
+    let sums = sums.text().await.map_err(|_| NET().to_string())?;
+    let expected = parse_sha256sums(&sums, "yt-dlp.exe").ok_or_else(|| INVALID().to_string())?;
 
     let bytes = download_exe(app, &client, &tag).await?;
 
     let dir = data_bin_dir(app).ok_or_else(|| {
         eprintln!("mise à jour de yt-dlp : dossier de données introuvable");
-        INVALID.to_string()
+        INVALID().to_string()
     })?;
     // `install_from_bytes` est synchrone ; la vérification `--version` passe par le plugin shell
     // (asynchrone), pilotée depuis un thread bloquant avec `block_on`.
@@ -302,7 +308,7 @@ async fn fetch_and_install(app: &AppHandle) -> Result<InstallOutcome, String> {
     .await
     .map_err(|e| {
         eprintln!("mise à jour de yt-dlp : {e}");
-        INVALID.to_string()
+        INVALID().to_string()
     })?
 }
 
@@ -310,7 +316,7 @@ async fn fetch_and_install(app: &AppHandle) -> Result<InstallOutcome, String> {
 pub async fn update_ytdlp(app: AppHandle) -> Result<YtdlpUpdateResult, String> {
     let state = app.state::<AppState>();
     if state.ytdlp_updating.swap(true, AtomicOrdering::SeqCst) {
-        return Err("Mise à jour déjà en cours".into());
+        return Err(download_core::i18n::tr("Mise à jour déjà en cours", "An update is already in progress").into());
     }
     let _guard = UpdatingGuard(&state.ytdlp_updating);
 
@@ -349,7 +355,7 @@ pub fn start_ytdlp_auto_check(app: AppHandle) {
                 }
                 Err(e) => {
                     eprintln!("mise à jour de yt-dlp : {e}");
-                    if e != "Mise à jour déjà en cours" {
+                    if e != download_core::i18n::tr("Mise à jour déjà en cours", "An update is already in progress") {
                         let _ = app.emit("ytdlp-update-available", serde_json::json!({ "current": info.current, "latest": info.latest }));
                     }
                 }

@@ -43,7 +43,7 @@ pub fn delete_entry(
     trash: impl Fn(&Path) -> Result<(), String>,
 ) -> Result<(), String> {
     if delete_file && path.exists() {
-        trash(path).map_err(|e| format!("Impossible d'envoyer le fichier à la corbeille : {e}"))?;
+        trash(path).map_err(|e| download_core::trf!("Impossible d'envoyer le fichier à la corbeille : {e}", "Couldn't move the file to the Recycle Bin: {e}"))?;
     }
     Ok(())
 }
@@ -67,14 +67,14 @@ pub fn get_file_info(app: AppHandle, id: String) -> Result<FileInfo, String> {
 pub fn allow_playback(app: AppHandle, id: String) -> Result<String, String> {
     let d = find(&app, &id)?;
     if d.status != DownloadStatus::Completed {
-        return Err("le téléchargement n'est pas terminé".to_string());
+        return Err(download_core::i18n::tr("le téléchargement n'est pas terminé", "The download isn't finished").to_string());
     }
     let path = Path::new(&d.dest_path);
     if !path.is_file() {
-        return Err("le fichier n'existe plus".to_string());
+        return Err(download_core::i18n::tr("le fichier n'existe plus", "The file no longer exists").to_string());
     }
     if playable_kind(path).is_none() {
-        return Err("ce type de fichier ne peut pas être lu".to_string());
+        return Err(download_core::i18n::tr("ce type de fichier ne peut pas être lu", "This file type can't be played").to_string());
     }
     app.asset_protocol_scope().allow_file(path).map_err(|e| e.to_string())?;
     Ok(d.dest_path)
@@ -84,7 +84,7 @@ pub fn allow_playback(app: AppHandle, id: String) -> Result<String, String> {
 pub fn delete_download(app: AppHandle, id: String, delete_file: bool) -> Result<(), String> {
     let state = app.state::<AppState>();
     if state.handles.lock().unwrap().contains_key(&id) {
-        return Err("arrêtez le téléchargement avant de le retirer".to_string());
+        return Err(download_core::i18n::tr("arrêtez le téléchargement avant de le retirer", "Stop the download before removing it").to_string());
     }
     let d = find(&app, &id)?;
     delete_entry(Path::new(&d.dest_path), delete_file, |p| trash::delete(p).map_err(|e| e.to_string()))?;

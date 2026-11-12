@@ -1,4 +1,5 @@
 import { DEFAULT_CAPTURE_TYPES } from "./capture-rules.js";
+import { t } from "./i18n.js";
 
 const tokenInput = document.getElementById("token");
 const connDot = document.getElementById("connDot");
@@ -24,7 +25,7 @@ document.getElementById("save").addEventListener("click", async () => {
     autoCapture: autoCaptureInput.checked,
     captureTypes: captureTypesInput.value,
   });
-  saved.textContent = "Enregistré ✓";
+  saved.textContent = t("optionsSaved");
   setTimeout(() => (saved.textContent = ""), 1500);
   // Forcer une reconnexion avec le nouveau jeton.
   chrome.runtime.sendMessage({ cmd: "reconnect" }, () => setTimeout(refreshStatus, 800));
@@ -34,12 +35,9 @@ function refreshStatus() {
   chrome.runtime.sendMessage({ cmd: "status" }, (res) => {
     const state = res && res.connected ? "connected" : (res && res.state) || "offline";
     connDot.className = "dot " + (state === "connected" ? "on" : "err");
-    connText.textContent =
-      state === "connected"
-        ? "Connectée à FlashGet"
-        : state === "rejected"
-          ? "Jeton refusé : collez le jeton actuel de FlashGet."
-          : "FlashGet n'est pas lancé.";
+    connText.textContent = t(
+      state === "connected" ? "optionsConnected" : state === "rejected" ? "optionsTokenRefused" : "optionsOffline",
+    );
   });
 }
 

@@ -5,11 +5,11 @@ use crate::CoreError;
 /// absolue de l'octet juste APRÈS la boîte sidx (point d'ancrage de first_offset).
 pub fn parse_sidx(b: &[u8], anchor: u64) -> Result<Vec<(u64, u64)>, CoreError> {
     if b.len() < 12 {
-        return Err(CoreError::Media("sidx tronqué".into()));
+        return Err(CoreError::Media(crate::i18n::tr("sidx tronqué", "Truncated sidx").into()));
     }
     // On suppose que `b` commence à la boîte sidx (size@0, type@4).
     if &b[4..8] != b"sidx" {
-        return Err(CoreError::Media("boîte sidx absente".into()));
+        return Err(CoreError::Media(crate::i18n::tr("boîte sidx absente", "Missing sidx box").into()));
     }
     let version = b[8];
     let mut p = 12usize; // après version(1)+flags(3)
@@ -17,7 +17,7 @@ pub fn parse_sidx(b: &[u8], anchor: u64) -> Result<Vec<(u64, u64)>, CoreError> {
     p += 4; // timescale
     if version == 0 {
         if b.len() < 28 {
-            return Err(CoreError::Media("sidx tronqué (entête v0)".into()));
+            return Err(CoreError::Media(crate::i18n::tr("sidx tronqué (entête v0)", "Truncated sidx (v0 header)").into()));
         }
         p += 4; // earliest_presentation_time
         let first_offset = u32::from_be_bytes(b[p..p + 4].try_into().unwrap()) as u64;
@@ -25,7 +25,7 @@ pub fn parse_sidx(b: &[u8], anchor: u64) -> Result<Vec<(u64, u64)>, CoreError> {
         read_refs(b, p, anchor + first_offset)
     } else {
         if b.len() < 36 {
-            return Err(CoreError::Media("sidx tronqué (entête v1)".into()));
+            return Err(CoreError::Media(crate::i18n::tr("sidx tronqué (entête v1)", "Truncated sidx (v1 header)").into()));
         }
         p += 8; // earliest_presentation_time (64)
         let first_offset = u64::from_be_bytes(b[p..p + 8].try_into().unwrap());
@@ -37,19 +37,19 @@ pub fn parse_sidx(b: &[u8], anchor: u64) -> Result<Vec<(u64, u64)>, CoreError> {
 fn read_refs(b: &[u8], mut p: usize, mut start: u64) -> Result<Vec<(u64, u64)>, CoreError> {
     p += 2; // reserved
     if p + 2 > b.len() {
-        return Err(CoreError::Media("sidx tronqué (count)".into()));
+        return Err(CoreError::Media(crate::i18n::tr("sidx tronqué (count)", "Truncated sidx (count)").into()));
     }
     let count = u16::from_be_bytes(b[p..p + 2].try_into().unwrap()) as usize;
     p += 2;
     let mut out = Vec::with_capacity(count);
     for _ in 0..count {
         if p + 12 > b.len() {
-            return Err(CoreError::Media("sidx tronqué (refs)".into()));
+            return Err(CoreError::Media(crate::i18n::tr("sidx tronqué (refs)", "Truncated sidx (refs)").into()));
         }
         let w = u32::from_be_bytes(b[p..p + 4].try_into().unwrap());
         let referenced_size = (w & 0x7FFF_FFFF) as u64; // bit de poids fort = reference_type
         if referenced_size == 0 {
-            return Err(CoreError::Media("sidx: référence de taille nulle".into()));
+            return Err(CoreError::Media(crate::i18n::tr("sidx: référence de taille nulle", "sidx: zero-size reference").into()));
         }
         p += 12; // referenced_size(4) + subsegment_duration(4) + SAP(4)
         out.push((start, start + referenced_size - 1));

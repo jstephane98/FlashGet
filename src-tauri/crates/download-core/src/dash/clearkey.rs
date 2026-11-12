@@ -5,7 +5,7 @@ use base64::Engine;
 /// Construit une requête de licence W3C ClearKey à partir d'un KID hexadécimal.
 /// Corps JSON : { "kids": ["<base64url(kid)>"], "type": "temporary" }.
 pub fn build_license_request(kid_hex: &str) -> Result<String, CoreError> {
-    let kid = hex_to_bytes(kid_hex).ok_or_else(|| CoreError::Media("KID hex invalide".into()))?;
+    let kid = hex_to_bytes(kid_hex).ok_or_else(|| CoreError::Media(crate::i18n::tr("KID hex invalide", "Invalid hex KID").into()))?;
     let kid_b64 = URL_SAFE_NO_PAD.encode(kid);
     Ok(format!("{{\"kids\":[\"{kid_b64}\"],\"type\":\"temporary\"}}"))
 }
@@ -13,14 +13,14 @@ pub fn build_license_request(kid_hex: &str) -> Result<String, CoreError> {
 /// Parse une réponse JWK ClearKey et renvoie la clé en hexadécimal.
 /// { "keys": [ { "kty":"oct", "k":"<base64url>", "kid":"..." } ] }.
 pub fn parse_jwk_response(json: &str) -> Result<String, CoreError> {
-    let v: serde_json::Value = serde_json::from_str(json).map_err(|e| CoreError::Media(format!("JWK invalide: {e}")))?;
+    let v: serde_json::Value = serde_json::from_str(json).map_err(|e| CoreError::Media(crate::trf!("JWK invalide: {e}", "Invalid JWK: {e}")))?;
     let k = v["keys"][0]["k"]
         .as_str()
-        .ok_or_else(|| CoreError::Media("JWK sans clé `k`".into()))?;
+        .ok_or_else(|| CoreError::Media(crate::i18n::tr("JWK sans clé `k`", "JWK without a `k` key").into()))?;
     let bytes = URL_SAFE_NO_PAD
         .decode(k)
         .or_else(|_| STANDARD_NO_PAD.decode(k))
-        .map_err(|e| CoreError::Media(format!("clé base64 invalide: {e}")))?;
+        .map_err(|e| CoreError::Media(crate::trf!("clé base64 invalide: {e}", "Invalid base64 key: {e}")))?;
     Ok(bytes_to_hex(&bytes))
 }
 

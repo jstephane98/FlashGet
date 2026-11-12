@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="fr">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <link rel="stylesheet" href="ui.css" />
@@ -7,26 +7,27 @@
   </head>
   <body>
 
-    <h3>Options FlashGet</h3>
+    <h3 data-i18n="optionsTitle">FlashGet options</h3>
 
-    <label class="options-label" for="token">Jeton d'appairage (copié depuis l'application)</label>
-    <input id="token" class="fg-input" type="text" placeholder="Coller le jeton…" />
+    <label class="options-label" for="token" data-i18n="optionsTokenLabel">Pairing token (copied from the app)</label>
+    <input id="token" class="fg-input" type="text" placeholder="Paste the token…" data-i18n-placeholder="optionsTokenPlaceholder" />
 
     <div class="conn-line"><span id="connDot" class="dot off"></span><span id="connText">…</span></div>
 
     <label class="options-checkbox-row">
       <input id="autoCapture" type="checkbox" />
-      Capture automatique des téléchargements
+      <span data-i18n="optionsAutoCapture">Capture downloads automatically</span>
     </label>
 
-    <label class="options-label" for="captureTypes">Types capturés (extensions, séparées par des virgules)</label>
+    <label class="options-label" for="captureTypes" data-i18n="optionsCaptureTypesLabel">Captured types (file extensions, separated by commas)</label>
     <textarea id="captureTypes" class="fg-input fg-mono" rows="4"></textarea>
 
     <div style="display:flex;align-items:center;margin-top:16px">
-      <button id="save" class="fg-cta" style="width:auto;padding:10px 24px">Enregistrer</button>
+      <button id="save" class="fg-cta" style="width:auto;padding:10px 24px" data-i18n="optionsSave">Save</button>
       <span id="saved"></span>
     </div>
 
+    <script src="i18n.js" type="module"></script>
     <script src="options.js" type="module"></script>
   </body>
 </html>

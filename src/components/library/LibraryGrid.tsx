@@ -1,6 +1,6 @@
 import type { Download } from "../../types";
 import { formatLabel } from "../../library/library";
-import { formatBytes } from "../../format";
+import { formatBytes, formatDate } from "../../format";
 import { Thumb } from "./Thumb";
 
 const BADGE = "shrink-0 px-1.5 py-0.5 text-[10px] rounded bg-surface text-ink-soft border border-border";
@@ -20,7 +20,7 @@ export function LibraryGrid({
         const selected = d.id === selectedId;
         const label = formatLabel(d);
         const date = d.completed_at == null ? "—"
-          : new Date(d.completed_at * 1000).toLocaleDateString("fr-FR", { day: "numeric", month: "short" });
+          : formatDate(new Date(d.completed_at * 1000));
         return (
           <button
             key={d.id}

@@ -88,7 +88,7 @@ pub struct Mpd {
 
 /// Parse un manifest MPD. Les URLs sont résolues contre `base_url`.
 pub fn parse_mpd(xml: &str, base_url: &str) -> Result<Mpd, CoreError> {
-    let doc = Document::parse(xml).map_err(|e| CoreError::Media(format!("MPD invalide: {e}")))?;
+    let doc = Document::parse(xml).map_err(|e| CoreError::Media(crate::trf!("MPD invalide: {e}", "Invalid MPD: {e}")))?;
     let root = doc.root_element();
     let dynamic = attr(&root, "type").as_deref() == Some("dynamic");
     let duration_secs = attr(&root, "mediaPresentationDuration")

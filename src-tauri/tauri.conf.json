@@ -43,7 +43,7 @@
       "nsis": {
         "installMode": "currentUser",
         "installerIcon": "icons/icon.ico",
-        "languages": ["French"],
+        "languages": ["English", "French"],
         "displayLanguageSelector": false
       }
     },
@@ -59,6 +59,9 @@
       "../extension/popup.js": "extension/popup.js",
       "../extension/popup-state.js": "extension/popup-state.js",
       "../extension/options.js": "extension/options.js",
+      "../extension/i18n.js": "extension/i18n.js",
+      "../extension/_locales/en/messages.json": "extension/_locales/en/messages.json",
+      "../extension/_locales/fr/messages.json": "extension/_locales/fr/messages.json",
       "../extension/popup.html": "extension/popup.html",
       "../extension/options.html": "extension/options.html",
       "../extension/ui.css": "extension/ui.css",

@@ -263,7 +263,7 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
     id: "flashget-capture",
-    title: "Télécharger avec FlashGet",
+    title: chrome.i18n.getMessage("contextMenuDownload"),
     contexts: ["link", "image", "video", "audio"],
   });
   ensureKeepalive();

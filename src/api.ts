@@ -240,6 +240,11 @@ export function setCookiesFromBrowser(value: string | null): Promise<void> {
 export function onYoutubeStatus(cb: () => void): Promise<UnlistenFn> {
   return listen("youtube://status", () => cb());
 }
+/** Langue affichée, transmise au moteur (menu de la zone de notification, notifications, erreurs). */
+export function setAppLanguage(lang: "fr" | "en"): Promise<void> {
+  return invoke("set_app_language", { lang });
+}
+
 export function getUiPref(key: string): Promise<string | null> {
   return invoke<string | null>("get_ui_pref", { key });
 }

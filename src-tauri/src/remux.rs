@@ -41,16 +41,16 @@ impl Remuxer for SidecarRemuxer {
             .app
             .shell()
             .sidecar("ffmpeg")
-            .map_err(|e| CoreError::Media(format!("ffmpeg introuvable: {e}")))?;
+            .map_err(|e| CoreError::Media(download_core::trf!("ffmpeg introuvable: {e}", "ffmpeg not found: {e}")))?;
         let output_run = sidecar
             .args(args)
             .output()
             .await
-            .map_err(|e| CoreError::Media(format!("échec exécution ffmpeg: {e}")))?;
+            .map_err(|e| CoreError::Media(download_core::trf!("échec exécution ffmpeg: {e}", "Failed to run ffmpeg: {e}")))?;
         if !output_run.status.success() {
             let stderr = String::from_utf8_lossy(&output_run.stderr);
             let tail: String = stderr.lines().rev().take(5).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
-            return Err(CoreError::Media(format!("ffmpeg a échoué: {tail}")));
+            return Err(CoreError::Media(download_core::trf!("ffmpeg a échoué: {tail}", "ffmpeg failed: {tail}")));
         }
         Ok(())
     }

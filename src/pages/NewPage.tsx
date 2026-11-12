@@ -137,7 +137,7 @@ export function NewPage({
       if (s.not_replaced) parts.push(t("batch.notReplaced", { n: s.not_replaced }));
       onDone(parts.join(" · "));
     } catch (e) {
-      setBatchError(`Échec de l'ajout en lot : ${errText(e)}`);
+      setBatchError(t("batch.error", { msg: errText(e) }));
     } finally {
       setBusy(false);
     }

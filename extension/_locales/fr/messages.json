@@ -1,0 +1,132 @@
+{
+  "uiLang": {
+    "message": "fr",
+    "description": "Code de langue de cette traduction, pour l'attribut lang des pages."
+  },
+  "extName": {
+    "message": "FlashGet — Capture",
+    "description": "Nom de l'extension."
+  },
+  "extDescription": {
+    "message": "Envoie les téléchargements à l'application FlashGet (capture automatique et manuelle).",
+    "description": "Description de l'extension."
+  },
+  "contextMenuDownload": {
+    "message": "Télécharger avec FlashGet",
+    "description": "Entrée du menu contextuel sur les liens, images, vidéos et sons."
+  },
+  "popupConnected": {
+    "message": "Connecté",
+    "description": "État de la connexion dans l'en-tête de la fenêtre."
+  },
+  "popupNotConnected": {
+    "message": "Non connecté",
+    "description": "État de la connexion dans l'en-tête de la fenêtre."
+  },
+  "popupDownloadVideo": {
+    "message": "Télécharger la vidéo de cette page",
+    "description": "Bouton principal de la fenêtre."
+  },
+  "popupStaleNotice": {
+    "message": "L'extension a été mise à jour : rechargez-la depuis la page des extensions du navigateur (bouton ⟳ de FlashGet), puis rouvrez cette fenêtre.",
+    "description": "Affiché quand l'ancien service d'arrière-plan tourne encore après une mise à jour."
+  },
+  "popupAutoCapture": {
+    "message": "Capture automatique",
+    "description": "Titre de la ligne du site courant."
+  },
+  "popupAutoCaptureAria": {
+    "message": "Capture automatique sur ce site",
+    "description": "Nom accessible de l'interrupteur du site courant."
+  },
+  "popupSiteActive": {
+    "message": "sur $HOST$",
+    "description": "Sous-titre quand la capture est active sur le site courant. Garder l'espace insécable.",
+    "placeholders": {
+      "host": { "content": "$1", "example": "exemple.com" }
+    }
+  },
+  "popupSiteIgnored": {
+    "message": "$HOST$ est ignoré",
+    "description": "Sous-titre quand le site courant (ou un site parent) est ignoré. Garder l'espace insécable.",
+    "placeholders": {
+      "host": { "content": "$1", "example": "exemple.com" }
+    }
+  },
+  "popupUrlSection": {
+    "message": "Télécharger un fichier par URL",
+    "description": "Titre de la section d'envoi d'une URL."
+  },
+  "popupUrlPlaceholder": {
+    "message": "Coller une URL…",
+    "description": "Texte indicatif du champ URL."
+  },
+  "popupSend": {
+    "message": "Envoyer",
+    "description": "Bouton d'envoi de l'URL."
+  },
+  "popupOffline": {
+    "message": "FlashGet n'est pas lancé. Ouvrez l'application, puis réessayez.",
+    "description": "Affiché quand l'application ne répond pas."
+  },
+  "popupTokenRejected": {
+    "message": "Le jeton ne correspond plus : collez le jeton actuel dans les options.",
+    "description": "Affiché quand l'application refuse le jeton."
+  },
+  "popupOptions": {
+    "message": "Options",
+    "description": "Bouton qui ouvre la page d'options."
+  },
+  "popupRetry": {
+    "message": "Réessayer",
+    "description": "Bouton de reconnexion."
+  },
+  "toastSent": {
+    "message": "Envoyé ✓",
+    "description": "Message bref après un envoi réussi."
+  },
+  "toastFailed": {
+    "message": "Échec — non connecté",
+    "description": "Message bref après un envoi échoué."
+  },
+  "optionsTitle": {
+    "message": "Options FlashGet",
+    "description": "Titre de la page d'options."
+  },
+  "optionsTokenLabel": {
+    "message": "Jeton d'appairage (copié depuis l'application)",
+    "description": "Libellé du champ jeton."
+  },
+  "optionsTokenPlaceholder": {
+    "message": "Coller le jeton…",
+    "description": "Texte indicatif du champ jeton."
+  },
+  "optionsAutoCapture": {
+    "message": "Capture automatique des téléchargements",
+    "description": "Case à cocher de la capture automatique."
+  },
+  "optionsCaptureTypesLabel": {
+    "message": "Types capturés (extensions, séparées par des virgules)",
+    "description": "Libellé de la liste des types capturés."
+  },
+  "optionsSave": {
+    "message": "Enregistrer",
+    "description": "Bouton d'enregistrement des options."
+  },
+  "optionsSaved": {
+    "message": "Enregistré ✓",
+    "description": "Message bref après l'enregistrement."
+  },
+  "optionsConnected": {
+    "message": "Connectée à FlashGet",
+    "description": "État de la connexion sur la page d'options."
+  },
+  "optionsTokenRefused": {
+    "message": "Jeton refusé : collez le jeton actuel de FlashGet.",
+    "description": "État de la connexion quand le jeton est refusé."
+  },
+  "optionsOffline": {
+    "message": "FlashGet n'est pas lancé.",
+    "description": "État de la connexion quand l'application ne répond pas."
+  }
+}

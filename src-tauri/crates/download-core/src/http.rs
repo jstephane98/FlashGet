@@ -27,7 +27,7 @@ pub trait ByteFetcher: Send + Sync {
         _content_type: &str,
         _headers: &RequestHeaders,
     ) -> Result<Vec<u8>, CoreError> {
-        Err(CoreError::Media("POST non supporté par ce fetcher".into()))
+        Err(CoreError::Media(crate::i18n::tr("POST non supporté par ce fetcher", "POST not supported by this fetcher").into()))
     }
 }
 

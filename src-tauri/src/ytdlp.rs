@@ -174,12 +174,12 @@ pub async fn list_entries(app: &AppHandle, url: &str) -> Result<Vec<(String, Str
         "node".into(),
         url.to_string(),
     ];
-    let cmd = crate::ytdlp_bin::ytdlp_command(app).map_err(|e| format!("yt-dlp introuvable: {e}"))?;
-    let output = cmd.args(args).output().await.map_err(|e| format!("échec exécution yt-dlp: {e}"))?;
+    let cmd = crate::ytdlp_bin::ytdlp_command(app).map_err(|e| download_core::trf!("yt-dlp introuvable: {e}", "yt-dlp not found: {e}"))?;
+    let output = cmd.args(args).output().await.map_err(|e| download_core::trf!("échec exécution yt-dlp: {e}", "Failed to run yt-dlp: {e}"))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let tail: String = stderr.lines().rev().take(3).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
-        return Err(format!("yt-dlp a échoué: {tail}"));
+        return Err(download_core::trf!("yt-dlp a échoué: {tail}", "yt-dlp failed: {tail}"));
     }
     let v: serde_json::Value = serde_json::from_slice(&output.stdout).map_err(|e| format!("sortie yt-dlp illisible: {e}"))?;
     let title_of = |e: &serde_json::Value| e.get("title").and_then(|t| t.as_str()).unwrap_or("").to_string();
@@ -218,12 +218,12 @@ async fn probe_once<T>(
     args.extend(extra.iter().cloned());
     args.push(url.to_string());
 
-    let cmd = crate::ytdlp_bin::ytdlp_command(app).map_err(|e| format!("yt-dlp introuvable: {e}"))?;
-    let output = cmd.args(args).output().await.map_err(|e| format!("échec exécution yt-dlp: {e}"))?;
+    let cmd = crate::ytdlp_bin::ytdlp_command(app).map_err(|e| download_core::trf!("yt-dlp introuvable: {e}", "yt-dlp not found: {e}"))?;
+    let output = cmd.args(args).output().await.map_err(|e| download_core::trf!("échec exécution yt-dlp: {e}", "Failed to run yt-dlp: {e}"))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let tail: String = stderr.lines().rev().take(3).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n");
-        return Err(format!("yt-dlp -J a échoué: {tail}"));
+        return Err(download_core::trf!("yt-dlp -J a échoué: {tail}", "yt-dlp -J failed: {tail}"));
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
     parse(&stdout)
@@ -286,8 +286,8 @@ async fn run_yt(
     args.extend(extra.iter().cloned());
     args.push(url.to_string());
 
-    let cmd = crate::ytdlp_bin::ytdlp_command(app).map_err(|e| CoreError::Media(format!("yt-dlp introuvable: {e}")))?;
-    let (mut rx, child) = cmd.args(args).spawn().map_err(|e| CoreError::Media(format!("échec lancement yt-dlp: {e}")))?;
+    let cmd = crate::ytdlp_bin::ytdlp_command(app).map_err(|e| CoreError::Media(download_core::trf!("yt-dlp introuvable: {e}", "yt-dlp not found: {e}")))?;
+    let (mut rx, child) = cmd.args(args).spawn().map_err(|e| CoreError::Media(download_core::trf!("échec lancement yt-dlp: {e}", "Failed to start yt-dlp: {e}")))?;
     let mut child = Some(child);
 
     let mut last: u64 = 0;
@@ -331,12 +331,12 @@ async fn run_yt(
                             return Ok(());
                         }
                         let tail = stderr_tail.join("\n");
-                        return Err(CoreError::Media(format!("yt-dlp a échoué (code {code}): {tail}")));
+                        return Err(CoreError::Media(download_core::trf!("yt-dlp a échoué (code {code}): {tail}", "yt-dlp failed (code {code}): {tail}")));
                     }
                     Some(_) => {}
                     None => {
                         return Err(CoreError::Media(
-                            "yt-dlp s'est fermé sans signal de terminaison".to_string(),
+                            download_core::i18n::tr("yt-dlp s'est fermé sans signal de terminaison", "yt-dlp exited without a completion signal").to_string(),
                         ));
                     }
                 }

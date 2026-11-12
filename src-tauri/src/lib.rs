@@ -3,6 +3,7 @@ mod autostart;
 mod bridge;
 mod commands;
 mod dest;
+mod language;
 mod library;
 mod link;
 mod migrate;
@@ -52,6 +53,8 @@ pub fn run() {
             }
             let storage = Storage::open(&dir.join("downloads.sqlite")).map_err(|e| Box::<dyn std::error::Error>::from(e.to_string()))?;
             let settings = storage.get_settings().map_err(|e| Box::<dyn std::error::Error>::from(e.to_string()))?;
+            // Langue des messages du moteur et du menu, avant de construire ce menu.
+            language::load(&storage);
             app.manage(AppState::new(storage, settings.max_speed_bps));
             // Remet l'entrée de démarrage Windows en accord avec le choix enregistré
             // (le désinstalleur l'efface, et le chemin de l'exe peut avoir changé).
@@ -74,9 +77,10 @@ pub fn run() {
             use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
             use tauri::menu::{Menu, MenuItem};
 
-            let open_i = MenuItem::with_id(app, "open", "Ouvrir FlashGet", true, None::<&str>)?;
-            let quit_i = MenuItem::with_id(app, "quit", "Quitter", true, None::<&str>)?;
+            let open_i = MenuItem::with_id(app, "open", language::open_label(), true, None::<&str>)?;
+            let quit_i = MenuItem::with_id(app, "quit", language::quit_label(), true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&open_i, &quit_i])?;
+            app.manage(language::TrayItems { open: open_i.clone(), quit: quit_i.clone() });
             let _tray = TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&menu)
@@ -169,6 +173,7 @@ pub fn run() {
             commands::get_ignored_sites,
             commands::set_ignored_sites,
             commands::regenerate_bridge_token,
+            language::set_app_language,
             commands::get_autostart,
             commands::set_autostart,
             link::probe_link,

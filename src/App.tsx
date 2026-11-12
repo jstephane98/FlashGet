@@ -3,7 +3,7 @@ import "./index.css";
 import { X } from "lucide-react";
 import type { BridgeStatus, Download, Priority } from "./types";
 import * as api from "./api";
-import { t } from "./i18n";
+import { t, useLang } from "./i18n";
 import type { PageId } from "./navigation";
 import { TitleBar } from "./components/shell/TitleBar";
 import { Sidebar } from "./components/shell/Sidebar";
@@ -26,6 +26,8 @@ type ExternalPayload =
   | { kind: "analyze"; url: string };
 
 export default function App() {
+  // Nouveau rendu de toute l'interface quand la langue change.
+  useLang();
   const [page, setPage] = useState<PageId>("downloads");
   const [downloads, setDownloads] = useState<Download[]>([]);
   const [speeds, setSpeeds] = useState<Record<string, number>>({});

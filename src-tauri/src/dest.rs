@@ -21,14 +21,14 @@ pub fn resolve_dest_dir(
             return Ok(PathBuf::from(c));
         }
     }
-    downloads_dir.ok_or_else(|| "aucun dossier de destination".to_string())
+    downloads_dir.ok_or_else(|| download_core::i18n::tr("aucun dossier de destination", "No destination folder").to_string())
 }
 
 /// Résout puis crée le dossier de destination.
 pub fn dest_dir_for(app: &AppHandle, explicit: Option<&str>, category: Category) -> Result<PathBuf, String> {
     let configured = app.state::<AppState>().storage.category_dir(category).map_err(|e| e.to_string())?;
     let dir = resolve_dest_dir(explicit, configured, app.path().download_dir().ok())?;
-    std::fs::create_dir_all(&dir).map_err(|e| format!("dossier de destination inaccessible: {e}"))?;
+    std::fs::create_dir_all(&dir).map_err(|e| download_core::trf!("dossier de destination inaccessible: {e}", "Destination folder unavailable: {e}"))?;
     Ok(dir)
 }
 

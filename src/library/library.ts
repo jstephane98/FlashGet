@@ -1,5 +1,6 @@
 import type { Category, Download } from "../types";
 import { t } from "../i18n";
+import { formatClock, formatDate } from "../format";
 
 export type DayGroup = { key: string; label: string; items: Download[] };
 
@@ -13,11 +14,11 @@ function dayKey(date: Date): string {
 }
 
 function dateLabel(date: Date): string {
-  return date.toLocaleDateString("fr-FR", { day: "numeric", month: "short", year: "numeric" });
+  return formatDate(date, true);
 }
 
 function timeLabel(date: Date): string {
-  return `${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return formatClock(date);
 }
 
 const isDone = (d: Download) => d.status === "completed";

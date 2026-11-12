@@ -60,7 +60,7 @@ pub async fn download_dash<F: ByteFetcher, R: Remuxer>(
         .iter()
         .find(|(_, v)| v.index == selection.video_index)
         .or_else(|| vlist.first())
-        .ok_or_else(|| CoreError::Media("aucune variante vidéo".into()))?;
+        .ok_or_else(|| CoreError::Media(crate::i18n::tr("aucune variante vidéo", "No video variant").into()))?;
     let video_as = &mpd.periods[vcoord.period].adaptation_sets[vcoord.adaptation];
     let video_repr = &video_as.representations[vcoord.representation];
     let audio_coord = pick_audio(&mpd, selection.audio_lang.as_deref());
@@ -103,12 +103,12 @@ pub async fn download_dash<F: ByteFetcher, R: Remuxer>(
     let work_v = work.clone();
     let video_cat = tokio::task::spawn_blocking(move || concat_track(&work_v, "v", true))
         .await
-        .map_err(|e| CoreError::Media(format!("tâche de concaténation interrompue: {e}")))??;
+        .map_err(|e| CoreError::Media(crate::trf!("tâche de concaténation interrompue: {e}", "Concatenation task interrupted: {e}")))??;
     let audio_cat = if has_audio {
         let work_a = work.clone();
         let cat = tokio::task::spawn_blocking(move || concat_track(&work_a, "a", true))
             .await
-            .map_err(|e| CoreError::Media(format!("tâche de concaténation interrompue: {e}")))??;
+            .map_err(|e| CoreError::Media(crate::trf!("tâche de concaténation interrompue: {e}", "Concatenation task interrupted: {e}")))??;
         Some(cat)
     } else {
         None
@@ -159,7 +159,7 @@ async fn download_track<F: ByteFetcher>(
     }
 
     if matches!(repr.addressing, Addressing::Base(_)) && plan.media.is_empty() {
-        return Err(CoreError::Media("SegmentBase sans indexRange : aucun segment média".into()));
+        return Err(CoreError::Media(crate::i18n::tr("SegmentBase sans indexRange : aucun segment média", "SegmentBase without indexRange: no media segment").into()));
     }
 
     for (idx, seg) in plan.media.iter().enumerate() {
@@ -194,7 +194,7 @@ pub(crate) async fn resolve_key<F: ByteFetcher>(
     };
     let kid = match &cp.default_kid {
         Some(k) => k.clone(),
-        None => return Err(CoreError::Media("contenu chiffré sans default_KID".into())),
+        None => return Err(CoreError::Media(crate::i18n::tr("contenu chiffré sans default_KID", "Encrypted content without default_KID").into())),
     };
     match (&cp.scheme, &cp.clearkey_laurl) {
         (ProtScheme::ClearKey, Some(laurl)) | (ProtScheme::Cenc, Some(laurl)) => {
@@ -202,7 +202,7 @@ pub(crate) async fn resolve_key<F: ByteFetcher>(
             let resp = fetcher.post(laurl, body.as_bytes(), "application/json", headers).await?;
             Ok(Some(parse_jwk_response(&String::from_utf8_lossy(&resp))?))
         }
-        _ => Err(CoreError::Media("DRM non supporté (ClearKey requis)".into())),
+        _ => Err(CoreError::Media(crate::i18n::tr("DRM non supporté (ClearKey requis)", "Unsupported DRM (ClearKey required)").into())),
     }
 }
 

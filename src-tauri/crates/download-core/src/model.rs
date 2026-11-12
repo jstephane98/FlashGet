@@ -115,25 +115,25 @@ impl Default for Settings {
 /// Valide les réglages ; le message d'erreur est destiné à l'utilisateur.
 pub fn validate_settings(s: &Settings) -> Result<(), String> {
     if !(1..=10).contains(&s.max_concurrent) {
-        return Err("Téléchargements simultanés : entre 1 et 10".into());
+        return Err(crate::i18n::tr("Téléchargements simultanés : entre 1 et 10", "Simultaneous downloads: between 1 and 10").into());
     }
     if !(1..=32).contains(&s.connections) {
-        return Err("Connexions par fichier : entre 1 et 32".into());
+        return Err(crate::i18n::tr("Connexions par fichier : entre 1 et 32", "Connections per file: between 1 and 32").into());
     }
     if s.retries > 10 {
         return Err("Nouvelles tentatives : entre 0 et 10".into());
     }
     if ![2160, 1440, 1080, 720, 480, 360].contains(&s.video_max_height) {
-        return Err("Qualité vidéo inconnue".into());
+        return Err(crate::i18n::tr("Qualité vidéo inconnue", "Unknown video quality").into());
     }
     if ![0, 128, 192, 256, 320].contains(&s.audio_kbps) {
-        return Err("Débit audio inconnu".into());
+        return Err(crate::i18n::tr("Débit audio inconnu", "Unknown audio bitrate").into());
     }
     let langs_ok = !s.sub_langs.is_empty()
         && s.sub_langs.len() <= 8
         && s.sub_langs.iter().all(|c| c.len() == 2 && c.bytes().all(|b| b.is_ascii_lowercase()));
     if !langs_ok {
-        return Err("Langues de sous-titres invalides".into());
+        return Err(crate::i18n::tr("Langues de sous-titres invalides", "Invalid subtitle languages").into());
     }
     Ok(())
 }

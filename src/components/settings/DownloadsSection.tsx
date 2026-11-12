@@ -3,12 +3,13 @@ import * as api from "../../api";
 import type { EndAction } from "../../api";
 import type { Settings } from "../../types";
 import { t } from "../../i18n";
+import { formatDecimal } from "../../format";
 import type { MsgKey } from "../../i18n";
 import { Card, NumberField, SectionShell, Select, SettingRow, Switch } from "./controls";
 
 const MB = 1048576;
 const ACTIONS: EndAction[] = ["none", "quit", "sleep", "hibernate", "shutdown"];
-const mbText = (bps: number) => String(Math.round((bps / MB) * 100) / 100).replace(".", ",");
+const mbText = (bps: number) => formatDecimal(Math.round((bps / MB) * 100) / 100);
 
 export function DownloadsSection({ settings, save, error, rev }: { settings: Settings; save(p: Partial<Settings>): void; error?: string; rev: number }) {
   const [endAction, setEnd] = useState<EndAction | null>(null);

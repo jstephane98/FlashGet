@@ -33,7 +33,7 @@ pub fn final_error_message(err: &str, attempt: u32) -> String {
     if attempt == 0 {
         err.to_string()
     } else {
-        format!("{err} (après {} tentatives)", attempt + 1)
+        download_core::trf!("{err} (après {} tentatives)", "{err} (after {} attempts)", attempt + 1)
     }
 }
 

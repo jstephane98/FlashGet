@@ -1,15 +1,47 @@
-const UNITS = ["o", "Ko", "Mo", "Go", "To"];
+import { getLang, locale, t } from "./i18n";
+
+const UNITS = {
+  fr: ["o", "Ko", "Mo", "Go", "To"],
+  en: ["B", "KB", "MB", "GB", "TB"],
+} as const;
 
 export function formatBytes(bytes: number): string {
-  if (bytes <= 0) return "0 o";
+  const lang = getLang();
+  const units = UNITS[lang];
+  if (bytes <= 0) return `0 ${units[0]}`;
   let i = 0;
   let v = bytes;
-  while (v >= 1024 && i < UNITS.length - 1) {
+  while (v >= 1024 && i < units.length - 1) {
     v /= 1024;
     i++;
   }
-  const text = i === 0 ? String(Math.round(v)) : v.toFixed(1).replace(".", ",");
-  return `${text} ${UNITS[i]}`;
+  const fixed = v.toFixed(1);
+  const text = i === 0 ? String(Math.round(v)) : lang === "fr" ? fixed.replace(".", ",") : fixed;
+  return `${text} ${units[i]}`;
+}
+
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+/** Heure : « 21:14 » en français, selon les réglages régionaux en anglais (« 9:14 PM »). */
+export function formatClock(date: Date): string {
+  if (getLang() === "fr") return `${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+  return date.toLocaleTimeString(locale(), { hour: "numeric", minute: "2-digit" });
+}
+
+/** Date courte dans la langue courante (« 12 nov. », « Nov 12 »). */
+export function formatDate(date: Date, withYear = false): string {
+  return date.toLocaleDateString(locale(), withYear ? { day: "numeric", month: "short", year: "numeric" } : { day: "numeric", month: "short" });
+}
+
+/** Date en chiffres : « 12/11/2026 » en français, selon les réglages régionaux en anglais. */
+export function formatNumericDate(date: Date): string {
+  if (getLang() === "fr") return `${pad2(date.getDate())}/${pad2(date.getMonth() + 1)}/${date.getFullYear()}`;
+  return date.toLocaleDateString(locale());
+}
+
+/** Nombre décimal avec le séparateur de la langue courante. */
+export function formatDecimal(n: number): string {
+  return getLang() === "fr" ? String(n).replace(".", ",") : String(n);
 }
 
 export function formatSpeed(bps: number): string {
@@ -32,7 +64,7 @@ export function formatElapsed(seconds: number): string {
 }
 
 export function recordingLabel(segDone: number, bytes: number, elapsedSec: number): string {
-  return `Enregistrement · ${formatElapsed(elapsedSec)} · ${segDone} segments · ${formatBytes(bytes)}`;
+  return t("dl.recording", { elapsed: formatElapsed(elapsedSec), n: segDone, size: formatBytes(bytes) });
 }
 
 export function formatEta(remainingBytes: number, bps: number): string {

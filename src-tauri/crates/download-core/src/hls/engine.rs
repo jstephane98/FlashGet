@@ -55,7 +55,7 @@ pub async fn download_hls<F: ByteFetcher, R: Remuxer>(
     for seg in &video_pl.segments {
         if let Some(k) = &seg.key {
             if k.method != KeyMethod::Aes128 {
-                return Err(CoreError::Media("chiffrement non supporté (DRM/SAMPLE-AES)".into()));
+                return Err(CoreError::Media(crate::i18n::tr("chiffrement non supporté (DRM/SAMPLE-AES)", "Unsupported encryption (DRM/SAMPLE-AES)").into()));
             }
         }
     }
@@ -142,13 +142,13 @@ pub async fn download_hls<F: ByteFetcher, R: Remuxer>(
     let v_has_init = video_pl.map.is_some();
     let video_cat = tokio::task::spawn_blocking(move || concat_track(&work_v, "v", v_has_init))
         .await
-        .map_err(|e| CoreError::Media(format!("tâche de concaténation interrompue: {e}")))??;
+        .map_err(|e| CoreError::Media(crate::trf!("tâche de concaténation interrompue: {e}", "Concatenation task interrupted: {e}")))??;
     let audio_cat = if let Some(ap) = &audio_pl {
         let work_a = work.clone();
         let a_has_init = ap.map.is_some();
         let cat = tokio::task::spawn_blocking(move || concat_track(&work_a, "a", a_has_init))
             .await
-            .map_err(|e| CoreError::Media(format!("tâche de concaténation interrompue: {e}")))??;
+            .map_err(|e| CoreError::Media(crate::trf!("tâche de concaténation interrompue: {e}", "Concatenation task interrupted: {e}")))??;
         Some(cat)
     } else {
         None
@@ -203,7 +203,7 @@ async fn download_track<F: ByteFetcher>(
             None => return Ok(Outcome::Cancelled),
         };
         let bytes = if let Some(k) = &seg.key {
-            let uri = k.uri.as_ref().ok_or_else(|| CoreError::Media("clé AES-128 sans URI".into()))?;
+            let uri = k.uri.as_ref().ok_or_else(|| CoreError::Media(crate::i18n::tr("clé AES-128 sans URI", "AES-128 key without URI").into()))?;
             let key = match key_cache.get(uri) {
                 Some(k) => *k,
                 None => {
@@ -212,7 +212,7 @@ async fn download_track<F: ByteFetcher>(
                         None => return Ok(Outcome::Cancelled),
                     };
                     if kb.len() != 16 {
-                        return Err(CoreError::Media("clé AES-128 de taille invalide".into()));
+                        return Err(CoreError::Media(crate::i18n::tr("clé AES-128 de taille invalide", "AES-128 key of invalid size").into()));
                     }
                     let mut arr = [0u8; 16];
                     arr.copy_from_slice(&kb);

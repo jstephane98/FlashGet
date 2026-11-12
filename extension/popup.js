@@ -1,5 +1,6 @@
 import { hostOf, matchingSite } from "./site-rules.js";
 import { isStaleBackground } from "./popup-state.js";
+import { t, appendWithNode } from "./i18n.js";
 
 const dot = document.getElementById("dot");
 const statusText = document.getElementById("statusText");
@@ -16,14 +17,11 @@ const staleNotice = document.getElementById("staleNotice");
 let matched = null; // entrée de la liste qui ignore l'onglet actif (peut être un site parent)
 let activeHost = null; // hôte de l'onglet actif (null si l'onglet n'est pas en http/https)
 
-const TEXT_OFFLINE = "FlashGet n'est pas lancé. Ouvrez l'application, puis réessayez.";
-const TEXT_REJECTED = "Le jeton ne correspond plus : collez le jeton actuel dans les options.";
-
 function render(connected, state) {
   const rejected = !connected && state === "rejected";
   dot.className = "dot " + (connected ? "on" : "err");
-  statusText.textContent = connected ? "Connecté" : "Non connecté";
-  disconnectedText.textContent = rejected ? TEXT_REJECTED : TEXT_OFFLINE;
+  statusText.textContent = t(connected ? "popupConnected" : "popupNotConnected");
+  disconnectedText.textContent = t(rejected ? "popupTokenRejected" : "popupOffline");
   connectedView.classList.toggle("hidden", !connected);
   disconnectedView.classList.toggle("hidden", connected);
 }
@@ -39,8 +37,10 @@ function renderSite(sites) {
   const host = document.createElement("span");
   host.className = "mono";
   host.textContent = ignored ? matched : activeHost;
-  // Espaces insécables : un espace en bord de nœud texte peut disparaître au rendu.
-  siteText.append(ignored ? "" : "sur ", host, ignored ? " est ignoré" : "");
+  // Le message garde des espaces insécables autour de l'hôte (un espace en bord de nœud
+  // texte peut disparaître au rendu) ; le jeton y est remplacé par l'élément de l'hôte.
+  const token = "{host}"; // « { » ne peut pas figurer dans un hôte normalisé
+  appendWithNode(siteText, t(ignored ? "popupSiteIgnored" : "popupSiteActive", [token]), token, host);
 }
 
 async function refresh(retry = true) {
@@ -70,7 +70,7 @@ siteSwitch.addEventListener("click", () => {
   const ignore = matched === null;
   const host = ignore ? activeHost : matched;
   chrome.runtime.sendMessage({ cmd: "setSiteIgnored", host, ignored: ignore }, (res) => {
-    if (!(res && res.ok)) flash("Échec — non connecté");
+    if (!(res && res.ok)) flash(t("toastFailed"));
     refresh(false);
   });
 });
@@ -84,7 +84,7 @@ document.getElementById("sendUrl").addEventListener("click", () => {
   const url = document.getElementById("url").value;
   if (!url.trim()) return;
   chrome.runtime.sendMessage({ cmd: "send", url }, (res) => {
-    flash(res && res.ok ? "Envoyé ✓" : "Échec — non connecté");
+    flash(t(res && res.ok ? "toastSent" : "toastFailed"));
   });
 });
 
@@ -92,7 +92,7 @@ document.getElementById("downloadVideo").addEventListener("click", async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   if (!tab || !tab.id || !tab.url) return;
   chrome.runtime.sendMessage({ cmd: "smartDownload", tabId: tab.id }, (res) => {
-    flash(res && res.ok ? "Envoyé ✓" : "Échec — non connecté");
+    flash(t(res && res.ok ? "toastSent" : "toastFailed"));
   });
 });
 

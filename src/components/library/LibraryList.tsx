@@ -1,6 +1,6 @@
 import type { Download } from "../../types";
 import { formatLabel, type DayGroup } from "../../library/library";
-import { formatBytes, hostOf } from "../../format";
+import { formatBytes, formatClock, hostOf } from "../../format";
 import { Thumb } from "./Thumb";
 
 const BADGE = "shrink-0 px-1.5 py-0.5 text-[10px] rounded bg-surface text-ink-soft border border-border";
@@ -8,7 +8,7 @@ const BADGE = "shrink-0 px-1.5 py-0.5 text-[10px] rounded bg-surface text-ink-so
 function timeOf(d: Download): string {
   if (d.completed_at == null) return "—";
   const date = new Date(d.completed_at * 1000);
-  return `${String(date.getHours()).padStart(2, "0")}:${String(date.getMinutes()).padStart(2, "0")}`;
+  return formatClock(date);
 }
 
 export function LibraryList({
