@@ -17,9 +17,9 @@ cd /work
 
 echo "== yt-dlp pour Linux (empreinte vérifiée)"
 mkdir -p src-tauri/bin
-# Réponse enregistrée d'abord : `grep -m1` dans un tube couperait curl, ce que pipefail signale.
+# Réponse enregistrée puis lue en JSON : selon les cas, GitHub la renvoie sur une seule ligne.
 curl -fsSL -o /tmp/latest.json https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest
-TAG=$(grep -m1 '"tag_name"' /tmp/latest.json | cut -d'"' -f4)
+TAG=$(node -p "require('/tmp/latest.json').tag_name")
 [ -n "$TAG" ] || { echo "Version de yt-dlp introuvable"; exit 1; }
 echo "yt-dlp ${TAG}"
 curl -fsSL -o /tmp/yt-dlp_linux "https://github.com/yt-dlp/yt-dlp/releases/download/${TAG}/yt-dlp_linux"
@@ -44,6 +44,13 @@ export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-1}"
 
 if [ "$MODE" = "--release" ]; then
   export TAURI_SIGNING_PRIVATE_KEY=/key/flashget.key
+  # latest.json de Windows (même version) : repris pour être complété, pas remplacé.
+  VERSION=$(node -p "require('./src-tauri/tauri.conf.json').version")
+  if [ -f "/src/release/v${VERSION}/latest.json" ]; then
+    mkdir -p "release/v${VERSION}"
+    cp "/src/release/v${VERSION}/latest.json" "release/v${VERSION}/latest.json"
+    echo "latest.json existant repris ($(node -p "Object.keys(require('./release/v${VERSION}/latest.json').platforms).join(', ')"))"
+  fi
   NOTES_ARG=()
   [ -n "${NOTES:-}" ] && NOTES_ARG=(--notes "$NOTES")
   npm run release -- "${NOTES_ARG[@]}"
