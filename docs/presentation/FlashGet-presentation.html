@@ -147,6 +147,16 @@
   .get-card p { margin: 0 0 10px; color: var(--ink-2); font-size: 15.5px; }
   .get-card a { color: var(--amber-hi); font-weight: 700; font-size: 15.5px; display: inline-flex; gap: 6px; align-items: center; }
 
+  /* ---------- Support ---------- */
+  .support { display: grid; grid-template-columns: minmax(0, 220px) minmax(0, 1fr) auto; gap: 48px; align-items: center; padding: 40px 48px; border-radius: var(--r-block); background: radial-gradient(80% 140% at 0% 50%, rgba(255,221,0,.12), transparent 65%), var(--tile); border: 1px solid var(--line); }
+  .support .thanks { width: 100%; max-width: 220px; }
+  .support h2 { max-width: 16ch; }
+  .support p { color: var(--ink-2); margin: 0 0 26px; max-width: 46ch; }
+  .btn-coffee { background: #ffdd00; color: #1b1300; box-shadow: 0 10px 34px -12px rgba(255,221,0,.6); }
+  .btn-coffee:hover { background: #ffe54d; transform: translateY(-1px); }
+  .qr { display: grid; gap: 10px; justify-items: center; color: var(--ink-3); font-size: 13px; }
+  .qr img { width: 150px; height: 150px; padding: 12px; background: #fff; border-radius: 14px; box-sizing: content-box; }
+
   /* ---------- Questions ---------- */
   .faq { display: grid; grid-template-columns: minmax(0, 4fr) minmax(0, 7fr); gap: 64px; }
   .faq .side { position: sticky; top: 110px; align-self: start; }
@@ -181,6 +191,8 @@
     .shot-hero { width: calc(100% + 60px); }
     .ext, .faq, .get { grid-template-columns: 1fr; gap: 44px; }
     .faq .side { position: static; }
+    .support { grid-template-columns: minmax(0, 160px) minmax(0, 1fr); gap: 32px; }
+    .support .qr { display: none; }
   }
   @media (max-width: 860px) {
     .nav nav { display: none; }
@@ -188,6 +200,9 @@
     .t-lib, .t-new, .t-resume, .t-queue, .t-light { grid-column: auto; grid-row: auto; }
     .caps { grid-template-columns: 1fr; gap: 36px; }
     footer .wrap { grid-template-columns: 1fr; }
+    .support { grid-template-columns: 1fr; justify-items: center; text-align: center; padding: 32px 22px; gap: 20px; }
+    .support .thanks { max-width: 170px; }
+    .support h2, .support p { margin-inline: auto; }
   }
   @media (max-width: 560px) {
     body { font-size: 16px; }
@@ -218,7 +233,7 @@
       <a href="#extension">Extension</a>
       <a href="#reglages">Settings</a>
       <a href="#questions">FAQ</a>
-      <a href="https://buymeacoffee.com/joelkamo" rel="noopener">Support</a>
+      <a href="#support">Support</a>
     </nav>
     <a class="btn btn-primary" href="#telecharger"><i class="ph ph-download-simple" aria-hidden="true"></i><span>Download</span></a>
   </div>
@@ -380,7 +395,24 @@
         <div class="get-side">
           <div class="get-card reveal" style="--d:.06s"><i class="ph ph-puzzle-piece" aria-hidden="true"></i><div><b>The extension is included</b><p>It comes with FlashGet. Open Settings, then Browser extension: three guided steps.</p></div></div>
           <div class="get-card reveal" style="--d:.12s"><i class="ph ph-list-checks" aria-hidden="true"></i><div><b>What's new in 2.0</b><p>Every version and its release notes are on GitHub.</p><a href="https://github.com/jstephane98/FlashGet/releases">See all versions<i class="ph ph-arrow-up-right" aria-hidden="true"></i></a></div></div>
-          <div class="get-card reveal" style="--d:.18s"><i class="ph ph-coffee" aria-hidden="true"></i><div><b>Free, and made by one person</b><p>If FlashGet saves you time, you can support its development.</p><a href="https://buymeacoffee.com/joelkamo" rel="noopener">Buy me a coffee<i class="ph ph-arrow-up-right" aria-hidden="true"></i></a></div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ======================= Support ======================= -->
+  <section id="support" aria-labelledby="t-sup" style="padding-top:0">
+    <div class="wrap">
+      <div class="support reveal">
+        <img class="thanks" src="assets/bmc-thanks.gif" width="385" height="405" loading="lazy" alt="Thanks for your support">
+        <div>
+          <h2 id="t-sup">Free, and made by one person.</h2>
+          <p>FlashGet costs nothing and never will. If it saves you time, a coffee helps me keep shipping updates, fixing bugs and adding features.</p>
+          <a class="btn btn-coffee" href="https://buymeacoffee.com/joelkamo" rel="noopener"><i class="ph ph-coffee" aria-hidden="true"></i>Buy me a coffee</a>
+        </div>
+        <div class="qr">
+          <img src="assets/bmc-qr.png" width="143" height="141" loading="lazy" alt="QR code to buymeacoffee.com/joelkamo">
+          <span>Scan with your phone</span>
         </div>
       </div>
     </div>
