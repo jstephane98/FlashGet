@@ -18,7 +18,7 @@ Lance les tests Rust sous Linux, puis produit un AppImage et un .deb non signés
 `release/linux-check/`.
 
 ```powershell
-docker run --rm -v "${PWD}:/src" flashget-linux bash /src/scripts/linux/build.sh
+docker run --rm -v "${PWD}:/src" -v flashget-target:/work/src-tauri/target -v flashget-cargo:/usr/local/cargo/registry flashget-linux bash /src/scripts/linux/build.sh
 ```
 
 ## 3. Publication
@@ -27,7 +27,7 @@ Comme sous Windows, le mot de passe de la clé de signature est demandé pendant
 (d'où `-it`). La clé est montée en lecture seule, elle n'est jamais copiée dans le dépôt.
 
 ```powershell
-docker run --rm -it -v "${PWD}:/src" -v "$env:USERPROFILE\.tauri:/key:ro" -e NOTES=docs/release-notes/2.1.0.md flashget-linux bash /src/scripts/linux/build.sh --release
+docker run --rm -it -v "${PWD}:/src" -v flashget-target:/work/src-tauri/target -v flashget-cargo:/usr/local/cargo/registry -v "$env:USERPROFILE\.tauri:/key:ro" -e NOTES=docs/release-notes/2.1.0.md flashget-linux bash /src/scripts/linux/build.sh --release
 ```
 
 Les fichiers arrivent dans `release/v{version}/` : `FlashGet_{version}_amd64.AppImage`, sa signature
@@ -40,6 +40,8 @@ Déposez ensuite tous les fichiers de `release/v{version}/` dans la Release GitH
 - Copie le projet dans le conteneur sans `node_modules` ni la compilation Windows.
 - Télécharge `yt-dlp_linux` (empreinte SHA-256 vérifiée) et FFmpeg statique LGPL de BtbN
   (empreinte vérifiée), placés dans `src-tauri/bin/` sous leur nom Linux.
+- Garde la compilation Rust et les crates téléchargées dans deux volumes Docker (`flashget-target`,
+  `flashget-cargo`) : les compilations suivantes ne refont que ce qui a changé.
 - Compile avec une seule unité Rust à la fois (`CARGO_BUILD_JOBS=1`), pour les machines avec peu de
   mémoire. Pour aller plus vite : `-e CARGO_BUILD_JOBS=4`.
 

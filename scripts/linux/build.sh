@@ -17,7 +17,11 @@ cd /work
 
 echo "== yt-dlp pour Linux (empreinte vérifiée)"
 mkdir -p src-tauri/bin
-TAG=$(curl -fsSL https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest | grep -m1 '"tag_name"' | cut -d'"' -f4)
+# Réponse enregistrée d'abord : `grep -m1` dans un tube couperait curl, ce que pipefail signale.
+curl -fsSL -o /tmp/latest.json https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest
+TAG=$(grep -m1 '"tag_name"' /tmp/latest.json | cut -d'"' -f4)
+[ -n "$TAG" ] || { echo "Version de yt-dlp introuvable"; exit 1; }
+echo "yt-dlp ${TAG}"
 curl -fsSL -o /tmp/yt-dlp_linux "https://github.com/yt-dlp/yt-dlp/releases/download/${TAG}/yt-dlp_linux"
 curl -fsSL -o /tmp/SUMS "https://github.com/yt-dlp/yt-dlp/releases/download/${TAG}/SHA2-256SUMS"
 EXPECTED=$(awk '$2=="yt-dlp_linux"{print $1}' /tmp/SUMS)

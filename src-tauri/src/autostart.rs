@@ -47,8 +47,18 @@ pub fn wanted(storage: &Storage) -> bool {
     parse_pref(storage.get_pref(PREF_KEY).ok().flatten().as_deref()).unwrap_or(DEFAULT_ENABLED)
 }
 
+/// Sous Linux, l'entrée est un fichier `~/.config/autostart/FlashGet.desktop` : le plugin ne crée
+/// que le dernier dossier, ce qui échoue quand `~/.config` n'existe pas encore (session neuve).
+fn prepare() {
+    #[cfg(target_os = "linux")]
+    if let Some(home) = std::env::var_os("HOME") {
+        let _ = std::fs::create_dir_all(std::path::Path::new(&home).join(".config").join("autostart"));
+    }
+}
+
 /// Enregistre le choix et met le registre à jour.
 pub fn set(app: &AppHandle, storage: &Storage, enabled: bool) -> Result<(), String> {
+    prepare();
     let manager = app.autolaunch();
     if enabled { manager.enable() } else { manager.disable() }.map_err(|e| e.to_string())?;
     storage.set_pref(PREF_KEY, if enabled { "1" } else { "0" }).map_err(|e| e.to_string())
@@ -60,6 +70,7 @@ pub fn reconcile(app: &AppHandle, storage: &Storage) {
     if cfg!(debug_assertions) {
         return;
     }
+    prepare();
     let manager = app.autolaunch();
     let registry_enabled = manager.is_enabled().unwrap_or(false);
     let pref = parse_pref(storage.get_pref(PREF_KEY).ok().flatten().as_deref());
@@ -70,7 +81,7 @@ pub fn reconcile(app: &AppHandle, storage: &Storage) {
         Action::Nothing => Ok(()),
     };
     if let Err(e) = result {
-        eprintln!("démarrage avec Windows : {e}");
+        eprintln!("démarrage automatique : {e}");
     }
     if pref.is_none() {
         let _ = storage.set_pref(PREF_KEY, if wanted { "1" } else { "0" });

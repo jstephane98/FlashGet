@@ -18,4 +18,11 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 ENV RUSTUP_HOME=/usr/local/rustup CARGO_HOME=/usr/local/cargo PATH=/usr/local/cargo/bin:$PATH
 RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
 
+# xdg-open, embarqué dans l'AppImage pour ouvrir fichiers et liens.
+RUN apt-get update && apt-get install -y --no-install-recommends xdg-utils \
+ && rm -rf /var/lib/apt/lists/*
+
+# Les outils AppImage ne peuvent pas monter FUSE dans un conteneur : ils s'extraient d'abord.
+ENV APPIMAGE_EXTRACT_AND_RUN=1
+
 WORKDIR /work
